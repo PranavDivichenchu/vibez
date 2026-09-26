@@ -155,7 +155,7 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       ports: {
         in: [
           { id: 'exec', name: 'in', kind: 'exec' as const, connected: hasParent.has(acc.key) },
-          ...[...acc.dataIn].map(([name, type]) => ({ id: `in:${name}`, name, kind: 'data' as const, type, connected: true })),
+          ...[...acc.dataIn].map(([name, type]) => ({ id: `in:${name}`, name, kind: 'data' as const, type, connected: false })),
         ],
         out: [
           ...execOut,
@@ -208,6 +208,52 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       criticalSet.has(edge.to) &&
       criticalPath.indexOf(edge.to) === criticalPath.indexOf(edge.from) + 1,
   }));
+
+  // Data wires, inferred by name. A node's input is produced by the nearest
+  // earlier sibling that emits that name, else by an ancestor. Real value
+  // capture is Phase 5; name matching is right most of the time and free.
+  // Inputs that match nothing stay hollow, which is real information.
+  const execParent = new Map<SemanticKey, SemanticKey>();
+  const siblings = new Map<SemanticKey, SemanticKey[]>();
+  for (const edge of gedges) {
+    if (!execParent.has(edge.to.node)) execParent.set(edge.to.node, edge.from.node);
+    siblings.set(edge.from.node, [...(siblings.get(edge.from.node) ?? []), edge.to.node]);
+  }
+
+  for (const node of gnodes) {
+    for (const port of node.ports.in) {
+      if (port.kind !== 'data') continue;
+      const parent = execParent.get(node.id);
+      const candidates: SemanticKey[] = [];
+      if (parent !== undefined) {
+        for (const sibling of siblings.get(parent) ?? []) {
+          if (sibling !== node.id) candidates.push(sibling);
+        }
+        let cursor: SemanticKey | undefined = parent;
+        const guard = new Set<SemanticKey>();
+        while (cursor !== undefined && !guard.has(cursor)) {
+          guard.add(cursor);
+          candidates.push(cursor);
+          cursor = execParent.get(cursor);
+        }
+      }
+      for (const candidate of candidates) {
+        const source = byKey.get(candidate)?.ports.out.find((p) => p.kind === 'data' && p.name === port.name);
+        if (source === undefined) continue;
+        source.connected = true;
+        port.connected = true;
+        gedges.push({
+          id: `${candidate}~${node.id}:${port.name}`,
+          from: { node: candidate, port: source.id },
+          to: { node: node.id, port: port.id },
+          wire: 'data',
+          metrics: { count: 1, gapMs: stats([]) },
+          onCriticalPath: false,
+        });
+        break;
+      }
+    }
+  }
 
   return {
     flow: options.flow ?? (rootKey !== null ? byKey.get(rootKey)?.label ?? 'flow' : 'flow'),

@@ -29,25 +29,34 @@ It is a profiler you can point at, not a code viewer.
 
 ## Status
 
-Phase 1 of 5. `packages/core` is real and tested; nothing is shipping yet.
-See [plan.md](plan.md).
+Phase 2 of 5. The graph is built from a genuinely instrumented app and renders
+as a node editor. Not shipping yet. See [plan.md](plan.md).
 
 ## Try it
 
-Needs Node 22.18+. No dependencies, no build step — Node runs the TypeScript.
+Needs Node 22.18+. Node runs the TypeScript, so there is no build step, and
+nothing outside the example app has a runtime dependency.
 
 ```bash
-npm run demo    # builds a graph from a fixture with planted problems
-npm test        # 23 tests
+npm run trace      # runs the example app, records 14 traces, prints the graph
+npm run view       # bundles graph + layout, writes a standalone preview.html
+npm test           # 38 tests
+npm run typecheck
 ```
+
+`npm run trace` starts the OTLP receiver, spawns `examples/shop`, discards three
+warmup runs, measures fourteen, and writes `.vibez/graph.json`. Then `npm run view`
+produces `packages/vibez-core/webview/preview.html`, a self-contained page you can
+open in any browser to see the canvas.
 
 ## Layout
 
 | Package | What |
 |---|---|
 | `packages/core` | IR, semantic keys, span reducer, detectors, diff |
-| `packages/capture` | OTLP receiver and store *(next)* |
-| `packages/vibez-core` | the VS Code extension *(phase 2)* |
+| `packages/capture` | OTLP receiver, SQLite store, graph endpoint |
+| `packages/vibez-core` | the VS Code extension and its canvas webview |
+| `examples/shop` | a real instrumented app with a planted N+1 |
 | `vscode/` | the Code – OSS fork *(phase 3)* |
 
 ## Design notes worth knowing
@@ -59,3 +68,8 @@ npm test        # 23 tests
 - **Metrics aggregate per run, not per call.** Twelve 173 ms queries are one
   2.08 s problem, not twelve fast ones.
 - **Heat is a share of the flow, not a rank.** A fast app has no red nodes.
+- **Nanosecond timestamps stay bigint until a trace is rebased.** Epoch nanos
+  are ~1.75e18, past what a double holds exactly.
+- **Layout is ours, not ELK's.** Fixed column widths, ports on fixed sides, and
+  wires that always leave and arrive horizontally are most of what makes a node
+  editor look tidy, and they are cheaper to own than a megabyte of WASM.

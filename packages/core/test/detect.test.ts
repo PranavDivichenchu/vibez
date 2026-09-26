@@ -8,7 +8,7 @@ const facts = graph.nodes.flatMap((n) => n.facts);
 
 test('the planted N+1 is found', () => {
   const nPlusOne = facts.find((f) => f.code === 'n+1');
-  assert.ok(nPlusOne, 'n+1 detected');
+  assert.ok(nPlusOne !== undefined, 'n+1 detected');
   assert.equal(nPlusOne.evidence['count'], 12);
 });
 

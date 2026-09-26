@@ -10,11 +10,17 @@
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc -b",
-    "trace": "node scripts/trace.ts"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/vibez-core",
+    "trace": "node scripts/trace.ts",
+    "view": "node scripts/view.ts"
   },
   "engines": {
     "node": ">=22.18"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/vscode": "^1.138.0",
+    "typescript": "^7.0.2"
+  }
 }

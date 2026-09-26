@@ -9,7 +9,7 @@ export const StatsGrid = (customers: Customer[], stats: Stat[]): Promise<string>
     'code.filepath': 'examples/shop/src/render.ts',
     'code.lineno': 8,
     'code.function': 'StatsGrid',
-    'vibez.dataIn': 'stats:List',
+    'vibez.dataIn': 'rows:List',
     'vibez.dataOut': 'html:Object',
   }, async () => {
     const rows = customers.map((customer, i) => {
