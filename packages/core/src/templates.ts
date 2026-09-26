@@ -12,7 +12,7 @@
  * Pure and isomorphic: the editor and the tests run the same code.
  */
 
-import { elementAt } from './edit.ts';
+import { elementAt, removeElement } from './edit.ts';
 
 export interface PageTemplate {
   id: string;
@@ -471,4 +471,49 @@ export function addNavLink(html: string, href: string, label: string): string | 
   }
   piece = `<a href="${href.replace(/"/g, '&quot;')}">${text}</a>`;
   return html.slice(0, nav.closeStart) + piece + html.slice(nav.closeStart);
+}
+
+function hrefsOf(tagSource: string): string | null {
+  const m = /\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tagSource);
+  return m ? (m[2] ?? m[3] ?? m[4] ?? '') : null;
+}
+
+/**
+ * Takes the links to `href` out of the page's first `<nav>`: the reverse of
+ * `addNavLink`. A link alone in its `<li>` takes the `<li>` with it. Returns
+ * null when the navigation has no such link.
+ */
+export function removeNavLink(html: string, href: string): string | null {
+  const nav = firstElement(html, 'nav');
+  if (!nav) { return null; }
+  const inner = html.slice(nav.openEnd, nav.closeStart);
+  const targets: { at: number; tag: string }[] = [];
+  for (const m of inner.matchAll(/<a\b[^>]*>/gi)) {
+    const at = nav.openEnd + m.index!;
+    if ((hrefsOf(m[0]) ?? '').split(/[?#]/)[0] !== href) { continue; }
+    const anchor = elementAt(html, at);
+    if (!anchor || anchor.closeStart < 0) { continue; }
+    // Alone in an <li>: the item goes, not just the link.
+    const items = [...inner.matchAll(/<li\b/gi)].map(li => elementAt(html, nav.openEnd + li.index!)).filter(Boolean);
+    const li = items.filter(i => i!.closeStart >= 0 && i!.start < anchor.start && i!.end >= anchor.end).pop();
+    const alone = li && html.slice(li.openEnd, li.closeStart).trim() === html.slice(anchor.start, anchor.end);
+    targets.push(alone ? { at: li!.start, tag: 'li' } : { at, tag: 'a' });
+  }
+  if (!targets.length) { return null; }
+  let out = html;
+  for (const t of targets.sort((a, b) => b.at - a.at)) {
+    out = removeElement(out, t.at, t.tag);
+  }
+  return out;
+}
+
+/** How many links on the page, outside its navigation, still lead to `href`. */
+export function linksTo(html: string, href: string): number {
+  const nav = firstElement(html, 'nav');
+  let count = 0;
+  for (const m of html.matchAll(/<a\b[^>]*>/gi)) {
+    if (nav && m.index! >= nav.start && m.index! < nav.end) { continue; }
+    if ((hrefsOf(m[0]) ?? '').split(/[?#]/)[0] === href) { count++; }
+  }
+  return count;
 }

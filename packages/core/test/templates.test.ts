@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TEMPLATES, buildPage, addNavLink, slugify, relativeHref, retitle, templateById } from '../src/templates.ts';
+import { TEMPLATES, buildPage, addNavLink, slugify, relativeHref, retitle, templateById, removeNavLink, linksTo } from '../src/templates.ts';
 import { elementAt } from '../src/edit.ts';
 import { discoverPages } from '../src/pages.ts';
 
@@ -92,4 +92,23 @@ test('names become file names, titles keep the site name, and hrefs are relative
   assert.equal(relativeHref('blog/post.html', 'about.html'), '../about.html');
   assert.equal(relativeHref('index.html', 'blog/new.html'), 'blog/new.html');
   assert.equal(relativeHref('blog/a.html', 'blog/b.html'), 'b.html');
+});
+
+test('removeNavLink undoes addNavLink, in both kinds of navigation', () => {
+  const flat = '<header>\n  <nav class="nav">\n    <a href="index.html">Home</a>\n    <a href="about.html">About</a>\n  </nav>\n</header>\n<main><p>x</p></main>\n';
+  const added = addNavLink(flat, 'team.html', 'Team')!;
+  assert.equal(removeNavLink(added, 'team.html'), flat);
+  const list = '<nav>\n  <ul>\n    <li><a href="index.html">Home</a></li>\n    <li><a href="about.html">About</a></li>\n  </ul>\n</nav>\n';
+  const addedItem = addNavLink(list, 'team.html', 'Team')!;
+  assert.equal(removeNavLink(addedItem, 'team.html'), list);
+  assert.equal(removeNavLink(flat, 'nope.html'), null);
+  assert.equal(removeNavLink('<main></main>', 'a.html'), null);
+});
+
+test('removeNavLink leaves links outside the navigation; linksTo counts them', () => {
+  const page = '<nav><a href="index.html">Home</a> <a href="story.html#top">Story</a></nav>\n<main><a class="btn" href="story.html">Our story</a></main>';
+  const out = removeNavLink(page, 'story.html')!;
+  assert.equal(out, '<nav><a href="index.html">Home</a></nav>\n<main><a class="btn" href="story.html">Our story</a></main>');
+  assert.equal(linksTo(out, 'story.html'), 1);
+  assert.equal(linksTo(page, 'index.html'), 0);
 });

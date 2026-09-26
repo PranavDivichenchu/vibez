@@ -226,7 +226,12 @@ New pages copy everything outside the `<main>` of the site's home page (its
 head, header, navigation, footer and scripts). Each template brings a small
 stylesheet scoped to `.vz-page` that inherits your fonts and colours. Adding a
 page is one undo step, links included: ⌘Z on the canvas takes it all back.
-**Your pages** lists every page with Show (on the canvas) and Code.
+**Your pages** lists every page with Show (on the canvas), Code and
+**Delete**. Delete asks once, then moves the file to the Trash and takes its
+link out of the navigation on the other pages, as one step that ⌘Z on the
+canvas undoes. Links to it elsewhere in the content are left alone and
+counted. The home page, which new pages copy their header and footer from,
+cannot be deleted.
 
 Static sites are served straight from the folder. For an app that needs a
 server (Next.js, Vite…), start its dev server and put its address in
