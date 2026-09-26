@@ -10,13 +10,14 @@
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/vibez-core",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture",
     "trace": "node scripts/trace.ts",
     "view": "node scripts/view.ts",
     "fork:setup": "node scripts/fork-setup.ts",
-    "fork:build": "node scripts/bundle-extension.ts && node fork/apply.ts",
     "fork:diff": "node scripts/fork-diff.ts",
-    "fork:run": "node scripts/fork-run.ts"
+    "fork:run": "node scripts/fork-run.ts",
+    "sync:core": "node scripts/sync-core.ts",
+    "fork:build": "node fork/apply.ts"
   },
   "engines": {
     "node": ">=22.18"
@@ -24,8 +25,6 @@
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.6.3",
-    "@types/vscode": "^1.138.0",
-    "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   }
 }

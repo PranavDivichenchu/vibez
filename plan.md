@@ -38,13 +38,30 @@ OpenTelemetry spans give three things free: only code that really ran appears, s
 
 This is **a profiler you can point at**, not a code viewer.
 
-### 2.3 A fork, not an extension.
+### 2.3 Vibez is the editor. The graph is part of it.
 
-An extension would get maybe 85% of this. The honest tradeoff: forking means carrying merges from upstream forever.
+An earlier draft had the graph as an extension bundled into the fork, on the
+theory that it keeps the merge tax down. That was wrong, and shipping it proved
+it: the window said "Get Started with VS Code", `.flow` opened as plain JSON,
+and the product was visibly VS Code with a guest running inside it.
 
-Fork anyway, for the reasons Cursor and Windsurf did — control of the welcome screen, defaults, branding, first-run flow, and the ability to make the graph a first-class surface rather than a webview guest.
+The graph is a **workbench contribution compiled into the product**, at
+`src/vs/workbench/contrib/vibez/`. It registers a real `EditorPane` and
+`EditorInput`, so `.flow` opens as a graph on first launch with no extensions
+installed at all, and it inherits the window's theming, tabs, splits, history
+and keybindings like any other editor.
 
-**But build the feature as an extension living inside the fork.** `packages/vibez-core` is a normal VS Code extension bundled into the fork. This keeps development fast, keeps merge conflicts confined to a thin branding layer, and means the graph could ship standalone later if the fork becomes a burden.
+Only the pure, dependency-free parts of `@vibez/core` make that trip — types,
+heat, layout — synced by `npm run sync:core`, since the renderer runs in a
+browser context with no Node. Anything needing Node (capture, detectors, the
+agent) stays a service on the other side of the process boundary.
+
+**The merge budget is on modified upstream files, not lines.** Line count is the
+wrong metric: a 5,000-line directory upstream has never heard of conflicts
+never, while a twenty-line edit inside `workbench.common.main.ts` conflicts most
+months. Budget is 12 modified files. Current count is **2**: `product.json` and
+one import line in `workbench.common.main.ts`. Everything else is new files.
+`npm run fork:diff` prints both and fails on the first number only.
 
 ### 2.4 Animation is programmatic, never generated.
 

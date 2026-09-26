@@ -55,7 +55,7 @@ open in any browser to see the canvas.
 |---|---|
 | `packages/core` | IR, semantic keys, span reducer, detectors, diff |
 | `packages/capture` | OTLP receiver, SQLite store, graph endpoint |
-| `packages/vibez-core` | the VS Code extension and its canvas webview |
+| `tools/preview` | standalone graph preview, for looking at a flow without the IDE |
 | `examples/shop` | a real instrumented app with a planted N+1 |
 | `fork/` | the Code – OSS overlay: branding only, 42 lines against upstream |
 | `vscode/` | the Code – OSS fork *(phase 3)* |
@@ -64,9 +64,12 @@ open in any browser to see the canvas.
 
 The Code – OSS checkout lives at `~/.vibez/vscode`, outside the repo, because
 node-gyp does not quote paths and a space anywhere above it breaks every native
-module build. `fork/` holds an overlay that is merged into it. Everything that makes Vibez what it is
-lives in `packages/vibez-core`, an ordinary extension the fork ships as a
-built-in, so divergence from upstream stays near zero.
+module build. `fork/` holds an overlay that is merged into it. The graph is a workbench contribution compiled into the
+product at `src/vs/workbench/contrib/vibez/` — not an extension — so `.flow`
+opens as a graph on first launch with no extensions installed at all.
+
+Divergence is measured in **modified upstream files**, not lines, because that
+is what actually conflicts on a merge. Currently **2**.
 
 ```bash
 npm run fork:setup    # clone Code - OSS at the pinned tag

@@ -5,7 +5,7 @@ out/
 .DS_Store
 .vibez/
 .env
-packages/vibez-core/webview/view.json
-packages/vibez-core/webview/preview.html
+tools/preview/view.json
+tools/preview/preview.html
 
 packages/vibez-core/dist/

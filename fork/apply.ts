@@ -1,44 +1,44 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { forkDir } from '../scripts/fork-dir.ts';
 
 /**
  * Applies the Vibez overlay onto a Code - OSS checkout.
  *
- * product.json is MERGED, never replaced: upstream adds keys constantly and
- * replacing the file wholesale is how a fork quietly loses features.
+ * Two things happen here and nothing else:
+ *   1. product.json is MERGED, never replaced. Upstream adds keys constantly
+ *      and replacing the file wholesale is how a fork quietly loses features.
+ *   2. The pure graph logic is synced into the fork's own source tree, because
+ *      the graph is a workbench surface compiled into the product rather than
+ *      an extension the product happens to load.
  */
 const root = process.cwd();
 const vscodeDir = forkDir();
 if (!existsSync(vscodeDir)) {
-  console.error(`  no checkout at ${vscodeDir}. Run: npm run fork:setup`);
-  process.exit(1);
+	console.error(`  no checkout at ${vscodeDir}. Run: npm run fork:setup`);
+	process.exit(1);
 }
 
 const productPath = join(vscodeDir, 'product.json');
 const upstream = JSON.parse(readFileSync(productPath, 'utf8')) as Record<string, unknown>;
 const overlay = JSON.parse(readFileSync(join(root, 'fork/overlay/product.json'), 'utf8')) as Record<string, unknown>;
+writeFileSync(productPath, `${JSON.stringify({ ...upstream, ...overlay }, null, '\t')}\n`);
+console.log(`  product.json: ${Object.keys(overlay).length} keys set`);
 
-const before = JSON.stringify(upstream);
-const merged = { ...upstream, ...overlay };
-writeFileSync(productPath, `${JSON.stringify(merged, null, '\t')}\n`);
-const changed = Object.keys(overlay).filter((k) => JSON.stringify(upstream[k]) !== JSON.stringify(overlay[k]));
-console.log(`  product.json: ${changed.length} keys set${before === JSON.stringify(merged) ? ' (no change)' : ''}`);
+execFileSync('node', ['scripts/sync-core.ts'], { stdio: 'inherit' });
 
-// The extension ships as a built-in, which is the whole point of forking:
-// it is present on first launch rather than something the user installs.
-const target = join(vscodeDir, 'extensions', 'vibez-core');
-mkdirSync(target, { recursive: true });
-cpSync(join(root, 'packages/vibez-core/dist'), join(target, 'dist'), { recursive: true });
-cpSync(join(root, 'packages/vibez-core/webview'), join(target, 'webview'), { recursive: true });
+const registration = join(vscodeDir, 'src/vs/workbench/workbench.common.main.ts');
+const source = readFileSync(registration, 'utf8');
+if (!source.includes('contrib/vibez')) {
+	const anchor = "import './contrib/webviewPanel/browser/webviewPanel.contribution.js';\n";
+	writeFileSync(registration, source.replace(
+		anchor,
+		`${anchor}\n// Vibez: the graph is a workbench surface, not an extension\nimport './contrib/vibez/browser/vibez.contribution.js';\n`,
+	));
+	console.log('  registered contrib/vibez in workbench.common.main.ts');
+} else {
+	console.log('  contrib/vibez already registered');
+}
 
-const manifest = JSON.parse(readFileSync(join(root, 'packages/vibez-core/package.json'), 'utf8')) as Record<string, unknown>;
-writeFileSync(join(target, 'package.json'), `${JSON.stringify({
-  ...manifest,
-  type: 'commonjs',          // the 1.99 host predates type stripping and ESM extensions
-  main: './dist/extension.js',
-  scripts: undefined,
-}, null, 2)}\n`);
-
-console.log(`  bundled vibez-core -> ${target}`);
-console.log('\n  next: npm run fork:run\n');
+console.log(`\n  next: (cd ${vscodeDir} && npm run compile) then npm run fork:run\n`);

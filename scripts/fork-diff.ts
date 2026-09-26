@@ -2,18 +2,37 @@ import { execFileSync } from 'node:child_process';
 import { forkDir } from './fork-dir.ts';
 
 /**
- * The merge budget from fork/README.md, made checkable. A fork that cannot
- * measure its own divergence will not notice it growing.
+ * The merge budget, measured the way merges actually hurt.
+ *
+ * Line count is the wrong metric. A 5,000-line directory that upstream has
+ * never heard of conflicts never; a twenty-line edit inside
+ * workbench.common.main.ts conflicts most months. So the budget is on
+ * MODIFIED UPSTREAM FILES. New files are free.
  */
-const BUDGET = 2000;
-const out = execFileSync('git', ['-C', forkDir(), 'diff', '--stat', 'HEAD'], { encoding: 'utf8' });
-const lines = out.trim().split('\n');
-const changed = [...(lines[lines.length - 1] ?? '').matchAll(/(\d+) (insertion|deletion)/g)]
-  .reduce((acc, m) => acc + Number(m[1]), 0);
+const BUDGET_TOUCHED = 12;
+const dir = forkDir();
+const git = (...args: string[]): string => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
 
-for (const line of lines.slice(0, -1)) console.log(`  ${line.trim()}`);
-console.log(`\n  ${changed} lines against upstream \u00b7 budget ${BUDGET}`);
-if (changed > BUDGET) {
-  console.error('  OVER BUDGET. Move it into the extension.');
-  process.exit(1);
+const modified = git('diff', '--name-only', 'HEAD').trim().split('\n').filter(Boolean);
+const added = git('ls-files', '--others', '--exclude-standard').trim().split('\n').filter(Boolean);
+const stat = git('diff', '--shortstat', 'HEAD').trim();
+
+console.log(`\n  modified upstream files (${modified.length}/${BUDGET_TOUCHED}) — these are the merge tax:`);
+for (const file of modified) {
+	console.log(`    ${file}`);
+}
+if (stat) {
+	console.log(`    ${stat}`);
+}
+
+console.log(`\n  new files (${added.length}) — additive, never conflict:`);
+const roots = new Set(added.map((f) => f.split('/').slice(0, 6).join('/')));
+for (const root of roots) {
+	console.log(`    ${root}${added.some((f) => f !== root && f.startsWith(`${root}/`)) ? '/…' : ''}`);
+}
+
+console.log('');
+if (modified.length > BUDGET_TOUCHED) {
+	console.error(`  OVER BUDGET: ${modified.length} upstream files touched. Move it into a new file.`);
+	process.exit(1);
 }

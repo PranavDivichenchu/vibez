@@ -7,12 +7,12 @@ const graph: Graph = existsSync('.vibez/graph.json')
   : buildGraph(dashboardRuns(14), { mode: 'measured' });
 
 const out = { graph, layout: layoutGraph(graph) };
-writeFileSync('packages/vibez-core/webview/view.json', JSON.stringify(out));
-console.log(`  ${graph.nodes.length} nodes, ${graph.edges.length} edges -> webview/view.json`);
+writeFileSync('tools/preview/view.json', JSON.stringify(out));
+console.log(`  ${graph.nodes.length} nodes, ${graph.edges.length} edges -> tools/preview/view.json`);
 
 // A fully self-contained page: css, script and data inlined. This is also how
 // the extension hands a view to its webview, so the same path gets exercised.
-const dir = 'packages/vibez-core/webview';
+const dir = 'tools/preview';
 const html = readFileSync(`${dir}/index.html`, 'utf8')
   .replace(/<link rel="stylesheet" href="\.\/graph\.css">/, `<style>${readFileSync(`${dir}/graph.css`, 'utf8')}</style>`)
   .replace('<script src="./graph.js"></script>',
