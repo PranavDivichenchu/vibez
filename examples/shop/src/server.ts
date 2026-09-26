@@ -22,7 +22,12 @@ const server = createServer((req, res) => {
         const customers = await listCustomers(1);
         const stats = await getUserStats(customers);
         const plan = await getBilling(1);
-        return { grid: await StatsGrid(customers, stats), plan };
+        return {
+          grid: await StatsGrid(customers, stats),
+          plan,
+          count: customers.length,
+          value: stats.reduce((total, stat) => total + stat.value, 0),
+        };
       });
       res.writeHead(200, { 'content-type': 'text/html' }).end(html);
     } catch (error) {

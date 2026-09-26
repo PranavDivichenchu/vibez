@@ -58,7 +58,7 @@ export interface Plan { tier: string; renewsOn: string }
 export const listCustomers = (orgId: number): Promise<Customer[]> =>
   query('SELECT id, name FROM User WHERE orgId = ?', [orgId],
     { file: 'examples/shop/src/db.ts', line: 58, fn: 'listCustomers' },
-    { in: 'orgId:Number', out: 'users:List' });
+    { in: 'orgId:Number', out: 'users:List' }, '.tiles');
 
 /**
  * The planted N+1. One round trip per customer, strictly sequential, which is
@@ -79,4 +79,4 @@ export async function getUserStats(customers: Customer[]): Promise<Stat[]> {
 export const getBilling = (orgId: number): Promise<Plan | undefined> =>
   query<Plan>('SELECT tier, renewsOn FROM Plan WHERE orgId = ? LIMIT 1', [orgId],
     { file: 'examples/shop/src/db.ts', line: 80, fn: 'getBilling' },
-    { in: 'orgId:Number', out: 'plan:Object' }, 'span.plan').then((rows) => rows[0]);
+    { in: 'orgId:Number', out: 'plan:Object' }, '.plan-chip').then((rows) => rows[0]);
