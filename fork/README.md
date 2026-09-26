@@ -25,8 +25,15 @@ fork/
   overlay/
     product.json       merged into upstream's product.json, never replacing it
   apply.ts             copies the overlay in and bundles the extension
-vscode/                the clone, gitignored, never committed
+~/.vibez/vscode        the clone. Outside the repo, and here is why:
 ```
+
+**The checkout must live at a path with no spaces.** node-gyp does not quote
+paths, so a single space anywhere above the checkout breaks every native module
+build with a confusing `clang++: no such file or directory` pointing at half a
+path. This repo lives under `georgia tech`, so the default is `~/.vibez/vscode`.
+Override with `VIBEZ_FORK_DIR`; the scripts refuse a path containing a space
+rather than letting you discover it twenty minutes into a build.
 
 ## Commands
 

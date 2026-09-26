@@ -16,7 +16,7 @@
     "fork:setup": "node scripts/fork-setup.ts",
     "fork:build": "node scripts/bundle-extension.ts && node fork/apply.ts",
     "fork:diff": "node scripts/fork-diff.ts",
-    "fork:run": "cd vscode && ./scripts/code.sh"
+    "fork:run": "node scripts/fork-run.ts"
   },
   "engines": {
     "node": ">=22.18"

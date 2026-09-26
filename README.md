@@ -62,8 +62,9 @@ open in any browser to see the canvas.
 
 ## The fork
 
-`vscode/` is a clone of Code – OSS, gitignored and never committed. `fork/`
-holds an overlay that is merged into it. Everything that makes Vibez what it is
+The Code – OSS checkout lives at `~/.vibez/vscode`, outside the repo, because
+node-gyp does not quote paths and a space anywhere above it breaks every native
+module build. `fork/` holds an overlay that is merged into it. Everything that makes Vibez what it is
 lives in `packages/vibez-core`, an ordinary extension the fork ships as a
 built-in, so divergence from upstream stays near zero.
 

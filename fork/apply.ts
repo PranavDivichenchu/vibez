@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
+import { forkDir } from '../scripts/fork-dir.ts';
 
 /**
  * Applies the Vibez overlay onto a Code - OSS checkout.
@@ -8,9 +9,9 @@ import { join } from 'node:path';
  * replacing the file wholesale is how a fork quietly loses features.
  */
 const root = process.cwd();
-const vscodeDir = join(root, 'vscode');
+const vscodeDir = forkDir();
 if (!existsSync(vscodeDir)) {
-  console.error('  vscode/ is missing. Run: npm run fork:setup');
+  console.error(`  no checkout at ${vscodeDir}. Run: npm run fork:setup`);
   process.exit(1);
 }
 
@@ -39,5 +40,5 @@ writeFileSync(join(target, 'package.json'), `${JSON.stringify({
   scripts: undefined,
 }, null, 2)}\n`);
 
-console.log(`  bundled vibez-core -> vscode/extensions/vibez-core`);
+console.log(`  bundled vibez-core -> ${target}`);
 console.log('\n  next: npm run fork:run\n');

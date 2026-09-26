@@ -1,5 +1,7 @@
 {
   "repo": "https://github.com/microsoft/vscode.git",
   "tag": "1.99.3",
-  "note": "Extension host is Node 20.18 at this tag: no node:sqlite, no type stripping. Bump to an Electron carrying Node 22 to turn persistence back on."
+  "note": "Extension host is Node 20.18 at this tag: no node:sqlite, no type stripping. Bump to an Electron carrying Node 22 to turn persistence back on.",
+  "dir": "~/.vibez/vscode (override with VIBEZ_FORK_DIR)",
+  "why_outside_the_repo": "node-gyp does not quote paths; a space anywhere in the path breaks native module builds."
 }
