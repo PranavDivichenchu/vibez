@@ -150,6 +150,9 @@ of the page is hidden.
   or the page itself). "Another address…" takes any URL.
 - **Follow a line**: click a line between pages. The link it starts from and
   the page it leads to are highlighted until you click empty space or press Esc.
+- **Full page** (toolbar, on by default): every page is shown at its whole
+  length, header to footer, so nothing scrolls inside it; scroll the canvas
+  to go down. Turn it off for one screen per page.
 - **One page at a time**: choose a page in the toolbar's page list (or
   **⤢ edit alone** beside its name) to edit it on its own; **All pages** or
   **✕ all pages** shows them all again.

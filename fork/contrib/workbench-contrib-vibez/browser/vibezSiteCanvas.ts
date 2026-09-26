@@ -135,6 +135,7 @@ button,input{font:inherit;color:inherit}
 .btn.danger{color:var(--vscode-errorForeground,#f14c4c);border-color:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 45%,transparent)}
 .btn.danger:hover{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 14%,transparent)}
 #del{min-width:64px;text-align:center}
+#full.on{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);border-color:transparent}
 .btn.danger.armed{background:var(--vscode-errorForeground,#f14c4c);color:#fff;border-color:transparent}
 .btn:disabled{opacity:.45;cursor:default;background:transparent}
 .label.picked b{color:var(--accent)}
@@ -171,6 +172,7 @@ const BODY = String.raw`
   <div class="seg" id="modes"><button data-mode="inspect" title="Hover to see what things are; double-click to explain (I)">Inspect</button><button data-mode="browse" title="Use the site normally (I)">Browse</button></div>
   <div class="seg" id="drags" title="How dragging works in Inspect mode"><button data-drag="free" title="Drag anything anywhere: it stays exactly where you drop it">Move freely</button><button data-drag="layout" title="Drag to reorder: it slots in before or after other elements">Reorder</button></div>
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
+  <button class="btn" id="full" title="Show each page at its full length, so nothing needs scrolling inside it">Full page</button>
   <button class="btn primary" id="addel" title="Add text, buttons, pictures, forms and more">+ Element</button>
   <button class="btn primary" id="addpage" title="Add a page from a template">+ Add page</button>
   <select id="only" title="Show every page, or one page on its own to edit it"><option value="">All pages</option></select>
@@ -202,12 +204,12 @@ var vscode = acquireVsCodeApi();
 var DEV = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
 var GAP = 260, LANE0 = 70, LANE = 16, ENTER = 60;
 var saved = vscode.getState() || {};
-var S = { pages: [], cards: [], match: {}, drag: saved.drag || 'free', mode: saved.mode || 'inspect', device: saved.device || 'desktop', z: saved.z || 0, tx: saved.tx || 40, ty: saved.ty || 60, hot: null, hotCard: null, req: 0, panelReq: 0, width: 0, height: 0 };
+var S = { pages: [], cards: [], match: {}, full: saved.full !== false, heights: {}, drag: saved.drag || 'free', mode: saved.mode || 'inspect', device: saved.device || 'desktop', z: saved.z || 0, tx: saved.tx || 40, ty: saved.ty || 60, hot: null, hotCard: null, req: 0, panelReq: 0, width: 0, height: 0 };
 function $(id){ return document.getElementById(id); }
 var board = $('board'), world = $('world'), svg = $('wires'), labels = $('labels'), panel = $('panel');
 var NS = 'http://www.w3.org/2000/svg';
 
-function save(){ vscode.setState({ drag: S.drag, mode: S.mode, device: S.device, z: S.z, tx: S.tx, ty: S.ty }); }
+function save(){ vscode.setState({ drag: S.drag, mode: S.mode, device: S.device, z: S.z, tx: S.tx, ty: S.ty, full: S.full }); }
 function routeOf(p){
   p = String(p || '/').split(/[?#]/)[0];
   try { p = decodeURI(p); } catch (e) {}
@@ -260,6 +262,30 @@ function setDevice(d){
   save();
 }
 
+var MAX_PAGE = 20000;
+/**
+ * Full page: the card grows to the page's whole length, so it never scrolls
+ * inside. A page sized to the screen (100vh sections) grows each time its
+ * card does; after a few rounds of that it is left at the size it reached.
+ */
+function fullHeight(c, dh){
+  if (!S.full || !dh) { return; }
+  var d = DEV[S.device];
+  var want = Math.min(MAX_PAGE, Math.max(d[1], Math.ceil(dh)));
+  if (Math.abs(want - c.h) < 2) { return; }
+  if (want > c.h) { c.grows = (c.grows || 0) + 1; if (c.grows > 4) { return; } }
+  c.h = want;
+  c.card.style.height = want + 'px';
+  S.heights[S.device + '|' + c.page.file] = want;
+  S.height = S.cards.reduce(function(m, x){ return Math.max(m, x.h); }, d[1]);
+  placeLabels();
+}
+function setFull(on){
+  S.full = !!on;
+  $('full').classList.toggle('on', S.full);
+  save();
+}
+
 function build(){
   Array.prototype.forEach.call(world.querySelectorAll('.card'), function(n){ n.remove(); });
   labels.innerHTML = '';
@@ -270,9 +296,11 @@ function build(){
     // One page on its own: the others are not drawn, and lines to them are not "broken".
     if (S.only && p.file !== S.only) { if (S.match[p.match] === undefined) { S.match[p.match] = null; } return; }
     var i = n++;
-    var c = { page: p, i: i, x: x, w: d[0], h: d[1], links: [], errors: 0, path: p.path };
+    // Full page: as tall as the page itself (remembered from last time, so nothing jumps); else one screen.
+    var h = S.full ? Math.max(d[1], S.heights[S.device + '|' + p.file] || d[1]) : d[1];
+    var c = { page: p, i: i, x: x, w: d[0], h: h, links: [], errors: 0, path: p.path };
     var card = el('div', 'card');
-    card.style.left = x + 'px'; card.style.width = d[0] + 'px'; card.style.height = d[1] + 'px';
+    card.style.left = x + 'px'; card.style.width = d[0] + 'px'; card.style.height = h + 'px';
     var f = document.createElement('iframe');
     f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads');
     f.title = p.route;
@@ -300,7 +328,7 @@ function build(){
     S.match[key] = S.match[key] === undefined ? c : null;
     x += d[0] + GAP;
   });
-  S.width = Math.max(0, x - GAP); S.height = d[1];
+  S.width = Math.max(0, x - GAP); S.height = S.cards.reduce(function(m, c){ return Math.max(m, c.h); }, d[1]);
   $('empty').style.display = S.pages.length ? 'none' : 'grid';
   drawWires();
   placeLabels();
@@ -442,7 +470,8 @@ function fit(){
   if (!S.width) { S.z = 0.5; apply(); return; }
   var room = panel.hidden ? 0 : 400;
   var W = S.width, H = S.height + LANE0 + 40;
-  S.z = Math.max(0.08, Math.min((b.width - room - 80) / W, (b.height - 90) / H, 1));
+  // Full-length pages are fitted by width; scroll the canvas to go down them.
+  S.z = Math.max(0.08, Math.min((b.width - room - 80) / W, S.full ? Infinity : (b.height - 90) / H, 1));
   S.tx = Math.max(40, (b.width - room - W * S.z) / 2);
   S.ty = 50;
   apply(); drawWires();
@@ -450,7 +479,7 @@ function fit(){
 function focusCard(c, flash){
   var b = board.getBoundingClientRect();
   var room = panel.hidden ? 0 : 400;
-  S.z = Math.max(0.08, Math.min(1, (b.height - 90) / c.h, (b.width - room - 80) / c.w));
+  S.z = Math.max(0.08, Math.min(1, S.full ? Infinity : (b.height - 90) / c.h, (b.width - room - 80) / c.w));
   S.tx = (b.width - room) / 2 - (c.x + c.w / 2) * S.z;
   S.ty = 50;
   apply(); drawWires();
@@ -501,6 +530,7 @@ document.addEventListener('keydown', function(e){
 });
 $('undo').addEventListener('click', function(){ vscode.postMessage({ type: 'undo' }); });
 $('del').addEventListener('click', function(){ doDelete(); });
+$('full').addEventListener('click', function(){ setFull(!S.full); build(); fit(); });
 $('only').addEventListener('change', function(){ setOnly($('only').value); });
 $('view').addEventListener('click', function(){
   var c = S.pageSel || (S.sel && S.sel.c) || S.activeCard || S.cards[0];
@@ -626,12 +656,13 @@ window.addEventListener('message', function(e){
     var c = cardOf(e.source);
     if (!c) { return; }
     if (m.type === 'hello') {
+      c.grows = 0;
       // The page reloaded: an element picked on it is stale unless the panel will reselect it.
       if (S.sel && S.sel.c === c && !(S.cur && S.cur.c === c && !panel.hidden)) { S.sel = null; updateDel(); }
       c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode, drag: S.drag }); badges(c); drawWires();
       if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
     }
-    else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); drawWires(); }
+    else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); fullHeight(c, m.dh); drawWires(); }
     else if (m.type === 'move') { move(c, m); }
     else if (m.type === 'place') { place(c, m); }
     else if (m.type === 'insertDrop') { insertDrop(c, m); }
@@ -707,6 +738,7 @@ window.addEventListener('message', function(e){
 
 setMode(S.mode);
 setDevice(S.device);
+setFull(S.full);
 setDrag(S.drag);
 vscode.postMessage({ type: 'ready' });
 })();
