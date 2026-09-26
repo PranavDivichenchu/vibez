@@ -84,6 +84,8 @@ export interface IVibezQueueService {
 	setupMeasuring(): Promise<IVibezQueueResult>;
 	/** Opens the app in a window and records what you do there, until the window closes. */
 	record(): Promise<IVibezQueueResult>;
+	/** Finishes recording: closes the window and saves the flow. */
+	stopRecording(): Promise<IVibezQueueResult>;
 	/** The recorded flow's steps, for showing them. */
 	recorded(): Promise<ReplayStep[]>;
 }

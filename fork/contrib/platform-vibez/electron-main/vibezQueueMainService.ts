@@ -94,6 +94,7 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 	private agentVersion: string | undefined;
 	private agentError: string | undefined;
 	private recording = false;
+	private recordWindow: BrowserWindow | undefined;
 	private laneCount = 0;
 	private baselineDetail = '';
 
@@ -981,9 +982,11 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 
 		let script = defaultScript(config.path, config.flow);
 		const win = new BrowserWindow({
-			width: 1200, height: 820, title: 'Recording a flow for Vibez · close this window when you are done',
+			width: 1200, height: 820, title: 'Recording a flow for Vibez · press Finish recording in Vibez when you are done',
 			webPreferences: { partition: `vibez-record-${Date.now()}`, sandbox: true, contextIsolation: true },
 		});
+		this.recordWindow = win;
+		keepToApp(win, () => base);
 		const inject = () => void win.webContents.executeJavaScript(RECORDER).catch(() => undefined);
 		win.webContents.on('dom-ready', inject);
 		win.webContents.on('console-message', (...args: unknown[]) => {
@@ -1000,6 +1003,7 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 		});
 		win.on('page-title-updated', e => e.preventDefault());
 		win.on('closed', () => {
+			this.recordWindow = undefined;
 			server.kill();
 			mkdirSync(dirname(this.scriptFile()), { recursive: true });
 			writeFileSync(this.scriptFile(), JSON.stringify(script, null, 2) + '\n');
@@ -1009,6 +1013,15 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 			this.changed();
 		});
 		void win.loadURL(base + config.path);
+		return { ok: true };
+	}
+
+	async stopRecording(): Promise<IVibezQueueResult> {
+		const win = this.recordWindow;
+		if (!win || win.isDestroyed()) {
+			return { ok: false, reason: 'Not recording.' };
+		}
+		win.close();
 		return { ok: true };
 	}
 
@@ -1032,12 +1045,14 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 class Replayer {
 	private readonly win: BrowserWindow;
 	private inflight = 0;
+	private base = '';
 
 	constructor() {
 		this.win = new BrowserWindow({
 			show: false, width: 1280, height: 800,
 			webPreferences: { partition: `vibez-replay-${Date.now()}`, sandbox: true, contextIsolation: true, backgroundThrottling: false },
 		});
+		keepToApp(this.win, () => this.base);
 		const requests = this.win.webContents.session.webRequest;
 		requests.onBeforeRequest((_details, callback) => { this.inflight++; callback({}); });
 		const done = () => { this.inflight = Math.max(0, this.inflight - 1); };
@@ -1046,6 +1061,7 @@ class Replayer {
 	}
 
 	async play(base: string, script: ReplayScript): Promise<void> {
+		this.base = base;
 		for (const step of script.steps) {
 			switch (step.kind) {
 				case 'goto':
@@ -1088,6 +1104,24 @@ class Replayer {
 			this.win.destroy();
 		}
 	}
+}
+
+/**
+ * The workbench blocks every in-page navigation in every window it hosts, which
+ * is right for its own windows and wrong for a flow that follows a link or
+ * submits a form. These windows may navigate within the app being measured,
+ * and nowhere else; new windows are refused.
+ */
+function keepToApp(win: BrowserWindow, base: () => string): void {
+	const contents = win.webContents;
+	contents.removeAllListeners('will-navigate');
+	contents.on('will-navigate', (event, url) => {
+		const origin = base();
+		if (!origin || !(url === origin || url.startsWith(origin + '/'))) {
+			event.preventDefault();
+		}
+	});
+	contents.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
 const RECORD_PREFIX = '__vibez_record__';

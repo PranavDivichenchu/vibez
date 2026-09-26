@@ -178,13 +178,23 @@ export class VibezQueueView extends ViewPane {
 			return;
 		}
 
-		// The status line: can this run, and what is the baseline.
+		// Whether agents can run at all, on its own line so it never hides the baseline.
+		if (!state.agent.ok) {
+			const warn = dom.append(this.status, dom.$('.vq-line'));
+			const note = dom.append(warn, dom.$('span.vq-text.vq-warn'));
+			note.textContent = state.agent.reason ?? '';
+			this.button(warn, 'Check again', 'Look for Claude Code again, after installing it', () => {
+				const folder = this.contextService.getWorkspace().folders[0];
+				if (folder) {
+					this.queue.open(folder.uri.fsPath).then(next => { this.state = next; this.renderQueue(); }, error => this.fail(String(error)));
+				}
+			});
+		}
+
+		// The status line: can measuring run, and what is the baseline.
 		const line = dom.append(this.status, dom.$('.vq-line'));
 		const text = dom.append(line, dom.$('span.vq-text'));
-		if (!state.agent.ok) {
-			text.textContent = state.agent.reason ?? '';
-			text.classList.add('vq-warn');
-		} else if (!state.setup.ok) {
+		if (!state.setup.ok) {
 			text.textContent = state.setup.reason ?? '';
 			text.classList.add('vq-warn');
 			if (!state.setup.config) {
@@ -207,8 +217,11 @@ export class VibezQueueView extends ViewPane {
 		}
 		if (state.setup.ok) {
 			const flow = state.setup.recorded ? `${state.setup.recorded}-step flow` : `opens ${state.setup.config?.path ?? '/'}`;
-			const rec = this.button(line, state.recording ? 'Recording…' : 'Record flow', `What gets replayed to measure: ${flow}. Opens your app; do what a person would do, then close the window.`, () => this.act(() => this.queue.record()));
-			rec.disabled = state.recording;
+			if (state.recording) {
+				this.button(line, 'Finish recording', 'Save what you did in the recording window as the flow to measure', () => this.act(() => this.queue.stopRecording()), true);
+			} else {
+				this.button(line, 'Record flow', `What gets replayed to measure: ${flow}. Opens your app in a window; do what a person would do, then press Finish recording.`, () => this.act(() => this.queue.record()));
+			}
 			if (!state.measuring) {
 				this.button(line, 'Measure', 'Measure the current commit now', () => this.act(() => this.queue.measureBaseline()));
 			}
@@ -293,6 +306,7 @@ const QUEUE_CSS = `
 .vibez-queue .vq-button:hover{background:var(--vscode-button-secondaryHoverBackground)}
 .vibez-queue button:disabled{opacity:.5;cursor:default}
 .vibez-queue .vq-scope{color:var(--vscode-descriptionForeground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vibez-queue .vq-status{display:flex;flex-direction:column;gap:4px}
 .vibez-queue .vq-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .vibez-queue .vq-text{flex:1;min-width:200px;color:var(--vscode-descriptionForeground)}
 .vibez-queue .vq-warn{color:var(--vscode-editorWarning-foreground)}

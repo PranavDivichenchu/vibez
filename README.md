@@ -141,6 +141,48 @@ of the page is hidden.
 Editing works on pages served from the folder's HTML files; pages from a
 running app (App URL) are read-only for now.
 
+## Agents: several at once, one measurement lane
+
+**Vibez: Open Agents** (or **Open Agents** in the Vibez sidebar) opens a strip
+under the canvas. Select nodes on the graph (Shift or ⌘ to select several),
+type what you want, and press **Start agent**. Start another while the first
+works. Each row is one agent:
+
+```
+a  getUserStats   edited · queued 2nd        claims −87%
+b  StatsGrid      measuring ⟳ run 12/20
+c  fetch.ts       editing · editing fetch.ts
+```
+
+- **Each agent is Claude Code** running headless in its own git worktree
+  (`.vibez/worktrees/<lane>`), with `node_modules` linked from your tree. It
+  needs [Claude Code](https://claude.ai/code) installed and logged in.
+- **Fences.** The files of the selected nodes are fenced for that agent;
+  a node whose file an agent holds shows a hatched ring and `held by agent-a`
+  on the canvas. Nothing ever waits: asking for a held file is refused on the
+  spot, and an agent that tries to write one mid-run (every write is checked
+  before it reaches disk) is stopped and re-plans without it. Agents get no
+  shell, so they cannot write around the fence. Fences end with the run.
+- **One measurement lane.** Finished patches queue. One at a time, Vibez
+  starts the app in the patch's copy, replays the recorded flow (3 warm-ups,
+  then 15 runs) in a hidden window, and stops the server, so every number is
+  taken under the same conditions. A change counts only if a Mann-Whitney
+  test says so, corrected across every node with Benjamini-Hochberg.
+- **Landing** (one patch at a time, your choice of order) makes one commit
+  on your branch with `Co-authored-by`, without touching anything else you
+  have in progress. Then everything still waiting is re-measured against the
+  new baseline, and each card says what survived:
+  `claimed −70% · measured −4% · not significant`. **Undo** is a revert commit.
+- **Stop all** (⌥⌘.) ends every run and releases every fence.
+- Everything any actor does is appended to `.vibez/room.log`.
+
+**Set up measuring** writes `.vibez/measure.json` with a first guess at how to
+start your app (`cwd`, optional `build`, `start` with `$PORT`, `path`, `runs`,
+`warmup`). **Record flow** opens your app in a window and writes down what you
+click and type until you press **Finish recording**; without a recording, the
+flow is one visit to `path`. The app should send OpenTelemetry to the address
+in `OTEL_EXPORTER_OTLP_ENDPOINT` (or `VIBEZ_OTLP`), which Vibez sets.
+
 ### Adding elements
 
 **+ Element** on the site canvas opens a library of 48 ready-made pieces,

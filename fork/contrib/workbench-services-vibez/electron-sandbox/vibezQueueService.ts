@@ -40,6 +40,7 @@ class VibezQueueService implements IVibezQueueService {
 	diff(lane: string): Promise<string> { return this.proxy.diff(lane); }
 	setupMeasuring(): Promise<IVibezQueueResult> { return this.proxy.setupMeasuring(); }
 	record(): Promise<IVibezQueueResult> { return this.proxy.record(); }
+	stopRecording(): Promise<IVibezQueueResult> { return this.proxy.stopRecording(); }
 	recorded(): Promise<ReplayStep[]> { return this.proxy.recorded(); }
 }
 
