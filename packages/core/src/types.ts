@@ -8,6 +8,7 @@ export type NodeKind =
   | 'external'  // third-party fetch
   | 'boundary'  // auth, validation, error handler
   | 'effect'    // mutation, email, file write
+  | 'branch'    // an if/else or ?: read from source, with True and False outputs
   | 'group';    // collapsed subgraph
 
 export type PortType =
@@ -74,6 +75,19 @@ export interface GNode {
   facts: Fact[];
   /** Set when the preview bridge can map this node to rendered DOM. */
   domKey?: string;
+  /**
+   * A step that exists in the source but never ran in any recorded trace, such
+   * as the other side of an if. Drawn faded, with no timing, because there is
+   * no timing to show.
+   */
+  ghost?: boolean;
+  /** Present on branch nodes: the condition as written, and which sides ran. */
+  branch?: {
+    condition: string;
+    file: string;
+    line: number;
+    taken: { true: boolean; false: boolean };
+  };
 }
 
 export interface PortRef { node: SemanticKey; port: string }
@@ -85,6 +99,8 @@ export interface GEdge {
   wire: 'exec' | 'data';
   metrics: { count: number; gapMs: Stats };
   onCriticalPath: boolean;
+  /** Leads to or from a step that never ran. Drawn dashed. */
+  ghost?: boolean;
 }
 
 export interface Graph {

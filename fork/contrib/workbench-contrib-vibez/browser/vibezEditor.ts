@@ -42,7 +42,13 @@ const ICONS: Record<string, string> = {
 	external: 'M18 10a6 6 0 0 0-11.3-2A4.5 4.5 0 1 0 6.5 19h11a4 4 0 0 0 .5-9',
 	boundary: 'M12 3l8 3v6c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V6z',
 	effect: 'M13 2 4 14h7l-1 8 9-12h-7z',
-	group: 'M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7'
+	group: 'M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7',
+	branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9'
+};
+
+/** What a skipped step leaves behind, so the code after it keeps working. */
+const EMPTY_FOR: Record<string, string> = {
+	List: '[]', Number: '0', String: "''", Boolean: 'false', Object: 'undefined', Unknown: 'undefined'
 };
 
 function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
@@ -345,6 +351,12 @@ export class VibezEditor extends EditorPane {
 			if (edge.onCriticalPath) {
 				path.classList.add('crit');
 			}
+			if (edge.ghost) {
+				// A call that exists in the code but did not happen in any run.
+				path.setAttribute('stroke', 'var(--vz-t3)');
+				path.setAttribute('stroke-dasharray', '4 5');
+				path.setAttribute('opacity', '0.6');
+			}
 			this.wireLayer.appendChild(path);
 			this.wires.set(edge.id, path);
 		}
@@ -364,8 +376,15 @@ export class VibezEditor extends EditorPane {
 			}
 			const offset = this.offsetOf(node.id);
 			const card = dom.append(this.world, dom.$(`.vibez-node.band-${node.band}`));
-			if (dimOffPath && !onPath.has(node.id)) {
+			// Flow control is never dimmed: a branch that looks disabled defeats the point.
+			if (dimOffPath && !onPath.has(node.id) && node.kind !== 'branch' && !node.ghost) {
 				card.classList.add('dim');
+			}
+			if (node.ghost) {
+				card.classList.add('ghost');
+			}
+			if (node.kind === 'branch') {
+				card.classList.add('branch');
 			}
 			card.style.left = `${box.x + offset.dx}px`;
 			card.style.top = `${box.y + offset.dy}px`;
@@ -375,6 +394,11 @@ export class VibezEditor extends EditorPane {
 			this.renderNode(card, node, box.rows);
 			this.views.set(node.id, { node, card, marks: [], edges: edgesOf.get(node.id) ?? [] });
 			this.installDrag(card, node);
+			this.rendered.add(dom.addDisposableListener(card, dom.EventType.CONTEXT_MENU, (event: MouseEvent) => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.openMenu(node, event);
+			}));
 		}
 
 		for (const point of layout.ports) {
@@ -474,7 +498,24 @@ export class VibezEditor extends EditorPane {
 		icon.appendChild(svg('path', { d: ICONS[node.kind] ?? ICONS['compute'] }));
 		head.appendChild(icon);
 		dom.append(head, dom.$('.vibez-name')).textContent = node.label;
-		dom.append(head, dom.$('.vibez-time')).textContent = humanMs(node.metrics.selfMs.p50);
+		if (!node.ghost && node.kind !== 'branch' && node.kind !== 'entry') {
+			// Visible, not hidden behind a right-click: making a step conditional is
+			// a first-class move and should look like one.
+			const action = dom.append(head, dom.$<HTMLButtonElement>('button.vibez-node-action'));
+			action.type = 'button';
+			action.textContent = 'if';
+			action.title = localize('vibez.action.branch', "Only run {0} when…", node.label);
+			action.setAttribute('aria-label', action.title);
+			this.rendered.add(dom.addDisposableListener(action, dom.EventType.CLICK, (event: MouseEvent) => {
+				event.stopPropagation();
+				if (!this.busy) {
+					this.askCondition(node);
+				}
+			}));
+		}
+		dom.append(head, dom.$('.vibez-time')).textContent = node.kind === 'branch'
+			? 'if / else'
+			: node.ghost ? localize('vibez.ghost.time', "never ran") : humanMs(node.metrics.selfMs.p50);
 
 		const body = dom.append(card, dom.$('.vibez-body'));
 		for (const row of rows) {
@@ -493,6 +534,15 @@ export class VibezEditor extends EditorPane {
 			if (row.right) {
 				const port = node.ports.out.find(p => p.id === row.right);
 				if (port) {
+					if (node.branch && port.kind === 'exec') {
+						// Which side ran is the whole point of a branch, so say it on the pin.
+						const side = port.id === 'exec:true' ? 'true' : 'false';
+						const ran = node.branch.taken[side];
+						const note = dom.append(right, dom.$('span.vibez-taken'));
+						note.textContent = ran ? localize('vibez.side.ran', "ran") : localize('vibez.side.never', "never ran");
+						note.classList.toggle('never', !ran);
+						line.classList.add(`side-${side}`);
+					}
 					dom.append(right, dom.$('span')).textContent = port.name;
 					if (port.kind === 'data') {
 						const type = dom.append(right, dom.$('.vibez-type'));
@@ -502,13 +552,20 @@ export class VibezEditor extends EditorPane {
 				}
 			}
 		}
-		if (node.facts.length) {
+		if (node.branch) {
+			const cond = dom.append(body, dom.$('.vibez-cond'));
+			dom.append(cond, dom.$('span.kw')).textContent = 'if';
+			dom.append(cond, dom.$('span.expr')).textContent = node.branch.condition;
+			cond.title = node.branch.condition;
+		} else if (node.facts.length) {
 			dom.append(body, dom.$('.vibez-fact')).textContent = node.facts[0].strip;
 		}
 		const foot = dom.append(body, dom.$('.vibez-foot'));
-		dom.append(foot, dom.$('span')).textContent = node.metrics.calls > 1
-			? localize('vibez.calls', "{0} × {1}", node.metrics.calls, humanMs(node.metrics.perCallMs.p50))
-			: node.kind;
+		dom.append(foot, dom.$('span')).textContent = node.ghost
+			? localize('vibez.ghost.foot', "in the code, not in any run")
+			: node.metrics.calls > 1
+				? localize('vibez.calls', "{0} × {1}", node.metrics.calls, humanMs(node.metrics.perCallMs.p50))
+				: node.kind;
 		dom.append(foot, dom.$('span')).textContent = node.anchor
 			? `${node.anchor.file.split('/').pop()}:${node.anchor.line}`
 			: '';
@@ -550,13 +607,22 @@ export class VibezEditor extends EditorPane {
 		if (parent === undefined) {
 			return [];
 		}
+		const self = this.views.get(id)?.node;
+		if (self?.ghost || self?.kind === 'branch') {
+			return [];
+		}
+		// A ghost never ran and a branch is not a call, so neither can be run together.
 		return [...new Set(exec.filter(edge => edge.from.node === parent).map(edge => edge.to.node))]
-			.filter(other => other !== id);
+			.filter(other => other !== id)
+			.filter(other => {
+				const node = this.views.get(other)?.node;
+				return node !== undefined && !node.ghost && node.kind !== 'branch';
+			});
 	}
 
 	private installDrag(card: HTMLElement, node: GNode): void {
 		this.rendered.add(dom.addDisposableListener(card, dom.EventType.POINTER_DOWN, (down: PointerEvent) => {
-			if (down.button !== 0 || this.busy) {
+			if (down.button !== 0 || this.busy || (down.target as HTMLElement | null)?.closest?.('.vibez-node-action')) {
 				return;
 			}
 			down.stopPropagation();
@@ -669,6 +735,139 @@ export class VibezEditor extends EditorPane {
 		return node.anchor?.symbol || node.label;
 	}
 
+	// ------------------------------------------------------------------ menu
+
+	private readonly menuScope = this._register(new DisposableStore());
+
+	private closeMenu(): void {
+		this.menuScope.clear();
+	}
+
+	private openMenu(node: GNode, event: MouseEvent): void {
+		this.closeMenu();
+		if (this.busy) {
+			return;
+		}
+		const rect = this.root.getBoundingClientRect();
+		const menu = dom.append(this.root, dom.$('.vibez-menu'));
+		menu.style.left = `${Math.min(event.clientX - rect.left, rect.width - 220)}px`;
+		menu.style.top = `${Math.min(event.clientY - rect.top, rect.height - 120)}px`;
+		this.menuScope.add(toDisposable(() => menu.remove()));
+
+		const item = (label: string, hint: string | undefined, enabled: boolean, run: () => void) => {
+			const button = dom.append(menu, dom.$<HTMLButtonElement>('button.vibez-menu-item'));
+			button.type = 'button';
+			dom.append(button, dom.$('span')).textContent = label;
+			if (hint) {
+				dom.append(button, dom.$('span.hint')).textContent = hint;
+			}
+			button.disabled = !enabled;
+			this.menuScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => {
+				this.closeMenu();
+				run();
+			}));
+		};
+
+		const branchable = !node.ghost && node.kind !== 'branch' && node.kind !== 'entry';
+		item(localize('vibez.menu.branch', "Only run when…"), 'if', branchable, () => this.askCondition(node));
+		item(localize('vibez.menu.source', "Open source"), undefined, node.anchor !== null, () => {
+			const card = this.views.get(node.id)?.card;
+			if (card) {
+				this.select(card, node);
+			}
+		});
+
+		const win = dom.getWindow(this.root);
+		this.menuScope.add(dom.addDisposableListener(win, dom.EventType.POINTER_DOWN, (e: PointerEvent) => {
+			if (!(e.target as HTMLElement | null)?.closest?.('.vibez-menu')) {
+				this.closeMenu();
+			}
+		}, true));
+		this.menuScope.add(dom.addDisposableListener(win, dom.EventType.KEY_DOWN, (e: KeyboardEvent) => {
+			if (e.key === 'Escape') {
+				this.closeMenu();
+			}
+		}));
+	}
+
+	/** Values produced before this step that a condition could read: its inputs, made visible. */
+	private valuesBefore(node: GNode): { name: string; type: string }[] {
+		if (!this.current) {
+			return [];
+		}
+		const exec = this.current.graph.edges.filter(edge => edge.wire === 'exec');
+		const parent = exec.find(edge => edge.to.node === node.id)?.from.node;
+		const around = parent === undefined ? [] : [parent, ...exec.filter(edge => edge.from.node === parent).map(edge => edge.to.node)];
+		const seen = new Set<string>();
+		const out: { name: string; type: string }[] = [];
+		for (const id of around) {
+			if (id === node.id) {
+				continue;
+			}
+			const other = this.views.get(id)?.node;
+			for (const port of other?.ports.out ?? []) {
+				if (port.kind === 'data' && !seen.has(port.name)) {
+					seen.add(port.name);
+					out.push({ name: port.name, type: port.type ?? 'Unknown' });
+				}
+			}
+		}
+		return out;
+	}
+
+	private askCondition(node: GNode): void {
+		this.clearMarks();
+		const output = node.ports.out.find(port => port.kind === 'data');
+		const empty = EMPTY_FOR[output?.type ?? 'Unknown'] ?? 'undefined';
+		this.card({
+			title: localize('vibez.branch.title', "Only run {0} when…", node.label),
+			body: output
+				? localize('vibez.branch.body', "When the condition is false, {0} is skipped and {1} is {2}.", node.label, output.name, empty)
+				: localize('vibez.branch.bodyBare', "When the condition is false, {0} is skipped.", node.label),
+			input: {
+				placeholder: localize('vibez.branch.placeholder', "a condition, like plan?.tier === 'Pro'"),
+				chips: this.valuesBefore(node),
+			},
+			actions: [
+				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
+				{ label: localize('vibez.branch.preview', "Preview"), primary: true, run: value => void this.runBranch(node, value ?? '', empty) },
+			]
+		});
+	}
+
+	private async runBranch(node: GNode, condition: string, empty: string): Promise<void> {
+		const before = this.current?.graph;
+		if (!before) {
+			return;
+		}
+		const title = localize('vibez.branch.title', "Only run {0} when…", node.label);
+		this.card({ title, body: localize('vibez.merge.working', "Working out the change…") });
+		let plan: IVibezGesturePlan;
+		try {
+			plan = await this.captureService.planBranch(this.symbolOf(node), condition, empty);
+		} catch (error) {
+			this.refuse(localize('vibez.merge.failed', "Could not plan that: {0}", String(error)), localize('vibez.branch.cannot', "Can't add that condition"));
+			return;
+		}
+		if (!plan.ok) {
+			this.refuse(plan.reason ?? '', localize('vibez.branch.cannot', "Can't add that condition"));
+			return;
+		}
+		this.card({
+			title,
+			body: plan.summary,
+			where: plan.relative && plan.line ? `${plan.relative}:${plan.line}` : undefined,
+			diff: plan.original !== undefined && plan.replacement !== undefined
+				? previewText(plan.original, plan.replacement, plan.fileText, plan.start)
+				: undefined,
+			actions: [
+				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
+				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [node.id],
+					localize('vibez.branch.undoLabel', "Only run {0} when {1}", node.label, condition), before, title) },
+			]
+		});
+	}
+
 	private clearMarks(): void {
 		this.marks = [];
 		for (const card of this.world.querySelectorAll('.vibez-node.vz-settled')) {
@@ -709,17 +908,18 @@ export class VibezEditor extends EditorPane {
 			note: plan.hoisted ? localize('vibez.merge.hoisted', "One step moves up to sit beside the other. Everything between them stays in order.") : undefined,
 			actions: [
 				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
-				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, a, b, before) },
+				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [a.id, b.id],
+					localize('vibez.merge.undoLabel', "Run {0} and {1} together", a.label, b.label), before, localize('vibez.merge.title', "Run together")) },
 			]
 		});
 	}
 
-	private async apply(plan: IVibezGesturePlan, a: GNode, b: GNode, before: Graph): Promise<void> {
+	private async apply(plan: IVibezGesturePlan, pulseIds: SemanticKey[], undoLabel: string, before: Graph, title: string): Promise<void> {
 		this.busy = true;
 		const steps: Record<Step, 'waiting' | 'active' | 'done'> = { edit: 'active', restart: 'waiting', measure: 'waiting' };
 		const file = plan.relative?.split('/').pop() ?? 'the file';
 		const progress = () => this.card({
-			title: localize('vibez.merge.title', "Run together"),
+			title,
 			body: plan.summary,
 			steps: [
 				{ label: localize('vibez.step.edit', "Edit {0}", file), state: steps.edit },
@@ -728,9 +928,9 @@ export class VibezEditor extends EditorPane {
 			]
 		});
 		progress();
-		this.pulse([a.id, b.id]);
+		this.pulse(pulseIds);
 
-		const applied = await this.applyEdit(plan, localize('vibez.merge.undoLabel', "Run {0} and {1} together", a.label, b.label));
+		const applied = await this.applyEdit(plan, undoLabel);
 		if (!applied) {
 			this.busy = false;
 			this.refuse(localize('vibez.merge.stale', "{0} changed since the plan was made. Drag again to redo it.", file));
@@ -915,8 +1115,8 @@ export class VibezEditor extends EditorPane {
 		chip.title = change.basis === 'total'
 			? localize('vibez.delta.total', "Total time, including everything this step waits on")
 			: localize('vibez.delta.self', "Time spent in this step itself");
-		const head = view.card.querySelector('.vibez-head');
-		head?.insertBefore(chip, head.querySelector('.vibez-time'));
+		const foot = view.card.querySelector('.vibez-foot');
+		foot?.insertBefore(chip, foot.lastElementChild);
 		view.card.classList.add('vz-settled', change.change);
 	}
 
@@ -927,9 +1127,9 @@ export class VibezEditor extends EditorPane {
 		dom.clearNode(this.cardHost);
 	}
 
-	private refuse(reason: string): void {
+	private refuse(reason: string, title = localize('vibez.refuse.title', "Can't run those together")): void {
 		this.card({
-			title: localize('vibez.refuse.title', "Can't run those together"),
+			title,
 			body: reason,
 			tone: 'warn',
 			actions: [{ label: localize('vibez.ok', "OK"), primary: true, run: () => this.closeCard() }]
@@ -947,7 +1147,8 @@ export class VibezEditor extends EditorPane {
 		diff?: { before: string; after: string };
 		steps?: { label: string; state: 'waiting' | 'active' | 'done' }[];
 		result?: { flow: string; before: string; after: string; headline: string; good: boolean };
-		actions?: { label: string; primary?: boolean; run: () => void }[];
+		input?: { placeholder: string; chips?: { name: string; type: string }[] };
+		actions?: { label: string; primary?: boolean; run: (value?: string) => void }[];
 	}): void {
 		this.cardScope.clear();
 		dom.clearNode(this.cardHost);
@@ -995,6 +1196,36 @@ export class VibezEditor extends EditorPane {
 		if (spec.note) {
 			dom.append(card, dom.$('.vibez-card-note')).textContent = spec.note;
 		}
+		let field: HTMLInputElement | undefined;
+		if (spec.input) {
+			field = dom.append(card, dom.$<HTMLInputElement>('input.vibez-input'));
+			field.type = 'text';
+			field.spellcheck = false;
+			field.placeholder = spec.input.placeholder;
+			field.setAttribute('aria-label', spec.input.placeholder);
+			if (spec.input.chips?.length) {
+				const chips = dom.append(card, dom.$('.vibez-chips'));
+				dom.append(chips, dom.$('span.lead')).textContent = localize('vibez.chips.lead', "Values available here");
+				for (const chip of spec.input.chips) {
+					const button = dom.append(chips, dom.$<HTMLButtonElement>('button.vibez-chip'));
+					button.type = 'button';
+					const dot = dom.append(button, dom.$('span.dot'));
+					dot.style.background = `var(--${chip.type})`;
+					dom.append(button, dom.$('span')).textContent = chip.name;
+					dom.append(button, dom.$('span.type')).textContent = chip.type;
+					const input = field;
+					this.cardScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => {
+						// Insert at the cursor, so chips compose into an expression.
+						const at = input.selectionStart ?? input.value.length;
+						input.value = input.value.slice(0, at) + chip.name + input.value.slice(input.selectionEnd ?? at);
+						input.focus();
+						input.setSelectionRange(at + chip.name.length, at + chip.name.length);
+					}));
+				}
+			}
+			const focusField = field;
+			dom.getWindow(this.root).setTimeout(() => focusField.focus(), 0);
+		}
 		if (spec.steps) {
 			const steps = dom.append(card, dom.$('.vibez-steps'));
 			for (const step of spec.steps) {
@@ -1011,11 +1242,12 @@ export class VibezEditor extends EditorPane {
 				const button = dom.append(actions, dom.$<HTMLButtonElement>('button.vibez-btn'));
 				button.type = 'button';
 				button.textContent = action.label;
+				const run = () => action.run(field?.value);
 				if (action.primary) {
 					button.classList.add('primary');
-					primary = action.run;
+					primary = run;
 				}
-				this.cardScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => action.run()));
+				this.cardScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, run));
 			}
 			const cancel = spec.actions.find(action => !action.primary)?.run ?? (() => this.closeCard());
 			this.cardScope.add(dom.addDisposableListener(dom.getWindow(this.root), dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {

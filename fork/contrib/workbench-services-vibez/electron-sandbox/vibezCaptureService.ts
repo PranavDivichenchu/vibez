@@ -52,6 +52,10 @@ class VibezCaptureService implements IVibezCaptureService {
 	replay(runs: number): Promise<IVibezReplayResult> {
 		return this.proxy.replay(runs);
 	}
+
+	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan> {
+		return this.proxy.planBranch(symbol, condition, empty);
+	}
 }
 
 registerSingleton(IVibezCaptureService, VibezCaptureService, InstantiationType.Delayed);

@@ -103,3 +103,20 @@ export const getRecentOrders = (orgId: number): Promise<Order[]> =>
     [orgId],
     { file: 'examples/shop/src/db.ts', line: 113, fn: 'getRecentOrders' },
     { in: 'orgId:Number', out: 'orders:List' }, '.orders', 46);
+
+export interface Offer { title: string; detail: string }
+
+/**
+ * The two sides of the planted if/else. Northwind is on Pro, so only the
+ * renewal offer ever runs; Vibez reads the other side from the source and
+ * shows it as a step that never ran.
+ */
+export const getRenewalOffer = (orgId: number): Promise<Offer | undefined> =>
+  query<Offer>("SELECT 'Renew early' AS title, 'Lock in this year''s price before 12 Oct.' AS detail WHERE ? > 0", [orgId],
+    { file: 'examples/shop/src/db.ts', line: 134, fn: 'getRenewalOffer' },
+    { in: 'orgId:Number', out: 'offer:Object' }, '.offer').then((rows) => rows[0]);
+
+export const getUpgradeOffer = (orgId: number): Promise<Offer | undefined> =>
+  query<Offer>("SELECT 'Try Pro free' AS title, 'Unlimited seats for 14 days.' AS detail WHERE ? > 0", [orgId],
+    { file: 'examples/shop/src/db.ts', line: 140, fn: 'getUpgradeOffer' },
+    { in: 'orgId:Number', out: 'offer:Object' }, '.offer').then((rows) => rows[0]);

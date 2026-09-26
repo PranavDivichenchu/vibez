@@ -75,4 +75,6 @@ export interface IVibezCaptureService {
 	planMerge(a: string, b: string): Promise<IVibezGesturePlan>;
 	/** After an edit: wait for the app to restart, then measure it again. */
 	replay(runs: number): Promise<IVibezReplayResult>;
+	/** Work out what putting `symbol` behind `condition` would change. Reads, never writes. */
+	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan>;
 }

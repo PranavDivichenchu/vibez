@@ -12,6 +12,8 @@ import { ILogService } from '../../log/common/log.js';
 import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
+import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
+import { Graph } from '../common/vibezTypes.js';
 import { RawSpan } from '../common/vibezSpans.js';
 import { decodeOtlp, toRawSpans, DecodedSpan } from './vibezOtlp.js';
 
@@ -228,6 +230,41 @@ font:13px/1.6 system-ui;text-align:center">
 		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${a} and ${b}.` };
 	}
 
+	async planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan> {
+		if (!this.workspacePath) {
+			return { ok: false, reason: 'Open a folder first.' };
+		}
+		const ts = await loadTypeScript();
+		const { planBranch } = await import('../node/vibezBranchCodemod.js');
+		const hits: IVibezGesturePlan[] = [];
+		let refusal: IVibezGesturePlan | undefined;
+		for (const file of await sourceFiles(this.workspacePath)) {
+			let text: string;
+			try {
+				text = await fsp.readFile(file, 'utf8');
+			} catch {
+				continue;
+			}
+			if (!text.includes(symbol)) {
+				continue;
+			}
+			const plan = planBranch(ts, text, file, symbol, condition, empty);
+			const located = { ...plan, file, relative: relative(this.workspacePath, file), fileText: text };
+			if (plan.ok) {
+				hits.push(located);
+			} else if (!refusal || refusal.reason?.startsWith('Could not find')) {
+				refusal = located;
+			}
+		}
+		if (hits.length === 1) {
+			return hits[0];
+		}
+		if (hits.length > 1) {
+			return { ok: false, reason: `${symbol} is awaited in ${hits.length} files. Vibez will not guess which one you meant.` };
+		}
+		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${symbol}.` };
+	}
+
 	/**
 	 * Re-measure after an edit.
 	 *
@@ -256,7 +293,7 @@ font:13px/1.6 system-ui;text-align:center">
 			clearTimeout(this.pending);
 			this.pending = undefined;
 		}
-		this.writeFlow();
+		await this.writeFlow();
 		return { ok: true, runs: this.traces.size, restarted };
 	}
 
@@ -288,24 +325,71 @@ font:13px/1.6 system-ui;text-align:center">
 		if (this.pending) {
 			clearTimeout(this.pending);
 		}
-		this.pending = setTimeout(() => this.writeFlow(), WRITE_DEBOUNCE_MS);
+		this.pending = setTimeout(() => void this.writeFlow(), WRITE_DEBOUNCE_MS);
 	}
 
-	private writeFlow(): void {
+	private async writeFlow(): Promise<void> {
 		if (!this.workspacePath || this.traces.size === 0) {
 			return;
 		}
 		try {
 			const spans: RawSpan[] = toRawSpans([...this.traces.values()].flat());
-			const graph = buildGraph(spans, { mode: 'rough' });
+			let graph = buildGraph(spans, { mode: 'rough' });
 			if (!graph.nodes.length) {
 				return;
 			}
+			graph = await this.withBranches(graph);
 			const dir = join(this.workspacePath, '.vibez', 'flows');
 			mkdirSync(dir, { recursive: true });
 			writeFileSync(join(dir, 'default.flow'), JSON.stringify(graph, null, 2));
 		} catch (error) {
 			this.logService.error(`[vibez] could not write the flow: ${error}`);
+		}
+	}
+
+	/** Parsed branch sites per file, keyed by modification time and the traced set. */
+	private readonly branchCache = new Map<string, { key: string; sites: BranchSiteLike[] }>();
+
+	/**
+	 * Traces cannot show an if: the side that did not run leaves no span. So
+	 * the structure is read from the source around the traced calls and laid
+	 * onto the graph, with the untaken side drawn as steps that never ran.
+	 * A failure here costs the branches, never the flow.
+	 */
+	private async withBranches(graph: Graph): Promise<Graph> {
+		if (!this.workspacePath) {
+			return graph;
+		}
+		try {
+			const traced = new Set(graph.nodes.map(node => node.anchor?.symbol || node.label));
+			const tracedKey = [...traced].sort().join(',');
+			const ts = await loadTypeScript();
+			const { findBranches } = await import('../node/vibezBranchCodemod.js');
+			const sites: BranchSiteLike[] = [];
+			for (const file of await sourceFiles(this.workspacePath)) {
+				let stat: import('fs').Stats;
+				try {
+					stat = await fsp.stat(file);
+				} catch {
+					continue;
+				}
+				const key = `${stat.mtimeMs}|${tracedKey}`;
+				const cached = this.branchCache.get(file);
+				if (cached?.key === key) {
+					sites.push(...cached.sites);
+					continue;
+				}
+				const text = await fsp.readFile(file, 'utf8');
+				const found = [...traced].some(name => text.includes(name)) && /\bif\b|\?/.test(text)
+					? findBranches(ts, relative(this.workspacePath, file), text, traced)
+					: [];
+				this.branchCache.set(file, { key, sites: found });
+				sites.push(...found);
+			}
+			return applyBranches(graph, sites);
+		} catch (error) {
+			this.logService.warn(`[vibez] could not read branches from source: ${error}`);
+			return graph;
 		}
 	}
 

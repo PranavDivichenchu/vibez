@@ -20,6 +20,9 @@ const sha = (input: string): string => {
   return (a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0')).slice(0, 12);
 };
 
+/** The same hash, for identities built outside this module. */
+export const stableHash = sha;
+
 /**
  * Strip literals and collapse IN-list arity so that queries differing only by
  * their bound values share one fingerprint. This is what makes N+1 detectable

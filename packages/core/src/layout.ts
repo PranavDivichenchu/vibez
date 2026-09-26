@@ -92,8 +92,9 @@ function rowsOf(node: GNode): NodeBox['rows'] {
   }));
 }
 
+/** A branch shows its condition where other nodes show a fact, so it gets that room. */
 const heightOf = (node: GNode, rows: number): number =>
-  GEO.HEADER + rows * GEO.ROW + (node.facts.length > 0 ? GEO.FACT : 0) + GEO.FOOTER;
+  GEO.HEADER + rows * GEO.ROW + (node.facts.length > 0 || node.branch !== undefined ? GEO.FACT : 0) + GEO.FOOTER;
 
 /** Labels are not measured in a worker, so estimate and clamp. */
 const widthOf = (node: GNode): number => {

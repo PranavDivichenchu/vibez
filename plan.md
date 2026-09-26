@@ -148,29 +148,39 @@ Non-React frameworks need their own adapter. React only in v1; keep the `postMes
 ### 4.1 What a drag can and cannot mean
 
 The graph is a projection of code built from traces (§2.1). You cannot drag it
-into new software, because the projection is lossy: it holds no branches, no
-loop constructs, no error handling, and nothing that never ran. There is no
-inverse from "node moved" to "code edited" in general, and every attempt to
-invent one has died.
+into new software in general. But for the handful of changes this product exists
+to make, a gesture has exactly one sane reading in code, and compiles straight to
+an edit with no model involved.
 
-But it is not lossy for the handful of changes this product exists to make.
-Those have exactly one sane reading in code, so a gesture can compile straight
-to an edit with no model involved.
+| Gesture | Means | Becomes | Status |
+|---|---|---|---|
+| Drag a step onto a sibling | "these should overlap" | one `Promise.all` | shipped |
+| **if** on a step | "only do this when…" | `cond ? await f() : EMPTY`, or an `if` block | shipped |
+| Drop a node on the cache target | "stop asking twice" | memoised call | planned |
+| Collapse a repeated node's `12×` | "ask once for all of them" | batched query | planned |
 
-| Gesture | Means | Becomes |
-|---|---|---|
-| Drag two sibling nodes together | "these should overlap" | one `Promise.all` |
-| Drop a node on the cache target | "stop asking twice" | memoised call |
-| Collapse a repeated node's `12×` | "ask once for all of them" | batched query, matched in memory |
-| Strike a node through | "stop calling this" | the call removed |
+Every one previews its diff before anything changes, lands through the
+workbench's own edit pipeline so ⌘Z works, and is re-measured against the running
+app. Each refuses rather than guesses, in a sentence naming why.
 
-These are **deterministic codemods**: instant, free, exact, reversible, and they
-cannot hallucinate. They also line up one-to-one with what the detectors already
-find, which is the point — the detector names the fault and the gesture fixes it.
+### 4.1a Branches
 
-`packages/codemod` holds them. Each refuses rather than guesses: `parallelize`
-walks away if a later call uses an earlier one's result, because pretending
-otherwise produces code that does not run.
+Traces cannot show an `if`: the side that did not run leaves no span, and real
+code does not emit branch spans. So branches are **read from source** around the
+traced calls and laid onto the graph:
+
+- A **Branch** node sits between the parent and its sides, Blueprints-style: a
+  Boolean `condition` input, and distinct **True** and **False** exec outputs,
+  each marked *ran* or *never ran*.
+- The side that ran keeps its real, timed steps. The side that did not gets
+  **ghost** steps — dashed, no timing, "in the code, not in any run".
+- A value the condition reads, like `plan` in `plan?.tier === 'Pro'`, is wired
+  into the condition input, so you can see what the decision depends on.
+
+That is also what makes creating one coherent. The **if** button on a step writes
+the conditional, the source reader finds it on the next measure, and the new
+Branch node appears. The condition box lists every value available at that point
+with its type, so the inputs are right there while you write it.
 
 ### 4.2 So what is the agent for
 

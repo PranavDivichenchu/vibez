@@ -181,3 +181,60 @@
 .vibez-btn:focus-visible { outline: 2px solid var(--vz-select); outline-offset: 2px; }
 
 .vibez-key-hint { white-space: nowrap; padding-left: 14px; border-left: 1px solid #22252A; color: var(--vz-t3); }
+
+/* ---------------------------------------------------------- branch */
+
+/* Flow control reads differently from work: Blueprints gives its Branch node a
+   plain header and lets the True/False pins carry the meaning. */
+.vibez-node.branch { border-color: #3A3F4A; }
+.vibez-node.branch > .vibez-head { background: #20232B; }
+.vibez-node.branch > .vibez-head svg { stroke: #C3C9D0; }
+.vibez-node.branch .vibez-time { color: var(--vz-t3); font-weight: 400; }
+.vibez-node.branch .vibez-row.side-true .right span:last-child { color: var(--vz-t1); font-weight: 500; }
+.vibez-node.branch .vibez-row.side-false .right span:last-child { color: var(--vz-t1); font-weight: 500; }
+.vibez-taken { font-size: 10px; color: var(--vz-t3); margin-right: 2px; }
+.vibez-taken.never { color: #7A6A55; font-style: italic; }
+.vibez-cond { margin: 3px 10px 0; padding: 5px 8px; border-radius: 4px; display: flex; gap: 7px; align-items: baseline;
+	background: #0E1013; border: 1px solid #262A31; overflow: hidden; white-space: nowrap; }
+.vibez-cond .kw { font-family: var(--monaco-monospace-font); font-size: 10px; color: #C08497; flex: none; }
+.vibez-cond .expr { font-family: var(--monaco-monospace-font); font-size: 10.5px; color: var(--vz-t1);
+	overflow: hidden; text-overflow: ellipsis; }
+
+/* A step that exists in the code but never ran: present, and visibly not real. */
+.vibez-node.ghost { background: transparent; border: 1px dashed #3A3F4A; opacity: .7; }
+.vibez-node.ghost > .vibez-head { background: transparent; border-bottom-style: dashed; }
+.vibez-node.ghost .vibez-name { color: var(--vz-t2); font-weight: 400; }
+.vibez-node.ghost .vibez-time { color: #7A6A55; font-style: italic; font-family: inherit; }
+
+/* ------------------------------------------------------------ menu */
+
+.vibez-menu { position: absolute; z-index: 30; min-width: 200px; padding: 4px; border-radius: 8px;
+	background: #1B1E23; border: 1px solid #2E3238; display: flex; flex-direction: column; }
+.vibez-menu-item { display: flex; align-items: center; gap: 10px; font: inherit; font-size: 12.5px; text-align: left;
+	color: var(--vz-t1); background: transparent; border: 0; border-radius: 5px; padding: 7px 10px; cursor: pointer; }
+.vibez-menu-item span:first-child { flex: 1; }
+.vibez-menu-item .hint { font-family: var(--monaco-monospace-font); font-size: 10.5px; color: #C08497; }
+.vibez-menu-item:hover:not(:disabled) { background: #262A31; }
+.vibez-menu-item:disabled { color: var(--vz-t3); cursor: default; }
+
+/* ----------------------------------------------------------- input */
+
+.vibez-input { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 8px 10px;
+	font-family: var(--monaco-monospace-font); font-size: 12px; color: var(--vz-t1);
+	background: #0E1013; border: 1px solid #2E3238; border-radius: 7px; outline: none; }
+.vibez-input:focus { border-color: var(--vz-select); }
+.vibez-input::placeholder { color: var(--vz-t3); }
+.vibez-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.vibez-chips .lead { font-size: 11px; color: var(--vz-t3); margin-right: 2px; }
+.vibez-chip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 11.5px; cursor: pointer;
+	color: var(--vz-t1); background: #1B1E23; border: 1px solid #2E3238; border-radius: 999px; padding: 3px 9px 3px 7px; }
+.vibez-chip:hover { border-color: #3C4550; }
+.vibez-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+.vibez-chip .type { font-family: var(--monaco-monospace-font); font-size: 10px; color: var(--vz-t3); }
+
+.vibez-node-action { font: inherit; font-family: var(--monaco-monospace-font); font-size: 10px; line-height: 1;
+	color: #C08497; background: #0E1013; border: 1px solid #2E3238; border-radius: 4px; padding: 3px 5px;
+	cursor: pointer; opacity: .6; transition: opacity .12s ease; flex: none; }
+.vibez-node:hover .vibez-node-action, .vibez-node-action:focus-visible { opacity: 1; }
+.vibez-node-action:hover { border-color: #C08497; }
+@media (hover: none) { .vibez-node-action { opacity: 1; } }

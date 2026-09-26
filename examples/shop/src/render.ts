@@ -1,5 +1,5 @@
 import { span } from './tracing.ts';
-import type { Alert, Customer, Order, Plan, Stat } from './db.ts';
+import type { Alert, Customer, Offer, Order, Plan, Stat } from './db.ts';
 
 const money = (n: number): string => `$${n.toLocaleString('en-US')}`;
 
@@ -40,6 +40,9 @@ td:first-child{font-weight:500}
 .orders li:last-child{border-bottom:0}
 .orders ul{list-style:none;margin:0;padding:0}
 .orders span{color:#6B6B67}
+.side-col{display:flex;flex-direction:column;gap:16px}
+.offer{background:#1A1A19;color:#F5F5F3;border-radius:10px;padding:15px 18px;display:flex;flex-direction:column;gap:4px}
+.offer b{font-size:14px;font-weight:600}.offer span{font-size:12.5px;color:#C9C9C4}
 @media (max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
 td:nth-child(3){color:#6B6B67}
 @media (max-width:760px){.side{display:none}.main{padding:20px}}
@@ -66,7 +69,7 @@ export const StatsGrid = (customers: Customer[], stats: Stat[]): Promise<string>
   });
 
 export const DashboardPage = (
-  body: () => Promise<{ grid: string; plan: Plan | undefined; alerts: Alert[]; orders: Order[]; count: number; value: number }>,
+  body: () => Promise<{ grid: string; plan: Plan | undefined; alerts: Alert[]; orders: Order[]; offer: Offer | undefined; count: number; value: number }>,
 ): Promise<string> =>
   span('render DashboardPage', {
     'vibez.component': 'DashboardPage',
@@ -76,12 +79,15 @@ export const DashboardPage = (
     'vibez.dataIn': 'req:Object',
     'vibez.dataOut': 'orgId:Number',
   }, async () => {
-    const { grid, plan, alerts, orders, count, value } = await body();
+    const { grid, plan, alerts, orders, offer, count, value } = await body();
+    const promo = offer
+      ? `<section class="offer"><b>${offer.title}</b><span>${offer.detail}</span></section>`
+      : '';
     const alert = alerts[0]
       ? `<div class="alert"><i></i>${alerts[0].message}</div>`
       : '';
-    const recent = `<section class="orders"><h2>Top accounts</h2><ul>${orders
-      .map((order) => `<li>${order.customer}<span>${money(order.total)}</span></li>`).join('')}</ul></section>`;
+    const recent = `<div class="side-col">${promo}<section class="orders"><h2>Top accounts</h2><ul>${orders
+      .map((order) => `<li>${order.customer}<span>${money(order.total)}</span></li>`).join('')}</ul></section></div>`;
     const nav = ['Dashboard', 'Orders', 'Customers', 'Products', 'Settings']
       .map((item, i) => `<a href="#" class="${i === 0 ? 'on' : ''}">${item}</a>`).join('');
     const tile = (k: string, v: string) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
