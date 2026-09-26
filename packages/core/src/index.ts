@@ -11,3 +11,4 @@ export * from './choreo.ts';
 export * from './fixture.ts';
 
 export * from './pages.ts';
+export * from './edit.ts';

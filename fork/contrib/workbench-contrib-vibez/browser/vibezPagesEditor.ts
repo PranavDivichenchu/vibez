@@ -5,6 +5,7 @@
 
 import './media/vibezPages.css';
 import * as dom from '../../../../base/browser/dom.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -14,11 +15,13 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
+import { EditError, moveElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
 import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
+import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../webview/browser/webview.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { siteCanvasHtml } from './vibezSiteCanvas.js';
@@ -36,6 +39,18 @@ export class VibezPagesInput extends EditorInput {
 	override getName(): string { return 'Site'; }
 	override matches(other: EditorInput): boolean { return other instanceof VibezPagesInput; }
 }
+
+type EditOp =
+	| { op: 'style'; props: Record<string, string | null> }
+	| { op: 'text'; text: string }
+	| { op: 'attr'; name: string; value: string | null }
+	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' };
+
+interface EditStep { file: string; before: string; after: string }
+
+/** Attributes the edit panel may change. Anything else is edited in code. */
+const EDITABLE_ATTRIBUTES = /^(href|src|alt|title|placeholder|style)$/;
+const MAX_UNDO = 200;
 
 interface CanvasPage { id: string; route: string; file: string; url: string; match: string; path: string }
 
@@ -61,6 +76,8 @@ export class VibezPagesEditor extends EditorPane {
 	private sources = new Map<string, string>();
 	private pages: PageNode[] = [];
 	private graph: GraphLike | null = null;
+	private readonly undoStack: EditStep[] = [];
+	private readonly redoStack: EditStep[] = [];
 
 	constructor(
 		group: IEditorGroup,
@@ -72,6 +89,7 @@ export class VibezPagesEditor extends EditorPane {
 		@IEditorService private readonly editors: IEditorService,
 		@IWebviewService private readonly webviews: IWebviewService,
 		@IVibezCaptureService private readonly capture: IVibezCaptureService,
+		@ITextFileService private readonly textFiles: ITextFileService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
 	}
@@ -131,6 +149,12 @@ export class VibezPagesEditor extends EditorPane {
 				this.post({ type: 'explain', req: message.req, result });
 				return;
 			}
+			case 'edit':
+				return this.edit(String(message.file), Number(message.at), String(message.tag), (message.ops ?? []) as EditOp[]);
+			case 'undo':
+				return this.undo(false);
+			case 'redo':
+				return this.undo(true);
 			case 'open':
 				return this.openSource(String(message.file), Number(message.line) || 1);
 			case 'graph': {
@@ -150,6 +174,91 @@ export class VibezPagesEditor extends EditorPane {
 			resource: URI.joinPath(this.folder, file),
 			options: { pinned: true, selection: { startLineNumber: line, startColumn: 1 }, revealIfOpened: true },
 		}, SIDE_GROUP);
+	}
+
+	/**
+	 * Applies an edit from the canvas to the page's HTML file.
+	 *
+	 * The element is found by the offset its start tag had when the page was
+	 * served, and checked against the tag the page showed; if the file has
+	 * moved on since, nothing is written and the page reloads. A file with
+	 * unsaved changes in an editor is left alone, so nobody's typing is lost.
+	 */
+	private async edit(file: string, at: number, tag: string, ops: EditOp[]): Promise<void> {
+		const fail = (reason: string, reload = false) => this.post({ type: 'editFailed', file, reason, reload });
+		if (!this.folder || !/\.html?$/i.test(file) || !this.sources.has(file)) {
+			return fail('Only the HTML files in this folder can be edited on the canvas.');
+		}
+		const resource = URI.joinPath(this.folder, file);
+		if (this.textFiles.isDirty(resource)) {
+			return fail(`${file} has unsaved changes in an editor. Save or revert them, then try again.`);
+		}
+		let before: string;
+		try {
+			before = (await this.files.readFile(resource)).value.toString();
+		} catch (error) {
+			return fail(`Could not read ${file}: ${error}`);
+		}
+		let html = before;
+		let where = at;
+		try {
+			for (const op of ops) {
+				switch (op.op) {
+					case 'style':
+						html = setStyle(html, where, op.props ?? {}, tag);
+						break;
+					case 'text':
+						html = setText(html, where, String(op.text ?? ''), tag);
+						break;
+					case 'attr':
+						if (!EDITABLE_ATTRIBUTES.test(op.name)) {
+							throw new EditError(`“${op.name}” is changed in code, not on the canvas.`);
+						}
+						html = setAttribute(html, where, op.name, op.value === null ? null : String(op.value), tag);
+						break;
+					case 'move':
+						({ html, at: where } = moveElement(html, where, Number(op.target), op.where === 'after' ? 'after' : 'before', tag, op.targetTag));
+						break;
+				}
+			}
+		} catch (error) {
+			return fail(error instanceof EditError ? error.message : `Could not make that change: ${error}`, true);
+		}
+		if (html !== before) {
+			await this.write(resource, file, html);
+			this.undoStack.push({ file, before, after: html });
+			if (this.undoStack.length > MAX_UNDO) {
+				this.undoStack.shift();
+			}
+			this.redoStack.length = 0;
+		}
+		this.post({ type: 'edited', file, at: where });
+	}
+
+	private async undo(redo: boolean): Promise<void> {
+		const from = redo ? this.redoStack : this.undoStack;
+		const to = redo ? this.undoStack : this.redoStack;
+		const step = from[from.length - 1];
+		if (!step || !this.folder) {
+			this.post({ type: 'notice', text: redo ? 'Nothing to redo.' : 'Nothing to undo.' });
+			return;
+		}
+		const resource = URI.joinPath(this.folder, step.file);
+		const current = (await this.files.readFile(resource).catch(() => undefined))?.value.toString();
+		if (current !== (redo ? step.before : step.after) || this.textFiles.isDirty(resource)) {
+			this.post({ type: 'editFailed', file: step.file, reason: `${step.file} was changed somewhere else since, so ${redo ? 'redo' : 'undo'} would overwrite that. Use the text editor's undo for it.` });
+			return;
+		}
+		from.pop();
+		await this.write(resource, step.file, redo ? step.after : step.before);
+		to.push(step);
+		this.post({ type: 'undone', file: step.file, text: `${redo ? 'Redid' : 'Undid'} a change to ${step.file}` });
+	}
+
+	private async write(resource: URI, file: string, html: string): Promise<void> {
+		await this.files.writeFile(resource, VSBuffer.fromString(html));
+		this.sources.set(file, html);
+		this.pages = discoverPages(this.sources).pages;
 	}
 
 	/** Reads the project, starts serving it, and hands the canvas its pages. */

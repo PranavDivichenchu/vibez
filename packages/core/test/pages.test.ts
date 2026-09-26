@@ -29,7 +29,7 @@ test('ambiguous routes stay unresolved; separate Next projects do not cross-link
 
 test('annotateHtml marks start tags with their line and leaves scripts, styles and comments alone', () => {
  const html = '<!doctype html>\n<html><head><title>T</title><script>if (a<b) { x("<p>") }</script></head>\n<body>\n<!-- <a href="x"> -->\n<nav><a href="about.html">About</a>\n<img src="a.png"/></nav></body></html>';
- const out = annotateHtml(html);
+ const out = annotateHtml(html).replace(/ data-vz-at="\d+"/g, '');
  assert.match(out, /<body data-vz-line="3">/);
  assert.match(out, /<nav data-vz-line="5"><a href="about.html" data-vz-line="5">/);
  assert.match(out, /<img src="a.png" data-vz-line="6"\/>/);

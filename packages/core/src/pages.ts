@@ -98,7 +98,8 @@ export function urlPathOfFile(file: string): string {
 const UNMARKED = new Set(['html', 'head', 'meta', 'link', 'base', 'title', 'script', 'style', 'noscript', 'template']);
 
 /**
- * Marks every start tag with the line it was written on (`data-vz-line`).
+ * Marks every start tag with the line it was written on (`data-vz-line`) and
+ * where in the file it starts (`data-vz-at`, a character offset).
  *
  * The inspector uses it to jump from an element on the page to the exact line
  * of HTML that wrote it. Only files served from disk are marked; an element a
@@ -128,11 +129,11 @@ export function annotateHtml(html: string): string {
     if (!m) { out.push('<'); i++; continue; }
     const name = m[1]!.toLowerCase();
     const whole = m[0];
-    if (UNMARKED.has(name) || /\sdata-vz-line\s*=/.test(whole)) {
+    if (UNMARKED.has(name) || /\sdata-vz-(?:line|at)\s*=/.test(whole)) {
       out.push(whole);
     } else {
       const close = m[3] ? '/>' : '>';
-      out.push(whole.slice(0, whole.length - close.length).replace(/\s*$/, '') + ` data-vz-line="${line}"` + close);
+      out.push(whole.slice(0, whole.length - close.length).replace(/\s*$/, '') + ` data-vz-line="${line}" data-vz-at="${i}"` + close);
     }
     line += countLines(whole);
     i += whole.length;
@@ -181,6 +182,8 @@ export interface ElementInfo {
   label: string;
   /** `data-vz-line` from the served HTML, or null when a script created it. */
   line: number | null;
+  /** `data-vz-at`: where the element's start tag begins in its file. Null when a script created it. */
+  at?: number | null;
   /** The href as written, for links. */
   href: string | null;
   /** The same-origin path the href resolves to, or null. */

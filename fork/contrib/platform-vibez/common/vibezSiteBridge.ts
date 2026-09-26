@@ -233,6 +233,21 @@ function info(el){
   r.links = el.querySelectorAll ? el.querySelectorAll('a[href]').length : 0;
   r.requests = requests.slice(0, 12);
   r.fromDisk = FROM_DISK;
+  var at = el.getAttribute('data-vz-at');
+  r.at = at ? Number(at) : null;
+  r.leaf = el.children.length === 0;
+  r.fullText = r.leaf ? String(el.textContent || '') : null;
+  r.inlineStyle = el.getAttribute('style') || '';
+  var cs = getComputedStyle(el);
+  r.styles = { fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle, color: cs.color,
+    textAlign: cs.textAlign, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, textTransform: cs.textTransform, textDecoration: cs.textDecorationLine,
+    backgroundColor: cs.backgroundColor, paddingTop: cs.paddingTop, paddingRight: cs.paddingRight, marginTop: cs.marginTop, marginBottom: cs.marginBottom,
+    borderRadius: cs.borderTopLeftRadius, width: cs.width, display: cs.display };
+  r.attrs = {};
+  for (var ai = 0; ai < el.attributes.length; ai++) {
+    var an = el.attributes[ai].name;
+    if (/^(href|src|alt|title|placeholder|target|type|name|value|aria-label)$/.test(an)) { r.attrs[an] = el.attributes[ai].value; }
+  }
   return r;
 }
 
@@ -241,8 +256,11 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + '.vz-ov.vz-sel{border-color:#F59E0B;background:rgba(245,158,11,.08)}'
   + '.vz-ov.vz-flash{border-color:#22C55E;background:rgba(34,197,94,.12);transition:none}'
   + '.vz-chip{position:fixed;z-index:2147483647;pointer-events:none;display:none;padding:3px 7px;border-radius:4px;background:#1D4ED8;color:#fff;font:600 11px/1.4 -apple-system,system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)}'
-  + '.vz-chip i{font-style:normal;opacity:.75;font-weight:500;margin-left:6px}';
-var hover, chip, sel, flash, selected = null, hovered = null, hoverKey = null;
+  + '.vz-chip i{font-style:normal;opacity:.75;font-weight:500;margin-left:6px}'
+  + '.vz-drop{position:fixed;z-index:2147483647;pointer-events:none;background:#2563EB;border-radius:2px;box-shadow:0 0 0 2px rgba(255,255,255,.9);display:none}'
+  + '.vz-dragging{opacity:.45!important;outline:2px dashed #2563EB!important;outline-offset:2px}'
+  + 'html.vz-drag,html.vz-drag *{cursor:grabbing!important;user-select:none!important}';
+var hover, chip, sel, flash, drop, selected = null, hovered = null, hoverKey = null;
 function box(o, el){
   if (!el) { o.style.display = 'none'; return; }
   var r = el.getBoundingClientRect();
@@ -275,6 +293,8 @@ function start(){
   sel = document.createElement('div'); sel.className = 'vz-ov vz-sel';
   flash = document.createElement('div'); flash.className = 'vz-ov vz-flash';
   chip = document.createElement('div'); chip.className = 'vz-chip';
+  drop = document.createElement('div'); drop.className = 'vz-drop';
+  document.documentElement.appendChild(drop);
   document.documentElement.appendChild(hover); document.documentElement.appendChild(sel);
   document.documentElement.appendChild(flash); document.documentElement.appendChild(chip);
   post({ type: 'hello', url: location.href, path: location.pathname, title: document.title });
@@ -286,6 +306,7 @@ function start(){
   on(document, 'transitionend', soon, true);
 }
 on(document, 'mousemove', function(e){
+  if (drag) { return; }
   var el = pick(e.target);
   if (el !== hovered) { hovered = el; if (mode === 'inspect') { refresh(); } }
   var link = e.target && e.target.closest ? e.target.closest('a[href],area[href],[onclick],button,[role=button]') : null;
@@ -294,6 +315,7 @@ on(document, 'mousemove', function(e){
 }, true);
 on(document, 'mouseleave', function(){ hovered = null; refresh(); if (hoverKey) { hoverKey = null; post({ type: 'hover', key: null }); } }, true);
 on(document, 'click', function(e){
+  if (swallowClick) { e.preventDefault(); e.stopPropagation(); return; }
   if (mode !== 'inspect' && !e.altKey) { return; }
   var el = pick(e.target);
   e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
@@ -322,12 +344,112 @@ on(window, 'wheel', function(e){
   e.preventDefault();
   post({ type: 'zoom', dy: e.deltaY, x: e.clientX, y: e.clientY });
 }, { passive: false, capture: true });
+function byAt(at){ return at === null || at === undefined ? null : document.querySelector('[data-vz-at="' + at + '"]'); }
+var press = null, drag = null, swallowClick = false;
+function movable(el){ return el && el.nodeType === 1 && el.hasAttribute('data-vz-at') && el !== document.body && el !== document.documentElement && !el.closest('head'); }
+function sizeOf(el){ var r = el.getBoundingClientRect(); return r.width * r.height; }
+function flows(parent, child){
+  var ps = getComputedStyle(parent), cs = getComputedStyle(child);
+  if (/flex/.test(ps.display)) { return !/column/.test(ps.flexDirection); }
+  if (/grid/.test(ps.display)) { return child.getBoundingClientRect().width < parent.getBoundingClientRect().width * 0.7; }
+  return /^inline/.test(cs.display);
+}
+function dropAt(x, y){
+  var hit = document.elementFromPoint(x, y);
+  if (!hit) { return null; }
+  var cands = [];
+  for (var n = hit; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    if (movable(n) && n !== drag.el && !drag.el.contains(n) && !n.contains(drag.el)) { cands.push(n); }
+  }
+  if (!cands.length) { return null; }
+  var area = sizeOf(drag.el), target = null;
+  for (var i = 0; i < cands.length && !target; i++) { if (cands[i].parentElement === drag.el.parentElement) { target = cands[i]; } }
+  for (var j = 0; j < cands.length && !target; j++) { if (sizeOf(cands[j]) <= area * 8) { target = cands[j]; } }
+  target = target || cands[0];
+  var r = target.getBoundingClientRect();
+  var across = flows(target.parentElement, target);
+  var where = across ? (x < r.left + r.width / 2 ? 'before' : 'after') : (y < r.top + r.height / 2 ? 'before' : 'after');
+  return { el: target, where: where, across: across, r: r };
+}
+function showDrop(d){
+  if (!d) { drop.style.display = 'none'; return; }
+  var r = d.r;
+  drop.style.display = 'block';
+  if (d.across) {
+    drop.style.left = ((d.where === 'before' ? r.left : r.right) - 2) + 'px'; drop.style.top = r.top + 'px';
+    drop.style.width = '4px'; drop.style.height = r.height + 'px';
+  } else {
+    drop.style.left = r.left + 'px'; drop.style.top = ((d.where === 'before' ? r.top : r.bottom) - 2) + 'px';
+    drop.style.width = r.width + 'px'; drop.style.height = '4px';
+  }
+}
+on(document, 'pointerdown', function(e){
+  if (mode !== 'inspect' || e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || !FROM_DISK) { return; }
+  var el = selected && selected.contains(e.target) ? selected : pick(e.target);
+  if (!movable(el)) { return; }
+  press = { el: el, x: e.clientX, y: e.clientY };
+  e.preventDefault();
+}, true);
+on(document, 'dragstart', function(e){ if (mode === 'inspect') { e.preventDefault(); } }, true);
+on(document, 'pointermove', function(e){
+  if (!press) { return; }
+  if (!drag) {
+    if (Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) < 6) { return; }
+    drag = { el: press.el, target: null };
+    drag.el.classList.add('vz-dragging');
+    drag.el.style.pointerEvents = 'none';
+    document.documentElement.classList.add('vz-drag');
+    hovered = null; refresh();
+  }
+  if (e.clientY < 40) { scrollBy(0, -14); } else if (e.clientY > innerHeight - 40) { scrollBy(0, 14); }
+  drag.target = dropAt(e.clientX, e.clientY);
+  showDrop(drag.target);
+}, true);
+function endDrag(commit){
+  if (!drag) { press = null; return; }
+  var d = drag.target, el = drag.el;
+  el.classList.remove('vz-dragging'); el.style.pointerEvents = '';
+  if (!el.getAttribute('style')) { el.removeAttribute('style'); }
+  document.documentElement.classList.remove('vz-drag');
+  showDrop(null);
+  drag = null; press = null; swallowClick = true;
+  setTimeout(function(){ swallowClick = false; }, 50);
+  if (!commit || !d) { return; }
+  var same = d.where === 'before' ? d.el.previousElementSibling === el : d.el.nextElementSibling === el;
+  if (same) { return; }
+  d.el.parentNode.insertBefore(el, d.where === 'before' ? d.el : d.el.nextSibling);
+  selected = el; refresh();
+  post({ type: 'move', at: Number(el.getAttribute('data-vz-at')), tag: el.tagName.toLowerCase(),
+    target: Number(d.el.getAttribute('data-vz-at')), targetTag: d.el.tagName.toLowerCase(), where: d.where });
+}
+on(document, 'pointerup', function(){ endDrag(true); }, true);
+on(window, 'blur', function(){ endDrag(false); });
+on(document, 'keydown', function(e){ if (drag && e.key === 'Escape') { endDrag(false); } }, true);
+
 on(window, 'message', function(e){
   var m = e.data;
   if (!m || m.vzCanvas !== 1 || e.source !== PARENT) { return; }
   if (m.type === 'mode') { setMode(m.mode); }
   if (m.type === 'links') { lastLinks = ''; collectLinks(); }
   if (m.type === 'clear') { selected = null; refresh(); }
+  if (m.type === 'preview') {
+    var pe = byAt(m.at);
+    if (pe) { for (var k in m.props) { if (m.props[k] === null || m.props[k] === '') { pe.style.removeProperty(k); } else { pe.style.setProperty(k, m.props[k]); } } refresh(); }
+  }
+  if (m.type === 'previewReset') { var re = byAt(m.at); if (re) { re.setAttribute('style', m.style || ''); if (!m.style) { re.removeAttribute('style'); } refresh(); } }
+  if (m.type === 'previewText') { var te = byAt(m.at); if (te && te.children.length === 0) { te.textContent = m.text; refresh(); } }
+  if (m.type === 'previewAttr') { var ae = byAt(m.at); if (ae) { if (m.value === null) { ae.removeAttribute(m.name); } else { ae.setAttribute(m.name, m.value); } refresh(); } }
+  if (m.type === 'restore') {
+    if (m.sy) { scrollTo(0, m.sy); }
+    var se = byAt(m.at);
+    if (se) { selected = se; refresh(); }
+    if (m.report) { post({ type: 'reselected', info: se ? info(se) : null }); }
+  }
+  if (m.type === 'ancestor') {
+    var up = selected;
+    for (var u = 0; u < m.levels && up && up.parentElement && up.parentElement !== document.body; u++) { up = up.parentElement; }
+    if (up) { selected = up; refresh(); post({ type: 'inspect', info: info(up) }); }
+  }
   if (m.type === 'flash') {
     var el = keyed[m.key];
     if (!el) { return; }

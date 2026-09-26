@@ -24,7 +24,7 @@
  * because it is itself inside one.
  */
 export function siteCanvasHtml(): string {
-	return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body class="inspect">${BODY}<script>${SCRIPT_A}${SCRIPT_B}${SCRIPT_C}</script></body></html>`;
+	return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body class="inspect">${BODY}<script>${SCRIPT_A}${SCRIPT_B}${SCRIPT_D}${SCRIPT_C}</script></body></html>`;
 }
 
 const CSS = String.raw`
@@ -95,6 +95,25 @@ button,input{font:inherit;color:inherit}
 #panel .code:hover{text-decoration:underline}
 #panel .ms{float:right;color:var(--muted);font-variant-numeric:tabular-nums}
 #panel .loading{color:var(--muted);margin-top:10px}
+#panel .crumb button{border:0;background:transparent;color:inherit;font:inherit;padding:0 1px;cursor:pointer;border-radius:3px}
+#panel .crumb button:hover{color:var(--fg);background:rgba(128,128,128,.2)}
+#panel .crumb button:last-child{color:var(--accent)}
+.edit{margin-top:10px;padding:12px;border-radius:10px;border:1px solid var(--line);background:rgba(128,128,128,.06)}
+.edit h3{margin:0 0 10px!important}
+.edit .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.edit .field{display:flex;flex-direction:column;gap:3px;min-width:0}
+.edit .field.full{grid-column:1 / -1}
+.edit .field>span{font-size:11px;color:var(--muted)}
+.edit input,.edit select,.edit textarea{width:100%;min-width:0;padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--vscode-input-background,transparent);color:var(--vscode-input-foreground,inherit);font:12.5px var(--vscode-font-family,system-ui)}
+.edit textarea{resize:vertical;font-size:13px;line-height:1.4}
+.edit input[type=color]{height:28px;padding:2px 3px;cursor:pointer}
+.edit .seg{display:flex}
+.edit .seg button{flex:1;padding:4px 0;font-size:12px}
+.edit .note{margin:0;color:var(--muted);font-size:12px}
+.edit .foot{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.edit .foot .btn{margin-left:auto;font-size:11.5px;padding:3px 8px}
+#hint.bad{border-color:rgba(229,72,77,.6);color:#ff8589}
+#hint.ok{border-color:rgba(34,197,94,.5);color:#86efac}
 #panel pre{margin:8px 0 0;padding:8px 10px;border-radius:6px;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,.25));font:11.5px/1.5 var(--vscode-editor-font-family,ui-monospace,Menlo,monospace);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
 `;
 
@@ -104,6 +123,7 @@ const BODY = String.raw`
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
+  <button class="btn" id="undo" title="Undo the last change to the site (⌘Z)">Undo</button><button class="btn" id="redo" title="Redo (⇧⌘Z)">Redo</button>
   <label id="src" title="Leave empty to show this folder's own files. For an app that needs a server (Next.js, Vite…), start it and put its address here.">App URL <input id="app" placeholder="empty: this folder's files" spellcheck="false"></label>
   <span id="status"></span>
 </div>
@@ -111,6 +131,7 @@ const BODY = String.raw`
 <div id="labels"></div>
 <div id="hint"></div>
 <aside id="panel" hidden></aside>
+<datalist id="vz-pages"></datalist>
 `;
 
 const SCRIPT_A = String.raw`
@@ -377,6 +398,13 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'f' || e.key === 'F') { fit(); }
   if (e.key === 'Escape') { closePanel(); }
 });
+document.addEventListener('keydown', function(e){
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z') && !(e.target && /^(input|textarea|select)$/i.test(e.target.tagName))) {
+    e.preventDefault(); vscode.postMessage({ type: e.shiftKey ? 'redo' : 'undo' });
+  }
+});
+$('undo').addEventListener('click', function(){ vscode.postMessage({ type: 'undo' }); });
+$('redo').addEventListener('click', function(){ vscode.postMessage({ type: 'redo' }); });
 Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-mode')); }); });
 Array.prototype.forEach.call(document.querySelectorAll('#devices button'), function(b){ b.addEventListener('click', function(){ setDevice(b.getAttribute('data-dev')); build(); fit(); }); });
 $('fit').addEventListener('click', fit);
@@ -389,6 +417,7 @@ app.addEventListener('blur', commitApp);
 
 const SCRIPT_C = String.raw`
 function closePanel(){
+  flush();
   if (panel.hidden) { return; }
   panel.hidden = true;
   S.panelReq = 0;
@@ -402,7 +431,8 @@ function panelTop(kind){
   panel.appendChild(top);
 }
 function openPanel(c, info){
-  info.page = c.page.id;
+  info.page = fileOf(c);
+  S.cur = { c: c, info: info };
   var req = ++S.req;
   S.panelReq = req;
   panel.hidden = false;
@@ -443,7 +473,18 @@ function renderPanel(x){
   panelTop(x.kind);
   panel.appendChild(el('h2', '', x.title));
   panel.appendChild(el('p', 'summary', x.summary));
-  if (x.breadcrumb && x.breadcrumb.length) { panel.appendChild(el('div', 'crumb', x.breadcrumb.join('  ›  '))); }
+  if (x.breadcrumb && x.breadcrumb.length) {
+    var crumb = el('div', 'crumb');
+    x.breadcrumb.forEach(function(name, i){
+      if (i) { crumb.appendChild(document.createTextNode('  ›  ')); }
+      var b = el('button', '', name);
+      b.title = i === x.breadcrumb.length - 1 ? 'This element' : 'Select this larger element instead (to edit or drag it)';
+      b.addEventListener('click', function(){ if (S.cur) { tell(S.cur.c, { type: 'ancestor', levels: x.breadcrumb.length - 1 - i }); } });
+      crumb.appendChild(b);
+    });
+    panel.appendChild(crumb);
+  }
+  if (S.cur) { panel.appendChild(editSection(S.cur.c, S.cur.info)); }
   section('When you use it', x.actions.map(function(a){ return item(a.title, a.detail, a.code, null, a.snippet); }));
   if (x.destination) {
     var dst = x.destination, extra = [];
@@ -472,8 +513,14 @@ window.addEventListener('message', function(e){
   if (m.vz === 1) {
     var c = cardOf(e.source);
     if (!c) { return; }
-    if (m.type === 'hello') { c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode }); badges(c); drawWires(); }
-    else if (m.type === 'links') { c.links = m.items || []; badges(c); drawWires(); }
+    if (m.type === 'hello') {
+      c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode }); badges(c); drawWires();
+      if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
+    }
+    else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); drawWires(); }
+    else if (m.type === 'move') { move(c, m); }
+    else if (m.type === 'reselected') { reselected(c, m.info); }
+    else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
     else if (m.type === 'hover') { S.hot = m.key ? { c: c, key: m.key } : null; drawWires(); }
     else if (m.type === 'inspect') { openPanel(c, m.info); }
     else if (m.type === 'toggle') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
@@ -485,6 +532,8 @@ window.addEventListener('message', function(e){
   }
   if (m.type === 'init') {
     S.pages = m.pages || [];
+    var dl = $('vz-pages'); dl.innerHTML = '';
+    S.pages.forEach(function(p){ var o = document.createElement('option'); o.value = p.file; dl.appendChild(o); });
     app.value = m.appUrl || ''; app.setAttribute('data-was', app.value);
     app.placeholder = m.suggest ? 'e.g. ' + m.suggest : 'empty: this folder’s files';
     $('status').textContent = m.status || '';
@@ -498,6 +547,18 @@ window.addEventListener('message', function(e){
     if (!saved.z || m.fresh) { if (S.cards.length) { focusCard(S.cards[0], false); } else { fit(); } saved.z = S.z; } else { apply(); drawWires(); }
   } else if (m.type === 'explain' && m.req === S.panelReq) {
     renderPanel(m.result);
+  } else if (m.type === 'edited') {
+    edited(m);
+  } else if (m.type === 'editFailed') {
+    S.saving = false; S.waiting = null;
+    notice(m.reason, true);
+    if (m.reload) { reloadFile(m.file, null, null); closePanel(); }
+  } else if (m.type === 'undone') {
+    closePanel();
+    reloadFile(m.file, null, null);
+    notice(m.text, false);
+  } else if (m.type === 'notice') {
+    notice(m.text, !!m.bad);
   }
 });
 
@@ -505,4 +566,188 @@ setMode(S.mode);
 setDevice(S.device);
 vscode.postMessage({ type: 'ready' });
 })();
+`;
+
+const SCRIPT_D = String.raw`
+function fileOf(c){
+  var t = S.match[routeOf(c.path || c.page.path)];
+  return (t && t.page.file) || c.page.file;
+}
+var noticeTimer = null;
+function notice(text, bad){
+  var h = $('hint');
+  h.className = bad ? 'bad' : 'ok';
+  h.textContent = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(function(){ h.className = ''; setMode(S.mode); }, bad ? 6000 : 2500);
+}
+function reloadFile(file, at, reporter){
+  S.cards.forEach(function(c){
+    if (fileOf(c) !== file) { return; }
+    c.restore = { sy: c.sy || 0, at: c === reporter ? at : null, report: c === reporter };
+    var base = c.page.url.replace(/^(https?:\/\/[^\/]+).*$/, '$1');
+    c.frame.src = base + (c.path || c.page.path) + '?vz=' + Date.now();
+  });
+}
+function edited(m){
+  notice('Saved to ' + m.file, false);
+  reloadFile(m.file, m.at, S.editCard || null);
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(function(){ if (S.saving) { S.saving = false; flushWaiting(); } }, 5000);
+}
+function reselected(c, info){
+  if (S.cur && S.cur.c === c && info) {
+    var keep = S.cur.info;
+    for (var k in info) { if (k !== 'page') { keep[k] = info[k]; } }
+    keep.page = fileOf(c);
+  }
+  S.saving = false;
+  flushWaiting();
+}
+function flushWaiting(){ if (S.waiting) { var w = S.waiting; S.waiting = null; send(w); } }
+
+var pend = null;
+function queue(c, info, kind, key, value){
+  if (pend && (pend.info !== info || pend.c !== c)) { flush(); }
+  if (!pend) { pend = { c: c, info: info, style: {}, attrs: {}, text: null, any: false }; }
+  var props = {};
+  if (kind === 'style') { pend.style[key] = value; props[key] = value; tell(c, { type: 'preview', at: info.at, props: props }); }
+  if (kind === 'text') { pend.text = value; tell(c, { type: 'previewText', at: info.at, text: value }); }
+  if (kind === 'attr') { pend.attrs[key] = value; tell(c, { type: 'previewAttr', at: info.at, name: key, value: value }); }
+  pend.any = true;
+  clearTimeout(pend.timer);
+  pend.timer = setTimeout(flush, 700);
+}
+function flush(){
+  if (!pend) { return; }
+  var p = pend; pend = null; clearTimeout(p.timer);
+  if (!p.any) { return; }
+  if (S.saving) { if (S.waiting) { merge(S.waiting, p); } else { S.waiting = p; } return; }
+  send(p);
+}
+function merge(a, b){
+  for (var k in b.style) { a.style[k] = b.style[k]; }
+  for (var n in b.attrs) { a.attrs[n] = b.attrs[n]; }
+  if (b.text !== null) { a.text = b.text; }
+}
+function send(p){
+  var ops = [];
+  if (Object.keys(p.style).length) { ops.push({ op: 'style', props: p.style }); }
+  if (p.text !== null) { ops.push({ op: 'text', text: p.text }); }
+  for (var k in p.attrs) { ops.push({ op: 'attr', name: k, value: p.attrs[k] }); }
+  if (!ops.length) { return; }
+  S.saving = true; S.editCard = p.c;
+  vscode.postMessage({ type: 'edit', file: fileOf(p.c), at: p.info.at, tag: p.info.tag, ops: ops });
+}
+function move(c, m){
+  flush();
+  if (S.saving) { notice('Still saving the last change. Try the move again in a moment.', true); reloadFile(fileOf(c), null, null); return; }
+  S.saving = true; S.editCard = c;
+  if (!S.cur || S.cur.c !== c || S.cur.info.at !== m.at) { closePanel(); }
+  vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.at, tag: m.tag, ops: [{ op: 'move', target: m.target, targetTag: m.targetTag, where: m.where }] });
+}
+
+var FONTS = [['Georgia', 'Georgia, serif'], ['Times', '"Times New Roman", Times, serif'], ['Palatino', 'Palatino, "Palatino Linotype", serif'],
+  ['System', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'], ['Helvetica', '"Helvetica Neue", Helvetica, Arial, sans-serif'],
+  ['Verdana', 'Verdana, Geneva, sans-serif'], ['Trebuchet', '"Trebuchet MS", sans-serif'], ['Avenir', 'Avenir, "Avenir Next", sans-serif'],
+  ['Courier', '"Courier New", Courier, monospace'], ['Monospace', 'ui-monospace, Menlo, Consolas, monospace']];
+function hex(c){
+  var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s\/]+([\d.]+))?/.exec(c || '');
+  if (!m) { return null; }
+  if (m[4] !== undefined && Number(m[4]) === 0) { return null; }
+  return '#' + [m[1], m[2], m[3]].map(function(v){ var h = Math.round(Number(v)).toString(16); return h.length < 2 ? '0' + h : h; }).join('');
+}
+function num(v){ var n = parseFloat(v); return isNaN(n) ? '' : String(Math.round(n * 10) / 10); }
+function inlineOf(info){
+  var out = {};
+  String(info.inlineStyle || '').split(';').forEach(function(d){ var i = d.indexOf(':'); if (i > 0) { out[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).trim(); } });
+  return out;
+}
+
+function editSection(c, info){
+  var wrap = el('div', 'edit');
+  wrap.appendChild(el('h3', '', 'Edit'));
+  if (!info.fromDisk) { wrap.appendChild(el('p', 'note', 'Editing works on pages served from this folder\u2019s HTML files. Pages from a running app (App URL) are read-only for now.')); return wrap; }
+  if (info.at === null || info.at === undefined) { wrap.appendChild(el('p', 'note', 'A script created this after the page loaded, so it isn\u2019t in the HTML file. Change it in the script instead.')); return wrap; }
+  var grid = el('div', 'grid'); wrap.appendChild(grid);
+  var st = info.styles || {}, own = inlineOf(info), tag = info.tag, attrs = info.attrs || {};
+  function field(label, control, full){ var f = el('label', 'field' + (full ? ' full' : '')); f.appendChild(el('span', '', label)); f.appendChild(control); grid.appendChild(f); return control; }
+  function input(type, value, attrsMap){ var i = document.createElement('input'); i.type = type; i.value = value; for (var k in (attrsMap || {})) { i.setAttribute(k, attrsMap[k]); } return i; }
+  function style(control, prop, unit, evt){
+    control.addEventListener(evt || 'input', function(){
+      var v = control.value.trim();
+      queue(c, info, 'style', prop, v === '' ? null : (unit && /^-?[\d.]+$/.test(v) ? v + unit : v));
+    });
+    return control;
+  }
+  function select(options, current){
+    var s = document.createElement('select');
+    options.forEach(function(o){ var op = document.createElement('option'); op.value = o[1]; op.textContent = o[0]; if (o[1] === current) { op.selected = true; } s.appendChild(op); });
+    return s;
+  }
+  function seg(options, current, prop){
+    var box = el('div', 'seg');
+    options.forEach(function(o){
+      var b = el('button', o[1] === current ? 'on' : '', o[0]); b.type = 'button';
+      b.addEventListener('click', function(e){
+        e.preventDefault();
+        Array.prototype.forEach.call(box.children, function(x){ x.classList.remove('on'); });
+        b.classList.add('on');
+        queue(c, info, 'style', prop, o[1]);
+      });
+      box.appendChild(b);
+    });
+    return box;
+  }
+
+  var media = /^(img|input|select|textarea|svg|video|audio|iframe|br|hr|picture)$/.test(tag);
+  var words = info.leaf && info.fullText !== null && info.fullText.trim() !== '' && !media;
+  if (words) {
+    var ta = document.createElement('textarea');
+    ta.value = info.fullText.replace(/\s+/g, ' ').trim();
+    ta.rows = Math.min(5, Math.max(1, Math.ceil(ta.value.length / 40)));
+    ta.addEventListener('input', function(){ queue(c, info, 'text', null, ta.value); });
+    field('Text', ta, true);
+  }
+  function attr(name, label, full, list){
+    var i = input('text', attrs[name] || '');
+    if (list) { i.setAttribute('list', list); }
+    i.addEventListener('input', function(){ queue(c, info, 'attr', name, i.value); });
+    field(label, i, full);
+  }
+  if (tag === 'a') { attr('href', 'Links to', true, 'vz-pages'); }
+  if (tag === 'img') { attr('src', 'Picture file', true); attr('alt', 'Description (for screen readers)', true); }
+  if (tag === 'input' || tag === 'textarea') { attr('placeholder', 'Placeholder', true); }
+
+  if (words || (info.text && !media)) {
+    var family = own['font-family'] || '';
+    var fonts = [['Page default (' + String(st.fontFamily || '').split(',')[0].replace(/["']/g, '') + ')', '']].concat(FONTS);
+    if (family && !FONTS.some(function(f){ return f[1] === family; })) { fonts.push([family.split(',')[0].replace(/["']/g, ''), family]); }
+    style(field('Font', select(fonts, family), true), 'font-family', '', 'change');
+    style(field('Size (px)', input('number', num(st.fontSize), { min: 1, step: 1 })), 'font-size', 'px');
+    var w = String(st.fontWeight || '400');
+    style(field('Weight', select([['Light', '300'], ['Regular', '400'], ['Medium', '500'], ['Semibold', '600'], ['Bold', '700'], ['Heavy', '800']], w)), 'font-weight', '', 'change');
+    style(field('Colour', input('color', hex(st.color) || '#000000')), 'color', '');
+    field('Style', seg([['Normal', 'normal'], ['Italic', 'italic']], st.fontStyle === 'italic' ? 'italic' : 'normal', 'font-style'));
+    field('Align', seg([['Left', 'left'], ['Centre', 'center'], ['Right', 'right']], /center/.test(st.textAlign) ? 'center' : /right|end/.test(st.textAlign) ? 'right' : 'left', 'text-align'), true);
+    var lh = parseFloat(st.lineHeight) / parseFloat(st.fontSize);
+    style(field('Line height', input('number', isNaN(lh) ? '' : String(Math.round(lh * 100) / 100), { min: 0.5, step: 0.05 })), 'line-height', '');
+    style(field('Letter spacing (px)', input('number', num(st.letterSpacing) || '0', { step: 0.5 })), 'letter-spacing', 'px');
+  }
+  style(field('Background', input('color', hex(st.backgroundColor) || '#ffffff')), 'background-color', '');
+  style(field('Corner radius (px)', input('number', num(st.borderRadius), { min: 0, step: 1 })), 'border-radius', 'px');
+  style(field('Padding (px)', input('number', num(st.paddingTop), { min: 0, step: 1 })), 'padding', 'px');
+  style(field('Width', input('text', own.width || '', { placeholder: 'auto, 320px, 50%' })), 'width', 'px');
+
+  var foot = el('div', 'foot');
+  foot.appendChild(el('span', '', 'Saves to ' + info.page + ' as you edit · \u2318Z undoes'));
+  if (info.inlineStyle) {
+    var reset = el('button', 'btn', 'Clear its styles');
+    reset.title = 'Remove the style attribute from this element (what it had before is restored by Undo)';
+    reset.addEventListener('click', function(){ tell(c, { type: 'previewReset', at: info.at, style: '' }); queue(c, info, 'attr', 'style', null); });
+    foot.appendChild(reset);
+  }
+  wrap.appendChild(foot);
+  return wrap;
+}
 `;
