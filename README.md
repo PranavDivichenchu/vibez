@@ -134,10 +134,28 @@ of the page is hidden.
 - **Reorder** (toolbar): the other way to drag. The element slots in
   before or after another one (a blue line shows where), which keeps the
   page's layout flowing naturally on every screen size.
-- **Delete something**: select it and press Delete (or Backspace), or use
-  **Delete** at the bottom of its Edit panel. It is removed from the HTML file
-  with everything inside it, without leaving a blank line behind. The page's
-  `<html>`, `<head>`, `<body>` and `<main>` cannot be deleted.
+- **Delete something**: select an element (click it), or a whole page (click
+  its name above the page), then press **Delete** in the toolbar or the Delete
+  key. An element is removed from the HTML file with everything inside it,
+  without leaving a blank line behind. A page asks for a second press, then
+  goes to the Trash along with its links in the navigation of the other pages
+  (links to it elsewhere are left alone and counted). ⌘Z brings either back.
+  The home page, and a page's `<html>`, `<head>`, `<body>` and `<main>`,
+  cannot be deleted.
+- **Drag to delete**: drag an element off its page and onto the element
+  panel (or, when the panel is closed, the strip on the left that says "Drop
+  here to delete"). It is deleted; ⌘Z brings it back.
+- **Link a button or link to a page**: double-click it, then choose the page
+  under **Links to**, or press **Pick a page** and click the page (its name
+  or the page itself). "Another address…" takes any URL.
+- **Follow a line**: click a line between pages. The link it starts from and
+  the page it leads to are highlighted until you click empty space or press Esc.
+- **One page at a time**: choose a page in the toolbar's page list (or
+  **⤢ edit alone** beside its name) to edit it on its own; **All pages** or
+  **✕ all pages** shows them all again.
+- **View site ↗** opens the selected page in your browser, exactly as a
+  visitor sees it: plain HTML, with nothing of Vibez in it. Links there keep
+  working as long as Vibez is open.
 - **Undo / Redo** (`⌘Z`, `⇧⌘Z`, or the toolbar) cover every canvas change.
   A file with unsaved changes in an editor is never written, and a change is
   refused if the file no longer matches the page on screen.
@@ -204,8 +222,12 @@ searchable and grouped:
   block
 - **Navigation**: Link row, social links, back to top
 
-Drag a tile onto a page (a blue line or box shows where it will land), or
-click it to add it right after the selected element. The new element is
+Drag a tile onto a page and it lands exactly where you let go: a dashed box
+shows its size and place while you drag, and it is saved into the section
+under the pointer with that offset, the same way **Move freely** places a
+dragged element. With **Reorder** on, it slots into the layout instead (a
+blue line or box shows where). Or click a tile to add it right after the
+selected element. The new element is
 selected with its **Edit** panel open, and adding it is one undo step.
 
 Elements pick up your site's fonts and its accent colour (read from its
@@ -226,12 +248,7 @@ New pages copy everything outside the `<main>` of the site's home page (its
 head, header, navigation, footer and scripts). Each template brings a small
 stylesheet scoped to `.vz-page` that inherits your fonts and colours. Adding a
 page is one undo step, links included: ⌘Z on the canvas takes it all back.
-**Your pages** lists every page with Show (on the canvas), Code and
-**Delete**. Delete asks once, then moves the file to the Trash and takes its
-link out of the navigation on the other pages, as one step that ⌘Z on the
-canvas undoes. Links to it elsewhere in the content are left alone and
-counted. The home page, which new pages copy their header and footer from,
-cannot be deleted.
+**Your pages** lists every page with Show (on the canvas) and Code.
 
 Static sites are served straight from the folder. For an app that needs a
 server (Next.js, Vite…), start its dev server and put its address in

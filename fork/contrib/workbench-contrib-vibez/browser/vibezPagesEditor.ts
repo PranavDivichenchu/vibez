@@ -11,13 +11,14 @@ import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
+import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { EditError, moveElement, removeElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
-import { ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
+import { ELEMENT_CSS, ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
 import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -28,7 +29,8 @@ import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../w
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { siteCanvasHtml } from './vibezSiteCanvas.js';
-import { siteHistory } from './vibezSiteHistory.js';
+import { SiteFileChange, siteHistory } from './vibezSiteHistory.js';
+import { linksTo, relativeHref, removeNavLink } from '../../../../platform/vibez/common/vibezTemplates.js';
 
 const APP_URL_KEY = 'vibez.site.appUrl';
 const MAX_FILE_BYTES = 512_000;
@@ -93,6 +95,7 @@ export class VibezPagesEditor extends EditorPane {
 		@IWebviewService private readonly webviews: IWebviewService,
 		@IVibezCaptureService private readonly capture: IVibezCaptureService,
 		@ITextFileService private readonly textFiles: ITextFileService,
+		@IOpenerService private readonly opener: IOpenerService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
 		this._register(siteHistory.onDidChange(e => {
@@ -208,6 +211,17 @@ export class VibezPagesEditor extends EditorPane {
 			case 'addPage':
 				await this.editors.openEditor(new VibezDashboardInput(), { pinned: true });
 				return;
+			case 'viewInBrowser': {
+				// Only this site's own addresses: the canvas never opens anything else.
+				const url = String(message.url ?? '');
+				const appUrl = this.siteStorage.get(APP_URL_KEY, StorageScope.WORKSPACE, '');
+				if (/^http:\/\/127\.0\.0\.1:\d+\//.test(url) || (appUrl && url.startsWith(appUrl.replace(/\/$/, '')))) {
+					await this.opener.open(URI.parse(url), { openExternal: true });
+				}
+				return;
+			}
+			case 'deletePage':
+				return this.deletePage(String(message.file ?? ''));
 			case 'open':
 				return this.openSource(String(message.file), Number(message.line) || 1);
 			case 'graph': {
@@ -255,7 +269,7 @@ export class VibezPagesEditor extends EditorPane {
 		let html = before;
 		let where = at ?? -1;
 		let removed = false;
-		if (at === null && !ops.every(op => op.op === 'insert')) {
+		if (at === null && ops[0]?.op !== 'insert') {
 			return fail('Choose an element on the page first.');
 		}
 		try {
@@ -276,6 +290,8 @@ export class VibezPagesEditor extends EditorPane {
 					case 'insert':
 						({ html, at: where } = insertElement(html, String(op.element), at === null ? null : where, op.where === 'before' || op.where === 'inside' ? op.where : 'after', tag || undefined, op.accent ?? null));
 						at = where;
+						// Later ops in this edit (placing it exactly where it was dropped) apply to the new element.
+						tag = '';
 						break;
 					case 'remove':
 						html = removeElement(html, where, tag);
@@ -322,6 +338,76 @@ export class VibezPagesEditor extends EditorPane {
 		for (const file of result.event.files) {
 			this.post({ type: 'undone', file, text: result.text });
 		}
+	}
+
+	private pendingNotice: string | undefined;
+
+	private takeNotice(): string | undefined {
+		const text = this.pendingNotice;
+		this.pendingNotice = undefined;
+		return text;
+	}
+
+	/** The page new pages copy their header and footer from; it cannot be deleted. */
+	private homeFile(): string | undefined {
+		const html = [...this.sources.keys()].filter(f => /\.html?$/i.test(f));
+		return html.includes('index.html') ? 'index.html'
+			: [...html].sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)[0];
+	}
+
+	/**
+	 * Deletes a page: its file goes to the Trash, and its links in the
+	 * navigation of the other pages go too, all as one undo step. Links to it
+	 * elsewhere in the content are left alone and counted, because taking them
+	 * out could break a sentence.
+	 */
+	private async deletePage(file: string): Promise<void> {
+		const fail = (reason: string) => this.post({ type: 'editFailed', file: '', reason });
+		if (!this.folder || !this.sources.has(file) || !/\.html?$/i.test(file)) {
+			return fail('Only the HTML pages in this folder can be deleted here.');
+		}
+		if (file === this.homeFile()) {
+			return fail(`${file} is the home page. New pages copy their header and footer from it, so it cannot be deleted.`);
+		}
+		const resource = URI.joinPath(this.folder, file);
+		if (this.textFiles.isDirty(resource)) {
+			return fail(`${file} has unsaved changes in an editor. Save or revert them first.`);
+		}
+		const changes: SiteFileChange[] = [{ file, before: this.sources.get(file)!, after: null }];
+		const skipped: string[] = [];
+		let stillLinked = 0;
+		for (const [other, html] of this.sources) {
+			if (!/\.html?$/i.test(other) || other === file) {
+				continue;
+			}
+			const href = relativeHref(other, file);
+			const next = removeNavLink(html, href);
+			stillLinked += linksTo(next ?? html, href);
+			if (next === null) {
+				continue;
+			}
+			if (this.textFiles.isDirty(URI.joinPath(this.folder, other))) {
+				skipped.push(other);
+				continue;
+			}
+			changes.push({ file: other, before: html, after: next });
+		}
+		try {
+			await this.files.del(resource, { useTrash: true }).catch(() => this.files.del(resource));
+		} catch (error) {
+			return fail(`Could not delete ${file}: ${error}`);
+		}
+		this.sources.delete(file);
+		for (const change of changes.slice(1)) {
+			await this.write(URI.joinPath(this.folder, change.file), change.file, change.after!);
+		}
+		siteHistory.record({ label: `deleting the page ${file}`, changes });
+		const unlinked = changes.length - 1;
+		// Shown once the canvas has reloaded without the page.
+		this.pendingNotice = (`Deleted ${file}${unlinked ? ` and its link on ${unlinked} page${unlinked === 1 ? '' : 's'}` : ''}.`
+				+ (stillLinked ? ` ${stillLinked} other link${stillLinked === 1 ? ' still points' : 's still point'} to it.` : '')
+				+ (skipped.length ? ` Skipped ${skipped.join(', ')} (unsaved changes).` : ' \u2318Z brings it back.'));
+		siteHistory.notify({ files: changes.map(c => c.file), structural: true });
 	}
 
 	private async write(resource: URI, file: string, html: string): Promise<void> {
@@ -386,8 +472,9 @@ export class VibezPagesEditor extends EditorPane {
 		const focus = VibezPagesEditor.focusNext;
 		VibezPagesEditor.focusNext = undefined;
 		this.post({
-			type: 'init', pages, fresh, appUrl, suggest, status, focus,
-			elements: ELEMENTS.map(({ id, name, group, description, glyph }) => ({ id, name, group, description, glyph })),
+			type: 'init', pages, fresh, appUrl, suggest, status, focus, home: appUrl ? null : this.homeFile(), notice: this.takeNotice(),
+			elements: ELEMENTS.map(({ id, name, group, description, glyph, html }) => ({ id, name, group, description, glyph, html })),
+			elementCss: ELEMENT_CSS,
 			emptyTitle: framework.length && !appUrl ? 'Start the app to see its pages' : 'No pages found',
 			note: notes.join(' ') || 'Open a folder with .html pages, or a Next.js app with its dev server running.',
 		});

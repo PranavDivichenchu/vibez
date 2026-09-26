@@ -18,7 +18,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { discoverPages, routeOfPath, urlPathOfFile } from '../../../../platform/vibez/common/vibezPages.js';
-import { TEMPLATES, addNavLink, buildPage, linksTo, relativeHref, removeNavLink, slugify, templateById } from '../../../../platform/vibez/common/vibezTemplates.js';
+import { TEMPLATES, addNavLink, buildPage, relativeHref, slugify, templateById } from '../../../../platform/vibez/common/vibezTemplates.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
@@ -148,8 +148,6 @@ export class VibezDashboardEditor extends EditorPane {
 				return this.load();
 			case 'create':
 				return this.createPage(String(message.template), String(message.name ?? ''), String(message.file ?? ''), !!message.nav);
-			case 'delete':
-				return this.deletePage(String(message.file ?? ''));
 			case 'show':
 				return this.showOnCanvas(message.file ? String(message.file) : undefined);
 			case 'open':
@@ -305,59 +303,6 @@ export class VibezDashboardEditor extends EditorPane {
 		VibezPagesEditor.focusNext = target;
 		await this.editors.openEditor(new VibezPagesInput(), { pinned: true });
 		siteHistory.notify({ files: changes.map(c => c.file), structural: true, focus: target });
-	}
-
-	/**
-	 * Deletes a page: its file goes to the Trash, and the links the navigation
-	 * on other pages had to it go too. All of it is one step, so ⌘Z on the
-	 * canvas puts the page and its links back. Links elsewhere in the content
-	 * are left alone and counted, because removing them could break a sentence.
-	 */
-	private async deletePage(file: string): Promise<void> {
-		const fail = (reason: string) => this.post({ type: 'deleteFailed', file, reason });
-		if (!this.folder || !this.sources.has(file) || !/\.html?$/i.test(file)) {
-			return fail('That page is not in this folder any more.');
-		}
-		if (file === this.shellFile) {
-			return fail(`${file} is the home page, and new pages copy their header and footer from it, so it cannot be deleted here.`);
-		}
-		const resource = URI.joinPath(this.folder, file);
-		if (this.textFiles.isDirty(resource)) {
-			return fail(`${file} has unsaved changes in an editor. Save or revert them first.`);
-		}
-		const text = this.sources.get(file)!;
-		const title = titleOf(text) || file;
-		const changes: SiteFileChange[] = [{ file, before: text, after: null }];
-		const skipped: string[] = [];
-		let stillLinked = 0;
-		for (const [other, html] of this.sources) {
-			if (!/\.html?$/i.test(other) || other === file) {
-				continue;
-			}
-			const href = relativeHref(other, file);
-			const next = removeNavLink(html, href);
-			stillLinked += linksTo(next ?? html, href);
-			if (next === null) {
-				continue;
-			}
-			const otherResource = URI.joinPath(this.folder, other);
-			if (this.textFiles.isDirty(otherResource)) {
-				skipped.push(other);
-				continue;
-			}
-			changes.push({ file: other, before: html, after: next });
-		}
-		try {
-			await this.files.del(resource, { useTrash: true }).catch(() => this.files.del(resource));
-		} catch (error) {
-			return fail(`Could not delete ${file}: ${error}`);
-		}
-		for (const change of changes.slice(1)) {
-			await this.files.writeFile(URI.joinPath(this.folder, change.file), VSBuffer.fromString(change.after!));
-		}
-		siteHistory.record({ label: `delete the ${title} page`, changes });
-		this.post({ type: 'deleted', file, unlinked: changes.length - 1, stillLinked, skipped });
-		siteHistory.notify({ files: changes.map(c => c.file), structural: true });
 	}
 
 	private async read(folder: URI, generation: number): Promise<Map<string, string>> {

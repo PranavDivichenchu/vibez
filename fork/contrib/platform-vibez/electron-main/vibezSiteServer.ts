@@ -38,6 +38,8 @@ export interface VibezSiteInfo {
  *
  * Bound to 127.0.0.1 on a port the OS picks. Never serves outside the folder.
  */
+const VIEW_PARAM = '__vibez_view';
+
 export class VibezSiteServer {
 
 	private server: Server | undefined;
@@ -142,6 +144,19 @@ export class VibezSiteServer {
 		}
 		const type = TYPES[extname(full).toLowerCase()] ?? 'application/octet-stream';
 		if (type.startsWith('text/html')) {
+			// A visitor, in a real browser: the page exactly as written, with nothing of Vibez in it.
+			const asked = url.searchParams.has(VIEW_PARAM);
+			if (asked || /(?:^|;\s*)vibez_view=1(?:;|$)/.test(request.headers.cookie ?? '')) {
+				if (asked) {
+					// Remembered by that browser only, so its links keep showing the plain site.
+					// The canvas runs in Vibez, which never gets this cookie.
+					response.setHeader('set-cookie', 'vibez_view=1; Path=/; SameSite=Lax');
+				}
+				const html = await fsp.readFile(full);
+				response.writeHead(200, { 'content-type': type, 'content-length': html.length, 'cache-control': 'no-store' });
+				response.end(html);
+				return;
+			}
 			return this.send(response, 200, annotateHtml(await fsp.readFile(full, 'utf8')), true);
 		}
 		response.writeHead(200, { 'content-type': type, 'content-length': stat.size, 'cache-control': 'no-store' });

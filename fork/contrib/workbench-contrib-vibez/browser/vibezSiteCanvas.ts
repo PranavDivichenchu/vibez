@@ -33,6 +33,9 @@ const CSS = String.raw`
 html,body{margin:0;height:100%;overflow:hidden;background:var(--vscode-editor-background,#1e1e1e);color:var(--fg);font:13px/1.45 var(--vscode-font-family,-apple-system,system-ui,sans-serif)}
 button,input{font:inherit;color:inherit}
 #bar{position:absolute;left:0;right:0;top:0;height:var(--bar);display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--vscode-editor-background);z-index:5;white-space:nowrap;overflow:hidden}
+#bar>*{flex-shrink:0}
+#bar>#src{flex-shrink:1;min-width:0;overflow:hidden}
+#bar>#status{flex-shrink:1;min-width:0}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:4px 10px;cursor:pointer;opacity:.75}
 .seg button+button{border-left:1px solid var(--line)}
@@ -66,6 +69,20 @@ button,input{font:inherit;color:inherit}
 #wires.some .head:not(.hot){fill-opacity:.08}
 #wires .broken{stroke:#E5484D;stroke-opacity:.9;stroke-width:2;fill:none;vector-effect:non-scaling-stroke}
 #wires .x{fill:#E5484D}
+#panel .linkrow{display:flex;gap:6px}
+#panel .linkrow select{flex:1;min-width:0}
+#wires .hitw{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke}
+#wires .w.pin{stroke:var(--accent);stroke-opacity:1;stroke-width:3.5}
+#only{padding:4px 6px;border-radius:7px;border:1px solid var(--line);background:var(--vscode-dropdown-background,transparent);color:var(--vscode-dropdown-foreground,inherit);max-width:160px}
+.label .solo{color:var(--muted);font-size:12px;cursor:pointer;padding:0 3px;border-radius:4px}
+.label .solo:hover{color:var(--accent);background:rgba(128,128,128,.15)}
+#trash{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:200px;z-index:7;display:none;place-items:center;text-align:center;border-radius:12px;border:2px dashed color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 60%,transparent);background:color-mix(in srgb,var(--vscode-editorWidget-background,#252526) 88%,transparent);color:var(--vscode-errorForeground,#f14c4c);font-weight:600;padding:16px;pointer-events:none}
+#trash.on{display:grid}
+#trash.hot,#lib.trash.hot{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 22%,var(--vscode-editorWidget-background,#252526))}
+#lib.trash{outline:2px dashed var(--vscode-errorForeground,#f14c4c);outline-offset:-6px}
+#lib.trash .libtop b::after{content:' · drop here to delete';color:var(--vscode-errorForeground,#f14c4c);font-weight:500}
+.linkpick .card{cursor:crosshair}
+.linkpick .label b{color:var(--accent);text-decoration:underline}
 #labels{position:absolute;left:0;right:0;top:var(--bar);bottom:0;pointer-events:none;overflow:hidden}
 .label{position:absolute;display:flex;align-items:baseline;gap:8px;pointer-events:auto;cursor:pointer;padding:3px 2px;max-width:520px;white-space:nowrap}
 .label b{font-size:13px;font-weight:600}
@@ -117,6 +134,12 @@ button,input{font:inherit;color:inherit}
 .edit .foot .btn + .btn{margin-left:0}
 .btn.danger{color:var(--vscode-errorForeground,#f14c4c);border-color:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 45%,transparent)}
 .btn.danger:hover{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 14%,transparent)}
+#del{min-width:64px;text-align:center}
+.btn.danger.armed{background:var(--vscode-errorForeground,#f14c4c);color:#fff;border-color:transparent}
+.btn:disabled{opacity:.45;cursor:default;background:transparent}
+.label.picked b{color:var(--accent)}
+.label.picked{border-bottom:2px solid var(--accent)}
+.card.picked{box-shadow:0 0 0 4px var(--accent),0 10px 40px rgba(0,0,0,.35)}
 #addel.on{outline:1px solid var(--accent);outline-offset:2px}
 #lib{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:280px;z-index:6;display:flex;flex-direction:column;border-radius:12px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.4)}
 #lib[hidden]{display:none}
@@ -150,9 +173,12 @@ const BODY = String.raw`
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
   <button class="btn primary" id="addel" title="Add text, buttons, pictures, forms and more">+ Element</button>
   <button class="btn primary" id="addpage" title="Add a page from a template">+ Add page</button>
+  <select id="only" title="Show every page, or one page on its own to edit it"><option value="">All pages</option></select>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
   <button class="btn" id="undo" title="Undo the last change to the site (⌘Z)">Undo</button><button class="btn" id="redo" title="Redo (⇧⌘Z)">Redo</button>
+  <button class="btn" id="view" title="Open the site in your browser, as a visitor sees it (Vibez stays out of it)">View site ↗</button>
+  <button class="btn danger" id="del" disabled title="Select an element, or a page by clicking its name, then Delete (or press Delete)">Delete</button>
   <label id="src" title="Leave empty to show this folder's own files. For an app that needs a server (Next.js, Vite…), start it and put its address here.">App URL <input id="app" placeholder="empty: this folder's files" spellcheck="false"></label>
   <span id="status"></span>
 </div>
@@ -160,6 +186,7 @@ const BODY = String.raw`
 <div id="labels"></div>
 <div id="hint"></div>
 <aside id="panel" hidden></aside>
+<div id="trash">Drop here to delete</div>
 <aside id="lib" hidden>
   <div class="libtop"><b>Add an element</b><button class="close" id="libclose" title="Close">×</button></div>
   <input id="libsearch" placeholder="Search: button, image, form…" spellcheck="false">
@@ -238,7 +265,11 @@ function build(){
   labels.innerHTML = '';
   S.cards = []; S.match = {};
   var d = DEV[S.device], x = 0;
-  S.pages.forEach(function(p, i){
+  var n = 0;
+  S.pages.forEach(function(p){
+    // One page on its own: the others are not drawn, and lines to them are not "broken".
+    if (S.only && p.file !== S.only) { if (S.match[p.match] === undefined) { S.match[p.match] = null; } return; }
+    var i = n++;
     var c = { page: p, i: i, x: x, w: d[0], h: d[1], links: [], errors: 0, path: p.path };
     var card = el('div', 'card');
     card.style.left = x + 'px'; card.style.width = d[0] + 'px'; card.style.height = d[1] + 'px';
@@ -253,8 +284,12 @@ function build(){
     lab.appendChild(el('span', 'now', ''));
     lab.appendChild(el('span', 'file', p.file));
     lab.appendChild(el('span', 'badges', ''));
-    lab.title = 'Click to centre this page. Double-click to open ' + p.file + '.';
-    lab.addEventListener('click', function(){ focusCard(c, false); });
+    var solo = el('span', 'solo', S.only ? '\u2715 all pages' : '\u2922 edit alone');
+    solo.title = S.only ? 'Show every page again' : 'Show only this page, to edit it on its own';
+    solo.addEventListener('click', function(e){ e.stopPropagation(); setOnly(S.only ? '' : p.file); });
+    lab.appendChild(solo);
+    lab.title = 'Click to select this page (then Delete removes it). Double-click to open ' + p.file + '.';
+    lab.addEventListener('click', function(){ if (S.linkPick) { linkTo(c); return; } focusCard(c, false); pickPage(c); });
     lab.addEventListener('dblclick', function(){ vscode.postMessage({ type: 'open', file: p.file, line: 1 }); });
     lab.addEventListener('mouseenter', function(){ S.hotCard = c; drawWires(); });
     lab.addEventListener('mouseleave', function(){ S.hotCard = null; drawWires(); });
@@ -336,7 +371,7 @@ function drawWires(){
     lanes[L] = lanes[L] || []; lanes[L].push([lo, hi]);
     pairs[k] = L;
   });
-  svg.classList.toggle('some', !!(S.hot || S.hotCard));
+  svg.classList.toggle('some', !!(S.hot || S.hotCard || S.pin));
   var hotTarget = null, s = 1 / S.z;
   wires.forEach(function(w){
     var c = w.c, l = w.l;
@@ -344,7 +379,8 @@ function drawWires(){
     var off = cy < 0 || cy > c.h;
     var sy = Math.max(6, Math.min(c.h - 6, cy));
     var sx = c.x + c.w;
-    var hot = (S.hot && S.hot.c === c && S.hot.key === l.key) || S.hotCard === c;
+    var pinned = !!(S.pin && S.pin.c === c && S.pin.key === l.key);
+    var hot = (S.hot && S.hot.c === c && S.hot.key === l.key) || S.hotCard === c || pinned;
     if (w.broken) {
       var p = document.createElementNS(NS, 'path');
       p.setAttribute('class', 'broken');
@@ -367,9 +403,17 @@ function drawWires(){
       pts = [[sx, sy], [ex, sy], [ex, ly], [ax, ly], [ax, ty], [t.x - 2, ty]];
     }
     var path = document.createElementNS(NS, 'path');
-    path.setAttribute('class', 'w' + (off ? ' off' : '') + (hot ? ' hot' : ''));
+    path.setAttribute('class', 'w' + (off ? ' off' : '') + (hot ? ' hot' : '') + (pinned ? ' pin' : ''));
     path.setAttribute('d', rounded(pts, 14));
     svg.appendChild(path);
+    var hit = document.createElementNS(NS, 'path');
+    hit.setAttribute('class', 'hitw');
+    hit.setAttribute('d', rounded(pts, 14));
+    (function(c, l, t){ hit.addEventListener('click', function(e){ e.stopPropagation(); pinWire(c, l, t); }); })(c, l, t);
+    var tip = document.createElementNS(NS, 'title');
+    tip.textContent = '\u201c' + (l.text || l.href) + '\u201d on ' + c.page.route + ' \u2192 ' + t.page.route + ' (click to highlight)';
+    hit.appendChild(tip);
+    svg.appendChild(hit);
     var a = 9 * s;
     var head = document.createElementNS(NS, 'path');
     head.setAttribute('class', 'head' + (hot ? ' hot' : ''));
@@ -379,7 +423,7 @@ function drawWires(){
     dot.setAttribute('class', 'head' + (hot ? ' hot' : ''));
     dot.setAttribute('cx', sx); dot.setAttribute('cy', sy); dot.setAttribute('r', 3.5 * s);
     svg.appendChild(dot);
-    if (hot && S.hot) { hotTarget = t; }
+    if (pinned || (hot && S.hot)) { hotTarget = t; }
   });
   if (hotTarget) { hotTarget.card.classList.add('target'); }
 }
@@ -416,6 +460,9 @@ function focusCard(c, flash){
 var drag = null;
 board.addEventListener('pointerdown', function(e){
   if (e.button !== 0 || (e.target.closest && e.target.closest('.card'))) { return; }
+  if (e.target.classList && e.target.classList.contains('hitw')) { return; }
+  if (S.pin) { unpin(); }
+  if (S.linkPick) { endLinkPick(true); }
   drag = { x: e.clientX, y: e.clientY, tx: S.tx, ty: S.ty };
   board.classList.add('dragging');
   board.setPointerCapture(e.pointerId);
@@ -438,8 +485,8 @@ document.addEventListener('keydown', function(e){
   if (e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
   if (e.key === 'f' || e.key === 'F') { fit(); }
-  if (e.key === 'Escape') { closePanel(); }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && S.cur && S.mode === 'inspect') { e.preventDefault(); removeElement(S.cur.c, S.cur.info); return; }
+  if (e.key === 'Escape') { if (S.elDrag) { tell(S.elDrag.c, { type: 'cancelDrag' }); trashOff(); } if (S.linkPick) { endLinkPick(true); } if (S.pin) { unpin(); } closePanel(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && (S.sel || S.pageSel)) { e.preventDefault(); doDelete(); return; }
   var holder = (S.cur && S.cur.c) || (S.lastPlaced && S.lastPlaced.c);
   if (/^Arrow/.test(e.key) && holder && S.mode === 'inspect') {
     var step = e.shiftKey ? 10 : 1;
@@ -453,6 +500,16 @@ document.addEventListener('keydown', function(e){
   }
 });
 $('undo').addEventListener('click', function(){ vscode.postMessage({ type: 'undo' }); });
+$('del').addEventListener('click', function(){ doDelete(); });
+$('only').addEventListener('change', function(){ setOnly($('only').value); });
+$('view').addEventListener('click', function(){
+  var c = S.pageSel || (S.sel && S.sel.c) || S.activeCard || S.cards[0];
+  var p = c ? c.page : S.pages[0];
+  if (!p) { notice('There is no page to open yet.', true); return; }
+  var url = S.appUrl ? S.appUrl.replace(/\/$/, '') + p.path : p.url + (p.url.indexOf('?') < 0 ? '?' : '&') + '__vibez_view';
+  vscode.postMessage({ type: 'viewInBrowser', url: url });
+  notice('Opening ' + p.route + ' in your browser, as a visitor sees it.', false);
+});
 $('redo').addEventListener('click', function(){ vscode.postMessage({ type: 'redo' }); });
 Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-mode')); }); });
 Array.prototype.forEach.call(document.querySelectorAll('#devices button'), function(b){ b.addEventListener('click', function(){ setDevice(b.getAttribute('data-dev')); build(); fit(); }); });
@@ -469,6 +526,7 @@ app.addEventListener('blur', commitApp);
 const SCRIPT_C = String.raw`
 function closePanel(){
   flush();
+  if (S.sel) { S.sel = null; updateDel(); }
   if (panel.hidden) { return; }
   panel.hidden = true;
   S.panelReq = 0;
@@ -484,6 +542,9 @@ function panelTop(kind){
 function openPanel(c, info){
   info.page = fileOf(c);
   S.cur = { c: c, info: info };
+  pickPage(null, true);
+  S.sel = { c: c, at: info.at, tag: info.tag, text: info.text };
+  updateDel();
   var req = ++S.req;
   S.panelReq = req;
   panel.hidden = false;
@@ -565,6 +626,8 @@ window.addEventListener('message', function(e){
     var c = cardOf(e.source);
     if (!c) { return; }
     if (m.type === 'hello') {
+      // The page reloaded: an element picked on it is stale unless the panel will reselect it.
+      if (S.sel && S.sel.c === c && !(S.cur && S.cur.c === c && !panel.hidden)) { S.sel = null; updateDel(); }
       c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode, drag: S.drag }); badges(c); drawWires();
       if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
     }
@@ -572,9 +635,17 @@ window.addEventListener('message', function(e){
     else if (m.type === 'move') { move(c, m); }
     else if (m.type === 'place') { place(c, m); }
     else if (m.type === 'insertDrop') { insertDrop(c, m); }
-    else if (m.type === 'selected') { S.activeCard = c; }
+    else if (m.type === 'selected') {
+      if (S.linkPick) { tell(c, { type: 'clear' }); linkTo(c); return; }
+      S.activeCard = c;
+      if (m.at !== null && m.at !== undefined) { pickPage(null, true); S.sel = { c: c, at: m.at, tag: m.tag, text: m.text }; } else { S.sel = null; }
+      updateDel();
+    }
     else if (m.type === 'nudge') { nudgeSave(c, m); }
-    else if (m.type === 'deleteKey') { removeElement(c, { at: m.at, tag: m.tag, text: m.text }); }
+    else if (m.type === 'dragStart') { trashOn(c); }
+    else if (m.type === 'dragAt') { trashAt(c, m); }
+    else if (m.type === 'dragEnd') { trashOff(); }
+    else if (m.type === 'deleteKey') { S.sel = { c: c, at: m.at, tag: m.tag, text: m.text }; doDelete(); }
     else if (m.type === 'reselected') { reselected(c, m.info); }
     else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
     else if (m.type === 'hover') { S.hot = m.key ? { c: c, key: m.key } : null; drawWires(); }
@@ -588,7 +659,14 @@ window.addEventListener('message', function(e){
   }
   if (m.type === 'init') {
     S.pages = m.pages || [];
+    S.home = m.home || null; S.sel = null; S.pageSel = null; disarm(); S.pin = null; S.appUrl = m.appUrl || '';
+    if (S.only && !S.pages.some(function(p){ return p.file === S.only; })) { S.only = ''; }
+    var only = $('only'); only.innerHTML = '';
+    only.appendChild(new Option('All pages', ''));
+    S.pages.forEach(function(p){ only.appendChild(new Option(p.route + '  \u00b7  ' + p.file, p.file)); });
+    only.value = S.only || '';
     LIB = m.elements || LIB;
+    S.elementCss = m.elementCss || '';
     if (!$('lib').hidden) { renderLib(); }
     var dl = $('vz-pages'); dl.innerHTML = '';
     S.pages.forEach(function(p){ var o = document.createElement('option'); o.value = p.file; dl.appendChild(o); });
@@ -605,6 +683,8 @@ window.addEventListener('message', function(e){
     var want = m.focus ? S.cards.filter(function(c){ return c.page.file === m.focus; })[0] : null;
     if (want) { focusCard(want, true); saved.z = S.z; }
     else if (!saved.z || m.fresh) { if (S.cards.length) { focusCard(S.cards[0], false); } else { fit(); } saved.z = S.z; } else { apply(); drawWires(); }
+    updateDel();
+    if (m.notice) { notice(m.notice, false); }
   } else if (m.type === 'explain' && m.req === S.panelReq) {
     renderPanel(m.result);
   } else if (m.type === 'focus') {
@@ -672,6 +752,7 @@ function reselected(c, info){
     var keep = S.cur.info;
     for (var k in info) { if (k !== 'page') { keep[k] = info[k]; } }
     keep.page = fileOf(c);
+    if (!panel.hidden) { S.sel = { c: c, at: keep.at, tag: keep.tag, text: keep.text }; updateDel(); }
   }
   S.saving = false;
   flushWaiting();
@@ -711,6 +792,144 @@ function send(p){
   S.saving = true; S.editCard = p.c;
   vscode.postMessage({ type: 'edit', file: fileOf(p.c), at: p.info.at, tag: p.info.tag, ops: ops });
 }
+/** One page on its own, to edit it without the others around it; '' shows them all. */
+function setOnly(file){
+  S.only = file || '';
+  $('only').value = S.only;
+  closePanel(); pickPage(null); unpin();
+  build();
+  if (S.only && S.cards[0]) { focusCard(S.cards[0], false); } else { fit(); }
+  saved.z = S.z;
+}
+
+/** A line clicked: the link it starts from and the page it leads to both light up, until you click elsewhere. */
+function pinWire(c, l, t){
+  if (S.pin && S.pin.c !== c) { tell(S.pin.c, { type: 'mark', key: null }); }
+  S.pin = { c: c, key: l.key, t: t };
+  tell(c, { type: 'mark', key: l.key });
+  drawWires();
+  t.card.classList.remove('flash'); void t.card.offsetWidth; t.card.classList.add('flash');
+  notice('\u201c' + (l.text || l.href) + '\u201d on ' + c.page.route + ' goes to ' + t.page.route + '. Click empty space or press Esc to clear.', false);
+}
+function unpin(){
+  if (!S.pin) { return; }
+  tell(S.pin.c, { type: 'mark', key: null });
+  S.pin = null;
+  drawWires();
+}
+
+/** Link picking: after "Pick a page" in the Edit panel, the next page clicked becomes the link's target. */
+function relHref(from, to){
+  var f = from.split('/').slice(0, -1), t = to.split('/'), i = 0;
+  while (i < f.length && i < t.length - 1 && f[i] === t[i]) { i++; }
+  return f.slice(i).map(function(){ return '..'; }).concat(t.slice(i)).join('/');
+}
+function startLinkPick(c, info, done){
+  S.linkPick = { c: c, info: info, done: done };
+  document.body.classList.add('linkpick');
+  notice('Click the page this should link to (its name or the page itself). Esc cancels.', false);
+}
+function endLinkPick(cancelled){
+  if (!S.linkPick) { return; }
+  S.linkPick = null;
+  document.body.classList.remove('linkpick');
+  if (cancelled) { notice('Linking cancelled.', false); }
+}
+function linkTo(target){
+  var p = S.linkPick;
+  if (!p) { return; }
+  var href = relHref(fileOf(p.c), target.page.file);
+  endLinkPick(false);
+  queue(p.c, p.info, 'attr', 'href', href);
+  if (p.done) { p.done(href); }
+  notice('Linked to ' + target.page.route + ' (' + href + ').', false);
+}
+
+/** Dragging an element: the element panel (or, when it is closed, the same spot) takes it for deleting. */
+function trashZone(){ return !$('lib').hidden ? $('lib') : $('trash'); }
+function trashOn(c){
+  S.elDrag = { c: c, over: false };
+  if ($('lib').hidden) { $('trash').classList.add('on'); } else { $('lib').classList.add('trash'); }
+}
+function trashAt(c, m){
+  if (!S.elDrag || S.elDrag.c !== c) { return; }
+  var r = c.frame.getBoundingClientRect();
+  var x = r.left + m.x * S.z, y = r.top + m.y * S.z;
+  var z = trashZone().getBoundingClientRect();
+  var over = x >= z.left && x <= z.right && y >= z.top && y <= z.bottom;
+  if (over !== S.elDrag.over) {
+    S.elDrag.over = over;
+    trashZone().classList.toggle('hot', over);
+    tell(c, { type: 'overTrash', on: over });
+  }
+}
+function trashOff(){
+  S.elDrag = null;
+  $('trash').classList.remove('on', 'hot');
+  $('lib').classList.remove('trash', 'hot');
+}
+
+/**
+ * The toolbar's Delete, and the Delete key: whatever is selected goes. An
+ * element goes at once (⌘Z brings it back). A page is bigger, so it asks for
+ * a second press first.
+ */
+function isHome(c){ return !!S.home && c && c.page.file === S.home; }
+function describeSel(){
+  if (S.sel) { return S.sel.text ? '\u201c' + String(S.sel.text).slice(0, 40) + '\u201d' : '<' + (S.sel.tag || 'element') + '>'; }
+  if (S.pageSel) { return 'the page ' + S.pageSel.page.file; }
+  return '';
+}
+function updateDel(){
+  var b = $('del');
+  if (!b) { return; }
+  var armed = S.armed && S.armed === S.pageSel;
+  b.classList.toggle('armed', !!armed);
+  b.textContent = armed ? 'Delete?' : 'Delete';
+  if (S.sel) {
+    var frame = /^(html|head|body|main)$/i.test(S.sel.tag || '');
+    b.disabled = frame;
+    b.title = frame ? 'The page\u2019s <' + S.sel.tag + '> cannot be deleted' : 'Delete ' + describeSel() + ' (Delete key \u00b7 \u2318Z brings it back)';
+  } else if (S.pageSel) {
+    b.disabled = isHome(S.pageSel) || S.pageSel.page.file.indexOf('.htm') < 0;
+    b.title = isHome(S.pageSel) ? S.pageSel.page.file + ' is the home page: new pages copy their header and footer from it'
+      : armed ? 'Press again to delete ' + S.pageSel.page.file + ' and its navigation links' : 'Delete ' + describeSel() + ' and its links in the navigation (asks once \u00b7 \u2318Z brings it back)';
+  } else {
+    b.disabled = true;
+    b.title = 'Select an element, or a page by clicking its name, then Delete (or press Delete)';
+  }
+}
+function pickPage(c, quiet){
+  if (S.pageSel && S.pageSel !== c) { S.pageSel.label.classList.remove('picked'); S.pageSel.card.classList.remove('picked'); }
+  S.pageSel = c || null;
+  disarm();
+  if (c) {
+    closePanel();
+    S.cards.forEach(function(x){ tell(x, { type: 'clear' }); });
+    S.sel = null;
+    c.label.classList.add('picked'); c.card.classList.add('picked');
+  }
+  if (!quiet || c) { updateDel(); }
+}
+function disarm(){ clearTimeout(S.armTimer); S.armed = null; }
+function doDelete(){
+  if (S.sel) { removeElement(S.sel.c, S.sel); return; }
+  var c = S.pageSel;
+  if (!c) { notice('Select an element, or click a page\u2019s name to select the page.', true); return; }
+  if (isHome(c)) { notice(c.page.file + ' is the home page: new pages copy their header and footer from it, so it cannot be deleted.', true); return; }
+  if (S.armed !== c) {
+    S.armed = c;
+    clearTimeout(S.armTimer);
+    S.armTimer = setTimeout(function(){ S.armed = null; updateDel(); }, 8000);
+    updateDel();
+    notice('Press Delete again to delete ' + c.page.file + ' and its links in the navigation. \u2318Z brings it back.', true);
+    return;
+  }
+  disarm();
+  vscode.postMessage({ type: 'deletePage', file: c.page.file });
+  pickPage(null);
+}
+
 /** Deletes the element from its file. One step in the undo history, like every other edit. */
 function removeElement(c, info){
   if (!c || !info || info.at === null || info.at === undefined || info.at < 0) { return; }
@@ -721,6 +940,7 @@ function removeElement(c, info){
   closePanel();
   tell(c, { type: 'clear' });
   vscode.postMessage({ type: 'edit', file: fileOf(c), at: info.at, tag: info.tag, ops: [{ op: 'remove' }] });
+  S.sel = null; updateDel();
   var what = info.text ? '\u201c' + String(info.text).slice(0, 40) + '\u201d' : (info.tag ? '<' + info.tag + '>' : 'it');
   notice('Deleted ' + what + '. \u2318Z brings it back.', false);
 }
@@ -808,7 +1028,10 @@ function insertDrop(c, m){
   flush();
   if (S.saving) { notice('Still saving the last change. Try again in a moment.', true); return; }
   S.saving = true; S.editCard = c; S.openAfter = true; S.activeCard = c;
-  vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.target, tag: m.targetTag || '', ops: [{ op: 'insert', element: m.element, where: m.where, accent: m.accent }] });
+  var ops = [{ op: 'insert', element: m.element, where: m.where, accent: m.accent }];
+  // Dropped with Move freely on: it goes exactly where it was let go, in the same undo step.
+  if (m.props && Object.keys(m.props).length) { ops.push({ op: 'style', props: m.props }); }
+  vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.target, tag: m.targetTag || '', ops: ops });
 }
 /*
  * Dragging a tile onto a page. Uses pointer events rather than HTML drag and
@@ -849,7 +1072,7 @@ function libMove(ev){
   if (LD.on && (!hit || hit.c !== LD.on)) { tell(LD.on, { type: 'libHover', x: null }); }
   LD.on = hit ? hit.c : null;
   LD.ghost.classList.toggle('none', !hit);
-  if (hit) { tell(hit.c, { type: 'libHover', x: hit.x, y: hit.y }); }
+  if (hit) { tell(hit.c, { type: 'libHover', x: hit.x, y: hit.y, html: p.item.html, css: S.elementCss }); }
 }
 function libEnd(ev, cancel){
   var p = LD.press;
@@ -865,7 +1088,7 @@ function libEnd(ev, cancel){
   LD.on = null;
   if (!hit) { if (!cancel) { notice('Drop it onto a page to add it.'); } return; }
   S.activeCard = hit.c;
-  tell(hit.c, { type: 'libDrop', element: p.item.id, x: hit.x, y: hit.y });
+  tell(hit.c, { type: 'libDrop', element: p.item.id, x: hit.x, y: hit.y, html: p.item.html, css: S.elementCss });
 }
 document.addEventListener('pointermove', libMove, true);
 document.addEventListener('pointerup', function(ev){ libEnd(ev, false); }, true);
@@ -943,7 +1166,38 @@ function editSection(c, info){
     i.addEventListener('input', function(){ queue(c, info, 'attr', name, i.value); });
     field(label, i, full);
   }
-  if (tag === 'a') { attr('href', 'Links to', true, 'vz-pages'); }
+  if (tag === 'a') { linkField(); }
+  /** Where a link goes: one of the site's pages from a list, a page picked on the canvas, or any other address. */
+  function linkField(){
+    var cur = attrs.href || '';
+    var row = el('div', 'linkrow');
+    var pick = document.createElement('select');
+    S.pages.forEach(function(p){ pick.appendChild(new Option(p.route + '  \u00b7  ' + p.file, relHref(info.page || fileOf(c), p.file))); });
+    pick.appendChild(new Option('Another address\u2026', '__other'));
+    var other = input('text', cur, { placeholder: 'https://example.com, or page.html' });
+    other.setAttribute('list', 'vz-pages');
+    function sync(v){
+      var bare = String(v || '').split('#')[0];
+      var known = !!bare && Array.prototype.some.call(pick.options, function(o){ return o.value === bare; });
+      pick.value = known ? bare : '__other';
+      other.style.display = known ? 'none' : '';
+      other.value = v || '';
+    }
+    sync(cur);
+    pick.addEventListener('change', function(){
+      if (pick.value === '__other') { other.style.display = ''; other.focus(); return; }
+      other.value = pick.value;
+      queue(c, info, 'attr', 'href', pick.value);
+    });
+    other.addEventListener('input', function(){ queue(c, info, 'attr', 'href', other.value); });
+    var pb = el('button', 'btn', 'Pick a page');
+    pb.type = 'button';
+    pb.title = 'Then click the page this should go to, on the canvas';
+    pb.addEventListener('click', function(e){ e.preventDefault(); startLinkPick(c, info, sync); });
+    row.appendChild(pick); row.appendChild(pb);
+    var f = field('Links to', row, true);
+    f.parentNode.appendChild(other);
+  }
   if (tag === 'img') { attr('src', 'Picture file', true); attr('alt', 'Description (for screen readers)', true); }
   if (tag === 'input' || tag === 'textarea') { attr('placeholder', 'Placeholder', true); }
   if (tag === 'video' || tag === 'audio') { attr('src', tag === 'video' ? 'Video file' : 'Audio file', true); }
@@ -985,13 +1239,6 @@ function editSection(c, info){
   }
   var foot = el('div', 'foot');
   foot.appendChild(el('span', '', 'Saves to ' + info.page + ' as you edit · \u2318Z undoes'));
-  if (!/^(html|head|body|main)$/i.test(info.tag || '')) {
-    var del = el('button', 'btn danger', 'Delete');
-    del.type = 'button';
-    del.title = 'Delete this ' + (info.tag ? '<' + info.tag + '> ' : '') + 'and everything inside it from ' + info.page + ' (Delete key; \u2318Z brings it back)';
-    del.addEventListener('click', function(e){ e.preventDefault(); removeElement(c, info); });
-    foot.appendChild(del);
-  }
   if (info.inlineStyle) {
     var reset = el('button', 'btn', 'Clear its styles');
     reset.title = 'Remove the style attribute from this element (what it had before is restored by Undo)';

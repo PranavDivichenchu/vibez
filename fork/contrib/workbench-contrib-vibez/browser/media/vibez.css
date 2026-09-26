@@ -262,3 +262,20 @@
 @keyframes vz-agent-edit { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, 0); }
 	50% { box-shadow: 0 0 0 6px hsla(var(--actor-hue, 212), 70%, 62%, .35); border-color: hsl(var(--actor-hue, 212), 70%, 62%); } }
 @media (prefers-reduced-motion: reduce) { .vibez-node.vz-agent-scan, .vibez-node.vz-agent-edit { animation-duration: 1ms; animation-iteration-count: 1; } }
+
+/* ------------------------------------------------------- launch tiles */
+
+.vibez-launch { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,.2)); }
+.vibez-tile { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 9px 10px; text-align: left;
+	border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.25)); cursor: pointer; font: inherit;
+	background: var(--vscode-sideBar-background); color: var(--vscode-foreground); transition: background .12s, border-color .12s; }
+.vibez-tile:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+.vibez-tile:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.vibez-tile-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; font-size: 16px !important;
+	background: rgba(128,128,128,.14); color: var(--vscode-foreground); }
+.vibez-tile.primary .vibez-tile-icon { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.vibez-tile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vibez-tile-title { font-size: 13px; font-weight: 600; }
+.vibez-tile-detail { font-size: 11.5px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vibez-tile-go { flex: none; opacity: 0; color: var(--vscode-descriptionForeground); transition: opacity .12s; }
+.vibez-tile:hover .vibez-tile-go { opacity: 1; }

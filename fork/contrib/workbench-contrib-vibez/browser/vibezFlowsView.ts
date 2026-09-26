@@ -63,16 +63,24 @@ export class VibezFlowsView extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		container.classList.add('vibez-flows');
-		const site = dom.append(container, dom.$('button.vibez-open-site'));
-		site.textContent = 'Open Site canvas';
-		this._register(dom.addDisposableListener(site, 'click', () => void this.editorService.openEditor(new VibezPagesInput(), { pinned: true })));
-		const dashboard = dom.append(container, dom.$('button.vibez-open-dashboard'));
-		dashboard.textContent = 'Open Dashboard';
-		this._register(dom.addDisposableListener(dashboard, 'click', () => void this.editorService.openEditor(new VibezDashboardInput(), { pinned: true })));
-		const agents = dom.append(container, dom.$('button.vibez-open-agents'));
-		agents.textContent = 'Open Agents';
-		agents.title = 'Several agents at once, each in its own copy; one measures at a time';
-		this._register(dom.addDisposableListener(agents, 'click', () => void this.viewsService.openView('workbench.view.vibez.queue', true)));
+		// Where to go, as three tiles: what it is, in a few words, and one click away.
+		const launch = dom.append(container, dom.$('.vibez-launch'));
+		const tile = (icon: string, title: string, detail: string, primary: boolean, run: () => void) => {
+			const b = dom.append(launch, dom.$<HTMLButtonElement>(primary ? 'button.vibez-tile.primary' : 'button.vibez-tile'));
+			b.type = 'button';
+			dom.append(b, dom.$(`span.vibez-tile-icon.codicon.codicon-${icon}`));
+			const text = dom.append(b, dom.$('span.vibez-tile-text'));
+			dom.append(text, dom.$('span.vibez-tile-title')).textContent = title;
+			dom.append(text, dom.$('span.vibez-tile-detail')).textContent = detail;
+			dom.append(b, dom.$('span.vibez-tile-go.codicon.codicon-chevron-right'));
+			this._register(dom.addDisposableListener(b, 'click', run));
+		};
+		tile('browser', 'Site canvas', 'Edit every page, live', true,
+			() => void this.editorService.openEditor(new VibezPagesInput(), { pinned: true }));
+		tile('layout', 'Dashboard', 'Pages from templates', false,
+			() => void this.editorService.openEditor(new VibezDashboardInput(), { pinned: true }));
+		tile('hubot', 'Agents', 'Run agents on your code', false,
+			() => void this.viewsService.openView('workbench.view.vibez.queue', true));
 		this.list = dom.append(container, dom.$('.vibez-flow-list'));
 
 		const folder = this.contextService.getWorkspace().folders[0];

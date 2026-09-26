@@ -256,6 +256,9 @@ var css = document.createElement('style');
 css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;border:2px solid #3B82F6;border-radius:4px;background:rgba(59,130,246,.07);display:none;box-sizing:border-box;transition:all .06s ease-out}'
   + '.vz-ov.vz-sel{border-color:#F59E0B;background:rgba(245,158,11,.08)}'
   + '.vz-ov.vz-flash{border-color:#22C55E;background:rgba(34,197,94,.12);transition:none}'
+  + '.vz-ghost{position:fixed;z-index:2147483646;pointer-events:none;display:none;border:2px dashed #2563EB;border-radius:6px;background:rgba(37,99,235,.10);box-sizing:border-box}'
+  + '.vz-ov.vz-mark{border:3px solid #3B82F6;background:rgba(59,130,246,.14);box-shadow:0 0 0 4px rgba(59,130,246,.25);transition:none}'
+  + 'html.vz-trash .vz-lifted,html.vz-trash .vz-dragging{opacity:.35!important;outline:2px dashed #E5484D!important;outline-offset:2px}'
   + '.vz-chip{position:fixed;z-index:2147483647;pointer-events:none;display:none;padding:3px 7px;border-radius:4px;background:#1D4ED8;color:#fff;font:600 11px/1.4 -apple-system,system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)}'
   + '.vz-chip i{font-style:normal;opacity:.75;font-weight:500;margin-left:6px}'
   + '.vz-drop{position:fixed;z-index:2147483647;pointer-events:none;background:#2563EB;border-radius:2px;box-shadow:0 0 0 2px rgba(255,255,255,.9);display:none}'
@@ -264,7 +267,7 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + '.vz-lifted{opacity:.92!important;box-shadow:0 12px 32px rgba(0,0,0,.28)!important;transition:none!important;z-index:2147483000!important;position:relative}'
   + '.vz-guide{position:fixed;z-index:2147483647;pointer-events:none;background:#EC4899;display:none}'
   + '.vz-into{position:fixed;z-index:2147483645;pointer-events:none;border:2px dashed #22C55E;border-radius:6px;background:rgba(34,197,94,.06);display:none;box-sizing:border-box}';
-var hover, chip, sel, flash, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null;
+var hover, chip, sel, flash, mark, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null, marked = null, overTrash = false;
 function box(o, el){
   if (!el) { o.style.display = 'none'; return; }
   var r = el.getBoundingClientRect();
@@ -284,7 +287,7 @@ function showChip(el){
   chip.style.top = (top < 2 ? r.bottom + 4 : top) + 'px';
   chip.style.left = Math.max(2, Math.min(r.left, innerWidth - chip.offsetWidth - 4)) + 'px';
 }
-function refresh(){ box(hover, mode === 'inspect' ? hovered : null); showChip(hovered); box(sel, selected); }
+function refresh(){ box(hover, mode === 'inspect' ? hovered : null); showChip(hovered); box(sel, selected); if (mark) { box(mark, marked); } }
 function setMode(m){
   mode = m;
   document.documentElement.style.cursor = '';
@@ -296,6 +299,7 @@ function start(){
   hover = document.createElement('div'); hover.className = 'vz-ov';
   sel = document.createElement('div'); sel.className = 'vz-ov vz-sel';
   flash = document.createElement('div'); flash.className = 'vz-ov vz-flash';
+  mark = document.createElement('div'); mark.className = 'vz-ov vz-mark'; document.documentElement.appendChild(mark);
   chip = document.createElement('div'); chip.className = 'vz-chip';
   drop = document.createElement('div'); drop.className = 'vz-drop';
   document.documentElement.appendChild(drop);
@@ -328,7 +332,7 @@ on(document, 'click', function(e){
   e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
   selected = el; refresh();
   try { window.focus(); } catch (x) {}
-  if (el && mode === 'inspect') { post({ type: 'selected', at: el.getAttribute('data-vz-at') ? Number(el.getAttribute('data-vz-at')) : null }); }
+  if (mode === 'inspect') { post({ type: 'selected', at: el && el.getAttribute('data-vz-at') ? Number(el.getAttribute('data-vz-at')) : null, tag: el ? el.tagName.toLowerCase() : null, text: el ? info(el).text : '' }); }
   if (e.altKey && mode !== 'inspect' && el) { post({ type: 'inspect', info: info(el) }); }
 }, true);
 on(document, 'submit', function(e){ if (mode === 'inspect') { e.preventDefault(); e.stopPropagation(); } }, true);
@@ -570,7 +574,39 @@ function showPlace(p){
   }
 }
 function isLibraryDrag(e){ var t = e.dataTransfer && e.dataTransfer.types; if (!t) { return false; } for (var i = 0; i < t.length; i++) { if (t[i] === 'application/x-vibez-element') { return true; } } return false; }
-var libPlace = null;
+var libPlace = null, libGhost = null, libStyle = null;
+/*
+ * Exact placement for a new element. It is measured where it will really go
+ * (inside the section under the pointer, hidden, for an instant) and offset
+ * so its centre sits under the pointer: the same kind of offset Move freely
+ * gives an element dragged on the page.
+ */
+function libSpot(m, p){
+  if (!m.html) { return null; }
+  if (m.css && !libStyle) { libStyle = document.createElement('style'); libStyle.textContent = m.css; (document.head || document.documentElement).appendChild(libStyle); }
+  var holder = document.createElement('div');
+  holder.innerHTML = m.html;
+  var el = holder.firstElementChild;
+  if (!el) { return null; }
+  el.style.visibility = 'hidden';
+  if (!p) { (document.querySelector('main') || document.body).appendChild(el); }
+  else if (p.where === 'inside') { p.el.appendChild(el); }
+  else { p.el.parentNode.insertBefore(el, p.where === 'before' ? p.el : p.el.nextSibling); }
+  var r = el.getBoundingClientRect();
+  var x = m.x - r.width / 2, y = m.y - r.height / 2;
+  var props = placeAt(el, x, y);
+  el.remove();
+  delete props.visibility;
+  return { props: props, box: { left: x, top: y, width: r.width, height: r.height } };
+}
+function showGhost(b){
+  if (!libGhost) { libGhost = document.createElement('div'); libGhost.className = 'vz-ghost'; document.documentElement.appendChild(libGhost); }
+  if (!b) { libGhost.style.display = 'none'; return; }
+  libGhost.style.display = 'block';
+  libGhost.style.left = b.left + 'px'; libGhost.style.top = b.top + 'px';
+  libGhost.style.width = Math.max(8, b.width) + 'px'; libGhost.style.height = Math.max(8, b.height) + 'px';
+}
+function libDone(){ showGhost(null); if (libStyle) { libStyle.remove(); libStyle = null; } }
 on(document, 'dragover', function(e){
   if (!isLibraryDrag(e) || !FROM_DISK) { return; }
   e.preventDefault();
@@ -602,7 +638,7 @@ on(document, 'pointerdown', function(e){
   if (mode !== 'inspect' || e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || !FROM_DISK) { return; }
   var el = selected && selected.contains(e.target) ? selected : pick(e.target);
   if (!movable(el)) { return; }
-  press = { el: el, x: e.clientX, y: e.clientY };
+  press = { el: el, x: e.clientX, y: e.clientY, id: e.pointerId };
   e.preventDefault();
   try { window.focus(); } catch (x) {}
 }, true);
@@ -631,7 +667,13 @@ on(document, 'pointermove', function(e){
     drag.el.style.pointerEvents = 'none';
     document.documentElement.classList.add('vz-drag');
     hovered = null; refresh();
+    overTrash = false;
+    /* Keep the pointer while dragging, so moving over the canvas (to the element panel) still reaches this page. */
+    try { document.documentElement.setPointerCapture(press.id); drag.captured = press.id; } catch (x) {}
+    post({ type: 'dragStart' });
   }
+  /* Where the pointer is, so the canvas can tell when it is over the element panel (drop there to delete). */
+  post({ type: 'dragAt', x: e.clientX, y: e.clientY });
   if (drag.free) { freeMove(e); return; }
   if (e.clientY < 40) { scrollBy(0, -14); } else if (e.clientY > innerHeight - 40) { scrollBy(0, 14); }
   drag.target = dropAt(e.clientX, e.clientY);
@@ -639,6 +681,17 @@ on(document, 'pointermove', function(e){
 }, true);
 function endDrag(commit){
   if (!drag) { press = null; return; }
+  /* Dropped on the element panel: put it back where it was, and delete it instead. */
+  var trashed = commit && overTrash;
+  if (trashed) { commit = false; }
+  overTrash = false;
+  document.documentElement.classList.remove('vz-trash');
+  if (drag.captured !== undefined) { try { document.documentElement.releasePointerCapture(drag.captured); } catch (x) {} }
+  post({ type: 'dragEnd' });
+  if (trashed) {
+    var gone = drag.el;
+    setTimeout(function(){ post({ type: 'deleteKey', at: Number(gone.getAttribute('data-vz-at')), tag: gone.tagName.toLowerCase(), text: info(gone).text }); }, 0);
+  }
   var d = drag.target, el = drag.el, free = drag.free, held = drag;
   el.classList.remove('vz-dragging'); el.classList.remove('vz-lifted'); el.style.pointerEvents = '';
   if (!el.getAttribute('style')) { el.removeAttribute('style'); }
@@ -701,22 +754,37 @@ on(window, 'message', function(e){
     post({ type: 'insertDrop', element: m.element, target: after ? Number(after.getAttribute('data-vz-at')) : null, targetTag: after ? after.tagName.toLowerCase() : null, where: 'after', accent: siteAccent() });
   }
   if (m.type === 'libHover') {
-    if (m.x === null || !FROM_DISK) { libPlace = null; showPlace(null); return; }
+    if (m.x === null || !FROM_DISK) { libPlace = null; showPlace(null); libDone(); return; }
     if (m.y < 40) { scrollBy(0, -18); } else if (m.y > innerHeight - 40) { scrollBy(0, 18); }
     libPlace = placeFor(m.x, m.y);
-    showPlace(libPlace);
+    if (dragMode === 'free') {
+      /* Move freely: show exactly where, and how big, it will be. */
+      showPlace(null);
+      var spot = libSpot(m, libPlace);
+      showGhost(spot ? spot.box : null);
+    } else {
+      showPlace(libPlace);
+    }
   }
   if (m.type === 'libDrop') {
     var lp = placeFor(m.x, m.y);
-    libPlace = null; showPlace(null);
+    var exact = dragMode === 'free' ? libSpot(m, lp) : null;
+    libPlace = null; showPlace(null); libDone();
     if (!FROM_DISK) { return; }
-    post({ type: 'insertDrop', element: m.element, target: lp ? Number(lp.el.getAttribute('data-vz-at')) : null, targetTag: lp ? lp.el.tagName.toLowerCase() : null, where: lp ? lp.where : 'inside', accent: siteAccent() });
+    post({ type: 'insertDrop', element: m.element, target: lp ? Number(lp.el.getAttribute('data-vz-at')) : null, targetTag: lp ? lp.el.tagName.toLowerCase() : null, where: lp ? lp.where : 'inside', accent: siteAccent(), props: exact ? exact.props : null });
   }
   if (m.type === 'nudgeKey' && selected && movable(selected) && FROM_DISK && mode === 'inspect') { nudge(m.dx, m.dy); }
   if (m.type === 'ancestor') {
     var up = selected;
     for (var u = 0; u < m.levels && up && up.parentElement && up.parentElement !== document.body; u++) { up = up.parentElement; }
     if (up) { selected = up; refresh(); post({ type: 'inspect', info: info(up) }); }
+  }
+  if (m.type === 'cancelDrag') { endDrag(false); }
+  if (m.type === 'overTrash') { overTrash = !!m.on; document.documentElement.classList.toggle('vz-trash', overTrash); }
+  if (m.type === 'mark') {
+    marked = m.key ? keyed[m.key] || null : null;
+    if (marked) { var mr = marked.getBoundingClientRect(); if (mr.bottom < 0 || mr.top > innerHeight) { marked.scrollIntoView({ block: 'center' }); } }
+    refresh();
   }
   if (m.type === 'flash') {
     var el = keyed[m.key];

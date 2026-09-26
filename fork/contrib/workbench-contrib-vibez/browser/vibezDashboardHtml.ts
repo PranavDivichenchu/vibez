@@ -32,12 +32,6 @@ header .grow{flex:1}
 .btn.primary{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);border-color:transparent}
 .btn.primary:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
 .btn:disabled{opacity:.5;cursor:default}
-.btn.danger{color:var(--vscode-errorForeground,#f14c4c);border-color:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 45%,transparent)}
-.btn.danger:hover{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 14%,transparent)}
-.btn.danger.solid{background:var(--vscode-errorForeground,#f14c4c);color:#fff;border-color:transparent}
-.pg .ask{font-size:12px;color:var(--vscode-errorForeground,#f14c4c);white-space:nowrap;margin-right:auto}
-.pg.confirm{flex-wrap:wrap;row-gap:8px;border-color:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 45%,transparent)}
-.pg.confirm .t{flex-basis:100%}
 h2{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:30px 0 12px}
 .note{color:var(--muted);margin:-4px 0 14px}
 .templates{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}
@@ -159,31 +153,8 @@ function renderPages(){
     var code = el('button', 'btn', 'Code'); code.title = 'Open ' + p.file;
     code.addEventListener('click', function(){ vscode.postMessage({ type: 'open', file: p.file }); });
     row.appendChild(show); row.appendChild(code);
-    var del = el('button', 'btn danger', 'Delete');
-    if (p.file === S.shell) {
-      del.disabled = true;
-      del.title = p.file + ' is the home page; new pages copy their header and footer from it';
-    } else {
-      del.title = 'Delete ' + p.file + ' and its links in the navigation of the other pages (\u2318Z on the canvas brings it back)';
-      del.addEventListener('click', function(){ confirmDelete(row, p); });
-    }
-    row.appendChild(del);
     host.appendChild(row);
   });
-}
-/** Deleting a page is bigger than deleting an element, so it asks once, in the row itself. */
-function confirmDelete(row, p){
-  Array.prototype.forEach.call(row.querySelectorAll('.btn'), function(b){ b.hidden = true; });
-  row.classList.add('confirm');
-  var ask = el('span', 'ask', 'Delete this page?');
-  var yes = el('button', 'btn danger solid', 'Delete');
-  var no = el('button', 'btn', 'Cancel');
-  function back(){ row.classList.remove('confirm'); ask.remove(); yes.remove(); no.remove(); Array.prototype.forEach.call(row.querySelectorAll('.btn'), function(b){ b.hidden = false; }); }
-  no.addEventListener('click', back);
-  yes.addEventListener('click', function(){ yes.disabled = true; no.disabled = true; yes.textContent = 'Deleting\u2026'; vscode.postMessage({ type: 'delete', file: p.file }); });
-  row.appendChild(ask); row.appendChild(yes); row.appendChild(no);
-  no.focus();
-  row.addEventListener('keydown', function(e){ if (e.key === 'Escape') { back(); } });
 }
 function unique(base){
   var name = S.dir + base + '.html', n = 2;
@@ -241,7 +212,7 @@ window.addEventListener('message', function(e){
   var m = e.data;
   if (!m || typeof m !== 'object') { return; }
   if (m.type === 'init') {
-    S.templates = m.templates || []; S.pages = m.pages || []; S.existing = m.existing || []; S.dir = m.dir || ''; S.hasNav = !!m.hasNav; S.shell = m.shell || null;
+    S.templates = m.templates || []; S.pages = m.pages || []; S.existing = m.existing || []; S.dir = m.dir || ''; S.hasNav = !!m.hasNav;
     $('site').textContent = m.site ? 'Site: ' + m.site + (m.shell ? '  ·  new pages copy the header and footer of ' + m.shell : '') : '';
     $('note').textContent = m.note || '';
     $('note').style.display = m.note ? '' : 'none';
@@ -251,13 +222,6 @@ window.addEventListener('message', function(e){
     closeForm();
     $('create').textContent = 'Create page';
     toast('Created ' + m.file + (m.linked ? ' and linked it from ' + m.linked + ' page' + (m.linked === 1 ? '' : 's') : '') + (m.skipped && m.skipped.length ? '. Skipped ' + m.skipped.join(', ') + ' (unsaved changes).' : '. ⌘Z on the canvas undoes it.'));
-  } else if (m.type === 'deleted') {
-    toast('Deleted ' + m.file + (m.unlinked ? ' and its link from ' + m.unlinked + ' page' + (m.unlinked === 1 ? '' : 's') : '')
-      + (m.stillLinked ? '. ' + m.stillLinked + ' other link' + (m.stillLinked === 1 ? ' still points' : 's still point') + ' to it.' : '.')
-      + (m.skipped && m.skipped.length ? ' Skipped ' + m.skipped.join(', ') + ' (unsaved changes).' : ' \u2318Z on the canvas brings it back.'));
-  } else if (m.type === 'deleteFailed') {
-    toast(m.reason);
-    renderPages();
   } else if (m.type === 'createFailed') {
     $('create').textContent = 'Create page'; $('create').disabled = false;
     $('err').textContent = m.reason;
