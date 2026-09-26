@@ -32,6 +32,7 @@ var PARENT = window.parent !== window ? window.parent : null;
 var NAV = /(?:\brouter\.(?:push|replace)|\bnavigate|\blocation\.(?:assign|replace)|\blocation\.href\s*=|\bwindow\.location\s*=)\s*\(?\s*(["'${'`'}])([^"'${'`'}]+)\1/;
 var WATCHED = /^(click|dblclick|submit|input|change|keydown|keyup|pointerdown|pointerup|mousedown|mouseup|touchstart)$/;
 var mode = 'inspect';
+var dragMode = 'free';
 var registry = new WeakMap();
 var requests = [];
 var add = EventTarget.prototype.addEventListener;
@@ -259,8 +260,11 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + '.vz-chip i{font-style:normal;opacity:.75;font-weight:500;margin-left:6px}'
   + '.vz-drop{position:fixed;z-index:2147483647;pointer-events:none;background:#2563EB;border-radius:2px;box-shadow:0 0 0 2px rgba(255,255,255,.9);display:none}'
   + '.vz-dragging{opacity:.45!important;outline:2px dashed #2563EB!important;outline-offset:2px}'
-  + 'html.vz-drag,html.vz-drag *{cursor:grabbing!important;user-select:none!important}';
-var hover, chip, sel, flash, drop, selected = null, hovered = null, hoverKey = null;
+  + 'html.vz-drag,html.vz-drag *{cursor:grabbing!important;user-select:none!important}'
+  + '.vz-lifted{opacity:.92!important;box-shadow:0 12px 32px rgba(0,0,0,.28)!important;transition:none!important;z-index:2147483000!important;position:relative}'
+  + '.vz-guide{position:fixed;z-index:2147483647;pointer-events:none;background:#EC4899;display:none}'
+  + '.vz-into{position:fixed;z-index:2147483645;pointer-events:none;border:2px dashed #22C55E;border-radius:6px;background:rgba(34,197,94,.06);display:none;box-sizing:border-box}';
+var hover, chip, sel, flash, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null;
 function box(o, el){
   if (!el) { o.style.display = 'none'; return; }
   var r = el.getBoundingClientRect();
@@ -295,6 +299,9 @@ function start(){
   chip = document.createElement('div'); chip.className = 'vz-chip';
   drop = document.createElement('div'); drop.className = 'vz-drop';
   document.documentElement.appendChild(drop);
+  gx = document.createElement('div'); gx.className = 'vz-guide'; document.documentElement.appendChild(gx);
+  gy = document.createElement('div'); gy.className = 'vz-guide'; document.documentElement.appendChild(gy);
+  into = document.createElement('div'); into.className = 'vz-into'; document.documentElement.appendChild(into);
   document.documentElement.appendChild(hover); document.documentElement.appendChild(sel);
   document.documentElement.appendChild(flash); document.documentElement.appendChild(chip);
   post({ type: 'hello', url: location.href, path: location.pathname, title: document.title });
@@ -334,9 +341,15 @@ on(document, 'dblclick', function(e){
 on(document, 'keydown', function(e){
   var t = e.target;
   var typing = t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || ''));
+  if (!typing && (e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) { post({ type: e.shiftKey ? 'redo' : 'undo' }); e.preventDefault(); return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { post({ type: 'toggle' }); e.preventDefault(); }
   if (e.key === 'f' || e.key === 'F') { post({ type: 'fit' }); e.preventDefault(); }
+  if (mode === 'inspect' && selected && movable(selected) && FROM_DISK && /^Arrow/.test(e.key)) {
+    var step = e.shiftKey ? 10 : 1;
+    nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+    e.preventDefault();
+  }
   if (e.key === 'Escape') { selected = null; refresh(); post({ type: 'escape' }); }
 }, true);
 on(window, 'wheel', function(e){
@@ -383,6 +396,120 @@ function showDrop(d){
     drop.style.width = r.width + 'px'; drop.style.height = '4px';
   }
 }
+var LANDMARK = /^(section|header|footer|main|nav|aside|article|form|body)$/i;
+var NOT_CONTAINER = /^(p|h[1-6]|a|button|span|b|i|u|s|em|strong|small|label|img|input|select|textarea|svg|video|audio|iframe|br|hr|picture|code|pre|q|sup|sub|option)$/i;
+function landmarkOf(el){
+  for (var n = el.parentElement; n; n = n.parentElement) {
+    if (n === document.body || LANDMARK.test(n.tagName)) { return n; }
+    var o = getComputedStyle(n);
+    if (o.overflow !== 'visible' || o.overflowX !== 'visible' || o.overflowY !== 'visible') { return n; }
+  }
+  return document.body;
+}
+function containerAt(x, y, el){
+  var hit = document.elementFromPoint(x, y);
+  for (var n = hit; n && n !== document.documentElement; n = n.parentElement) {
+    if (n === el || el.contains(n) || !n.hasAttribute('data-vz-at')) { continue; }
+    if (NOT_CONTAINER.test(n.tagName) || /^inline/.test(getComputedStyle(n).display)) { continue; }
+    return n;
+  }
+  return null;
+}
+/** Where the element should belong after a free drop: its own parent unless it left its section. */
+function homeFor(el, x, y){
+  var land = landmarkOf(el), r = land.getBoundingClientRect();
+  var inside = land === document.body || (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+  if (inside) { return null; }
+  var c = containerAt(x, y, el);
+  return c && c !== el.parentElement ? c : null;
+}
+function nameOf(n){ return n === document.body ? 'the page' : short(n); }
+function offsets(el){
+  var cs = getComputedStyle(el);
+  var fixed = cs.position !== 'static' && cs.position !== 'sticky';
+  return { pos: cs.position, left: fixed ? (parseFloat(cs.left) || 0) : 0, top: fixed ? (parseFloat(cs.top) || 0) : 0 };
+}
+/** Style that puts the element's top-left corner at (x, y) in the viewport, from where it is now. */
+function placeAt(el, x, y){
+  var o = offsets(el), r = el.getBoundingClientRect();
+  var props = { left: Math.round(o.left + x - r.left) + 'px', top: Math.round(o.top + y - r.top) + 'px' };
+  if (o.pos === 'static' || o.pos === 'sticky') { props.position = 'relative'; }
+  if (props.left === '0px' && props.top === '0px' && el.style.position === 'relative' && !el.style.left && !el.style.top) { props.position = null; props.left = null; props.top = null; }
+  return props;
+}
+function applyProps(el, props){ for (var k in props) { if (props[k] === null) { el.style.removeProperty(k); } else { el.style.setProperty(k, props[k]); } } }
+function snapLines(el){
+  var xs = [], ys = [], all = document.querySelectorAll('[data-vz-at]'), r0 = el.getBoundingClientRect();
+  xs.push(r0.left, r0.left + r0.width / 2, r0.right); ys.push(r0.top, r0.top + r0.height / 2, r0.bottom);
+  xs.push(innerWidth / 2);
+  for (var i = 0; i < all.length && xs.length < 900; i++) {
+    var n = all[i];
+    if (n === el || el.contains(n) || n.contains(el)) { continue; }
+    var r = n.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4 || r.bottom < -200 || r.top > innerHeight + 200) { continue; }
+    xs.push(r.left, r.left + r.width / 2, r.right); ys.push(r.top, r.top + r.height / 2, r.bottom);
+  }
+  return { xs: xs, ys: ys };
+}
+function snap(value, size, lines){
+  var best = null, pts = [0, size / 2, size];
+  for (var i = 0; i < lines.length; i++) {
+    for (var j = 0; j < 3; j++) {
+      var d = lines[i] - (value + pts[j]);
+      if (Math.abs(d) <= 5 && (!best || Math.abs(d) < Math.abs(best.d))) { best = { d: d, line: lines[i] }; }
+    }
+  }
+  return best;
+}
+function guide(g, line, vertical){
+  if (line === null) { g.style.display = 'none'; return; }
+  g.style.display = 'block';
+  if (vertical) { g.style.left = (line - 0.5) + 'px'; g.style.top = '0'; g.style.width = '1px'; g.style.height = '100%'; }
+  else { g.style.top = (line - 0.5) + 'px'; g.style.left = '0'; g.style.height = '1px'; g.style.width = '100%'; }
+}
+function freeMove(e){
+  var d = drag, w = d.r0.width, h = d.r0.height;
+  var L = e.clientX - d.grabX, T = e.clientY - d.grabY;
+  var sx = e.altKey ? null : snap(L, w, d.lines.xs), sy = e.altKey ? null : snap(T, h, d.lines.ys);
+  if (sx) { L += sx.d; } if (sy) { T += sy.d; }
+  guide(gx, sx ? sx.line : null, true); guide(gy, sy ? sy.line : null, false);
+  d.L = L; d.T = T; d.x = e.clientX; d.y = e.clientY;
+  d.el.style.translate = Math.round(L - d.r0.left) + 'px ' + Math.round(T - d.r0.top) + 'px';
+  d.home = homeFor(d.el, e.clientX, e.clientY);
+  if (d.home) { var hr = d.home.getBoundingClientRect(); into.style.display = 'block'; into.style.left = hr.left + 'px'; into.style.top = hr.top + 'px'; into.style.width = hr.width + 'px'; into.style.height = hr.height + 'px'; }
+  else { into.style.display = 'none'; }
+  chip.innerHTML = '';
+  chip.appendChild(document.createTextNode(d.home ? 'Move into' : 'Move'));
+  var i = document.createElement('i');
+  i.textContent = d.home ? nameOf(d.home) : Math.round(L - d.r0.left) + ', ' + Math.round(T - d.r0.top);
+  chip.appendChild(i);
+  chip.style.display = 'block';
+  chip.style.left = Math.max(2, Math.min(L, innerWidth - chip.offsetWidth - 4)) + 'px';
+  chip.style.top = Math.max(2, T - 24) + 'px';
+}
+function freeDrop(){
+  var d = drag, el = d.el;
+  el.style.translate = '';
+  if (!el.style.getPropertyValue('translate')) { el.style.removeProperty('translate'); }
+  guide(gx, null, true); guide(gy, null, false); into.style.display = 'none';
+  var home = d.home;
+  if (Math.abs(d.L - d.r0.left) < 1 && Math.abs(d.T - d.r0.top) < 1 && !home) { return; }
+  if (home) { home.appendChild(el); }
+  var props = placeAt(el, d.L, d.T);
+  applyProps(el, props);
+  selected = el; refresh();
+  post({ type: 'place', at: Number(el.getAttribute('data-vz-at')), tag: el.tagName.toLowerCase(),
+    container: home ? Number(home.getAttribute('data-vz-at')) : null, containerTag: home ? home.tagName.toLowerCase() : null, props: props });
+}
+var nudged = null;
+function nudge(dx, dy){
+  var el = selected, r = el.getBoundingClientRect();
+  var props = placeAt(el, r.left + dx, r.top + dy);
+  applyProps(el, props);
+  refresh();
+  post({ type: 'nudge', at: Number(el.getAttribute('data-vz-at')), tag: el.tagName.toLowerCase(), props: props });
+}
+
 on(document, 'pointerdown', function(e){
   if (mode !== 'inspect' || e.button !== 0 || e.altKey || e.metaKey || e.ctrlKey || !FROM_DISK) { return; }
   var el = selected && selected.contains(e.target) ? selected : pick(e.target);
@@ -395,23 +522,51 @@ on(document, 'pointermove', function(e){
   if (!press) { return; }
   if (!drag) {
     if (Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) < 6) { return; }
-    drag = { el: press.el, target: null };
-    drag.el.classList.add('vz-dragging');
+    drag = { el: press.el, target: null, free: dragMode === 'free' };
+    if (drag.free) {
+      var r0 = drag.el.getBoundingClientRect();
+      drag.r0 = r0; drag.grabX = press.x - r0.left; drag.grabY = press.y - r0.top; drag.L = r0.left; drag.T = r0.top;
+      drag.lines = snapLines(drag.el);
+      drag.unclipped = [];
+      for (var up = drag.el.parentElement; up && up !== document.documentElement; up = up.parentElement) {
+        var oc = getComputedStyle(up);
+        if (oc.overflow !== 'visible' || oc.overflowX !== 'visible' || oc.overflowY !== 'visible' || oc.clipPath !== 'none' || oc.contain !== 'none') {
+          drag.unclipped.push([up, up.style.getPropertyValue('overflow'), up.style.getPropertyValue('clip-path'), up.style.getPropertyValue('contain')]);
+          up.style.setProperty('overflow', 'visible', 'important'); up.style.setProperty('clip-path', 'none', 'important'); up.style.setProperty('contain', 'none', 'important');
+        }
+      }
+      drag.el.classList.add('vz-lifted');
+    } else {
+      drag.el.classList.add('vz-dragging');
+    }
     drag.el.style.pointerEvents = 'none';
     document.documentElement.classList.add('vz-drag');
     hovered = null; refresh();
   }
+  if (drag.free) { freeMove(e); return; }
   if (e.clientY < 40) { scrollBy(0, -14); } else if (e.clientY > innerHeight - 40) { scrollBy(0, 14); }
   drag.target = dropAt(e.clientX, e.clientY);
   showDrop(drag.target);
 }, true);
 function endDrag(commit){
   if (!drag) { press = null; return; }
-  var d = drag.target, el = drag.el;
-  el.classList.remove('vz-dragging'); el.style.pointerEvents = '';
+  var d = drag.target, el = drag.el, free = drag.free, held = drag;
+  el.classList.remove('vz-dragging'); el.classList.remove('vz-lifted'); el.style.pointerEvents = '';
   if (!el.getAttribute('style')) { el.removeAttribute('style'); }
   document.documentElement.classList.remove('vz-drag');
   showDrop(null);
+  if (free) {
+    (held.unclipped || []).forEach(function(u){
+      ['overflow', 'clip-path', 'contain'].forEach(function(p, i){ if (u[i + 1]) { u[0].style.setProperty(p, u[i + 1]); } else { u[0].style.removeProperty(p); } });
+      if (!u[0].getAttribute('style')) { u[0].removeAttribute('style'); }
+    });
+    drag = held;
+    if (commit) { freeDrop(); } else { el.style.removeProperty('translate'); guide(gx, null, true); guide(gy, null, false); into.style.display = 'none'; }
+    if (!el.getAttribute('style')) { el.removeAttribute('style'); }
+    drag = null; press = null; swallowClick = true; chip.style.display = 'none';
+    setTimeout(function(){ swallowClick = false; }, 50);
+    return;
+  }
   drag = null; press = null; swallowClick = true;
   setTimeout(function(){ swallowClick = false; }, 50);
   if (!commit || !d) { return; }
@@ -429,7 +584,7 @@ on(document, 'keydown', function(e){ if (drag && e.key === 'Escape') { endDrag(f
 on(window, 'message', function(e){
   var m = e.data;
   if (!m || m.vzCanvas !== 1 || e.source !== PARENT) { return; }
-  if (m.type === 'mode') { setMode(m.mode); }
+  if (m.type === 'mode') { setMode(m.mode); if (m.drag) { dragMode = m.drag; } }
   if (m.type === 'links') { lastLinks = ''; collectLinks(); }
   if (m.type === 'clear') { selected = null; refresh(); }
   if (m.type === 'preview') {
@@ -445,6 +600,7 @@ on(window, 'message', function(e){
     if (se) { selected = se; refresh(); }
     if (m.report) { post({ type: 'reselected', info: se ? info(se) : null }); }
   }
+  if (m.type === 'nudgeKey' && selected && movable(selected) && FROM_DISK && mode === 'inspect') { nudge(m.dx, m.dy); }
   if (m.type === 'ancestor') {
     var up = selected;
     for (var u = 0; u < m.levels && up && up.parentElement && up.parentElement !== document.body; u++) { up = up.parentElement; }

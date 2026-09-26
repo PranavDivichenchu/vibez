@@ -120,6 +120,7 @@ button,input{font:inherit;color:inherit}
 const BODY = String.raw`
 <div id="bar">
   <div class="seg" id="modes"><button data-mode="inspect" title="Hover to see what things are; double-click to explain (I)">Inspect</button><button data-mode="browse" title="Use the site normally (I)">Browse</button></div>
+  <div class="seg" id="drags" title="How dragging works in Inspect mode"><button data-drag="free" title="Drag anything anywhere: it stays exactly where you drop it">Move freely</button><button data-drag="layout" title="Drag to reorder: it slots in before or after other elements">Reorder</button></div>
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
@@ -140,12 +141,12 @@ var vscode = acquireVsCodeApi();
 var DEV = { desktop: [1280, 800], tablet: [834, 1112], phone: [390, 844] };
 var GAP = 260, LANE0 = 70, LANE = 16, ENTER = 60;
 var saved = vscode.getState() || {};
-var S = { pages: [], cards: [], match: {}, mode: saved.mode || 'inspect', device: saved.device || 'desktop', z: saved.z || 0, tx: saved.tx || 40, ty: saved.ty || 60, hot: null, hotCard: null, req: 0, panelReq: 0, width: 0, height: 0 };
+var S = { pages: [], cards: [], match: {}, drag: saved.drag || 'free', mode: saved.mode || 'inspect', device: saved.device || 'desktop', z: saved.z || 0, tx: saved.tx || 40, ty: saved.ty || 60, hot: null, hotCard: null, req: 0, panelReq: 0, width: 0, height: 0 };
 function $(id){ return document.getElementById(id); }
 var board = $('board'), world = $('world'), svg = $('wires'), labels = $('labels'), panel = $('panel');
 var NS = 'http://www.w3.org/2000/svg';
 
-function save(){ vscode.setState({ mode: S.mode, device: S.device, z: S.z, tx: S.tx, ty: S.ty }); }
+function save(){ vscode.setState({ drag: S.drag, mode: S.mode, device: S.device, z: S.z, tx: S.tx, ty: S.ty }); }
 function routeOf(p){
   p = String(p || '/').split(/[?#]/)[0];
   try { p = decodeURI(p); } catch (e) {}
@@ -174,16 +175,22 @@ function setMode(m){
   S.mode = m;
   document.body.className = m;
   Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function(b){ b.classList.toggle('on', b.getAttribute('data-mode') === m); });
-  S.cards.forEach(function(c){ tell(c, { type: 'mode', mode: m }); });
+  S.cards.forEach(function(c){ tell(c, { type: 'mode', mode: m, drag: S.drag }); });
   var h = $('hint');
   h.innerHTML = '';
   if (m === 'inspect') {
     h.appendChild(el('b', '', 'Inspect'));
-    h.appendChild(document.createTextNode(' · hover to see what things are · double-click to explain · I to use the site'));
+    h.appendChild(document.createTextNode(' · drag anything to move it · double-click to explain and edit · arrow keys nudge · I to use the site'));
   } else {
     h.appendChild(el('b', '', 'Browse'));
     h.appendChild(document.createTextNode(' · the site works normally · double-click still explains · I to inspect'));
   }
+  save();
+}
+function setDrag(d){
+  S.drag = d;
+  Array.prototype.forEach.call(document.querySelectorAll('#drags button'), function(b){ b.classList.toggle('on', b.getAttribute('data-drag') === d); });
+  S.cards.forEach(function(c){ tell(c, { type: 'mode', mode: S.mode, drag: d }); });
   save();
 }
 function setDevice(d){
@@ -397,6 +404,12 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'i' || e.key === 'I') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
   if (e.key === 'f' || e.key === 'F') { fit(); }
   if (e.key === 'Escape') { closePanel(); }
+  var holder = (S.cur && S.cur.c) || (S.lastPlaced && S.lastPlaced.c);
+  if (/^Arrow/.test(e.key) && holder && S.mode === 'inspect') {
+    var step = e.shiftKey ? 10 : 1;
+    tell(holder, { type: 'nudgeKey', dx: e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy: e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0 });
+    e.preventDefault();
+  }
 });
 document.addEventListener('keydown', function(e){
   if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z') && !(e.target && /^(input|textarea|select)$/i.test(e.target.tagName))) {
@@ -408,6 +421,7 @@ $('redo').addEventListener('click', function(){ vscode.postMessage({ type: 'redo
 Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-mode')); }); });
 Array.prototype.forEach.call(document.querySelectorAll('#devices button'), function(b){ b.addEventListener('click', function(){ setDevice(b.getAttribute('data-dev')); build(); fit(); }); });
 $('fit').addEventListener('click', fit);
+Array.prototype.forEach.call(document.querySelectorAll('#drags button'), function(b){ b.addEventListener('click', function(){ setDrag(b.getAttribute('data-drag')); }); });
 $('reload').addEventListener('click', function(){ vscode.postMessage({ type: 'reload' }); });
 var app = $('app');
 function commitApp(){ if (app.value.trim() !== (app.getAttribute('data-was') || '')) { app.setAttribute('data-was', app.value.trim()); vscode.postMessage({ type: 'setApp', url: app.value.trim() }); } }
@@ -514,11 +528,13 @@ window.addEventListener('message', function(e){
     var c = cardOf(e.source);
     if (!c) { return; }
     if (m.type === 'hello') {
-      c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode }); badges(c); drawWires();
+      c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode, drag: S.drag }); badges(c); drawWires();
       if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
     }
     else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); drawWires(); }
     else if (m.type === 'move') { move(c, m); }
+    else if (m.type === 'place') { place(c, m); }
+    else if (m.type === 'nudge') { nudgeSave(c, m); }
     else if (m.type === 'reselected') { reselected(c, m.info); }
     else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
     else if (m.type === 'hover') { S.hot = m.key ? { c: c, key: m.key } : null; drawWires(); }
@@ -564,6 +580,7 @@ window.addEventListener('message', function(e){
 
 setMode(S.mode);
 setDevice(S.device);
+setDrag(S.drag);
 vscode.postMessage({ type: 'ready' });
 })();
 `;
@@ -645,6 +662,23 @@ function move(c, m){
   S.saving = true; S.editCard = c;
   if (!S.cur || S.cur.c !== c || S.cur.info.at !== m.at) { closePanel(); }
   vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.at, tag: m.tag, ops: [{ op: 'move', target: m.target, targetTag: m.targetTag, where: m.where }] });
+}
+
+function place(c, m){
+  flush();
+  S.lastPlaced = { c: c };
+  if (S.saving) { notice('Still saving the last change. Try again in a moment.', true); reloadFile(fileOf(c), null, null); return; }
+  var ops = [];
+  if (m.container !== null && m.container !== undefined) { ops.push({ op: 'move', target: m.container, targetTag: m.containerTag, where: 'inside' }); }
+  ops.push({ op: 'style', props: m.props });
+  S.saving = true; S.editCard = c;
+  if (!S.cur || S.cur.c !== c || S.cur.info.at !== m.at) { closePanel(); }
+  vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.at, tag: m.tag, ops: ops });
+}
+function nudgeSave(c, m){
+  var info = S.cur && S.cur.c === c && S.cur.info.at === m.at ? S.cur.info : (S.nudging && S.nudging.at === m.at && S.nudging.c === c ? S.nudging.info : null);
+  if (!info) { info = { at: m.at, tag: m.tag }; S.nudging = { c: c, at: m.at, info: info }; }
+  for (var k in m.props) { queue(c, info, 'style', k, m.props[k]); }
 }
 
 var FONTS = [['Georgia', 'Georgia, serif'], ['Times', '"Times New Roman", Times, serif'], ['Palatino', 'Palatino, "Palatino Linotype", serif'],
@@ -739,6 +773,19 @@ function editSection(c, info){
   style(field('Padding (px)', input('number', num(st.paddingTop), { min: 0, step: 1 })), 'padding', 'px');
   style(field('Width', input('text', own.width || '', { placeholder: 'auto, 320px, 50%' })), 'width', 'px');
 
+  if (own.left || own.top || own.translate) {
+    var home = el('button', 'btn', 'Put back in its place');
+    home.type = 'button';
+    home.title = 'Undo any dragging: it returns to where the page layout puts it';
+    home.addEventListener('click', function(e){
+      e.preventDefault();
+      var pos = own.position === 'relative' ? null : (own.position || null);
+      queue(c, info, 'style', 'left', null); queue(c, info, 'style', 'top', null);
+      if (own.position === 'relative') { queue(c, info, 'style', 'position', pos); }
+    });
+    var row = el('div', 'field full'); row.appendChild(el('span', '', 'Position: moved ' + (own.left || '0px') + ' across, ' + (own.top || '0px') + ' down')); row.appendChild(home);
+    grid.appendChild(row);
+  }
   var foot = el('div', 'foot');
   foot.appendChild(el('span', '', 'Saves to ' + info.page + ' as you edit · \u2318Z undoes'));
   if (info.inlineStyle) {

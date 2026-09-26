@@ -44,7 +44,7 @@ type EditOp =
 	| { op: 'style'; props: Record<string, string | null> }
 	| { op: 'text'; text: string }
 	| { op: 'attr'; name: string; value: string | null }
-	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' };
+	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' | 'inside' };
 
 interface EditStep { file: string; before: string; after: string }
 
@@ -217,7 +217,7 @@ export class VibezPagesEditor extends EditorPane {
 						html = setAttribute(html, where, op.name, op.value === null ? null : String(op.value), tag);
 						break;
 					case 'move':
-						({ html, at: where } = moveElement(html, where, Number(op.target), op.where === 'after' ? 'after' : 'before', tag, op.targetTag));
+						({ html, at: where } = moveElement(html, where, Number(op.target), op.where === 'after' || op.where === 'inside' ? op.where : 'before', tag, op.targetTag));
 						break;
 				}
 			}

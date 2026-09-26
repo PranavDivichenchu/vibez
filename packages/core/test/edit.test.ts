@@ -112,3 +112,19 @@ test('inline siblings move inline, and a link can leave for another container', 
   assert.ok(toNav.html.includes('<a class="btn" href="menu.html">See the menu</a>\n  </div>'));
   assert.throws(() => moveElement(PAGE, at('<div class="grid">'), at('<h3>Rye'), 'before'), EditError);
 });
+
+test('an element can be moved into another container, as its last child', () => {
+  const story = at('<a class="btn ghost"');
+  const into = moveElement(PAGE, story, at('<nav class="nav">'), 'inside', 'a', 'nav');
+  assert.ok(into.html.includes('<a href="menu.html">Menu</a>\n    <a class="btn ghost" href="story.html">Our story</a>\n  </nav>'));
+  assert.ok(into.html.slice(into.at).startsWith('<a class="btn ghost"'));
+  const card = [...PAGE.matchAll(/<article class="card">/g)].map(m => m.index!)[0]!;
+  const deep = moveElement(PAGE, at('<h1>'), card, 'inside', 'h1', 'article');
+  assert.ok(deep.html.includes('<article class="card">\n        <h3>Rye</h3>\n        <h1>Bread worth waking up for.</h1>\n      </article>'));
+  const empty = '<div>\n  <p>x</p>\n  <section></section>\n</div>';
+  const e = moveElement(empty, empty.indexOf('<p>'), empty.indexOf('<section>'), 'inside');
+  assert.equal(e.html, '<div>\n  <section><p>x</p></section>\n</div>');
+  const inline = '<p>Hello <b>big</b> world <span>end</span></p>';
+  assert.equal(moveElement(inline, inline.indexOf('<b>'), inline.indexOf('<span>'), 'inside').html, '<p>Hello world <span>end <b>big</b></span></p>');
+  assert.throws(() => moveElement(PAGE, story, at('<img'), 'inside'), EditError);
+});

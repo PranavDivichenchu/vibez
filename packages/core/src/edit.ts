@@ -178,18 +178,20 @@ function ownLines(html: string, start: number, end: number): boolean {
 }
 
 /**
- * Moves an element to just before or after another one.
+ * Moves an element to just before or after another one, or (`inside`) to
+ * the end of another one, as its last child.
  *
  * When both sit on lines of their own, whole lines move and the moved block
  * takes the new neighbour's indentation. Otherwise the element moves inline,
  * separated by a space, which is how siblings on one line are usually written.
  * Returns the new text and the moved element's new offset.
  */
-export function moveElement(html: string, at: number, target: number, where: 'before' | 'after', tag?: string, targetTag?: string): { html: string; at: number } {
+export function moveElement(html: string, at: number, target: number, where: 'before' | 'after' | 'inside', tag?: string, targetTag?: string): { html: string; at: number } {
   const el = expect(html, at, tag);
   const t = expect(html, target, targetTag);
   if (el.closeStart < 0 || el.end <= el.start) { throw new EditError('Could not find where this element ends in the file.'); }
-  if (!t.isVoid && t.closeStart < 0 && where === 'after') { throw new EditError('Could not find where the drop target ends in the file.'); }
+  if (!t.isVoid && t.closeStart < 0 && where !== 'before') { throw new EditError('Could not find where the drop target ends in the file.'); }
+  if (where === 'inside' && (t.isVoid || RAW.has(t.tag))) { throw new EditError(`Nothing can be put inside <${t.tag}>.`); }
   if (t.start >= el.start && t.start < el.end) { throw new EditError('An element cannot be moved inside itself.'); }
 
   const block = ownLines(html, el.start, el.end);
@@ -219,6 +221,23 @@ export function moveElement(html: string, at: number, target: number, where: 'be
   const adjust = (pos: number) => dropped >= 0 && pos > dropped ? pos - 1 : pos;
   const ts = adjust(tStart);
   const te = adjust(tEnd);
+
+  if (where === 'inside') {
+    // Last child of the target: on a line of its own when the end tag has one.
+    const close = adjust(shift(t.closeStart));
+    const open = adjust(shift(t.openEnd));
+    if (rest.slice(lineStart(rest, close), close).trim() === '') {
+      const closeIndent = /^[ \t]*/.exec(rest.slice(lineStart(rest, close)))![0];
+      const firstChild = /\n([ \t]*)\S/.exec(rest.slice(open, close));
+      const indent = firstChild && firstChild[1]!.length > closeIndent.length ? firstChild[1]! : closeIndent + '  ';
+      piece = piece.split('\n').map((l, i) => i === 0 ? l : (l.startsWith(oldIndent) ? indent + l.slice(oldIndent.length) : l)).join('\n');
+      const pos = lineStart(rest, close);
+      const glue = rest[pos - 1] === '\n' || pos === 0 ? '' : '\n';
+      return { html: rest.slice(0, pos) + glue + indent + piece + '\n' + rest.slice(pos), at: pos + glue.length + indent.length };
+    }
+    const space = open < close && !/\s$/.test(rest.slice(0, close)) ? ' ' : '';
+    return { html: rest.slice(0, close) + space + piece + rest.slice(close), at: close + space.length };
+  }
 
   if (ownLines(rest, ts, te)) {
     const indent = /^[ \t]*/.exec(rest.slice(lineStart(rest, ts)))![0];
