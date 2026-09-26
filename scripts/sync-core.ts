@@ -24,6 +24,7 @@ const HEADER = `/*--------------------------------------------------------------
 `;
 
 const FILES: Record<string, string> = {
+  'pages.ts': 'vibezPages.ts',
   'types.ts': 'vibezTypes.ts',
   'spans.ts': 'vibezSpans.ts',
   'keys.ts': 'vibezKeys.ts',

@@ -30,6 +30,14 @@ export interface IVibezPreviewInfo {
 	target: string;
 }
 
+/** Where the site canvas loads its pages from. */
+export interface IVibezSiteInfo {
+	/** Our own server; every page on the canvas is loaded from here. */
+	origin: string;
+	/** `files`: the folder's own files. `app`: passed through to a running dev server. */
+	mode: 'files' | 'app';
+}
+
 export interface IVibezSelection {
 	nodeId: string;
 	/** Increments on every click, so a repeat click on one region still counts. */
@@ -68,6 +76,11 @@ export interface IVibezCaptureService {
 	reset(): Promise<void>;
 	/** Point the preview at a dev server and get back a proxied URL. */
 	preview(target: string): Promise<IVibezPreviewInfo>;
+	/**
+	 * Serve a site for the site canvas: the files under `root`, or the running app
+	 * at `target` when one is given. Pages come back with the inspector bridge in them.
+	 */
+	site(root: string, target: string): Promise<IVibezSiteInfo>;
 	/** The last region clicked inside the preview. */
 	selection(): Promise<IVibezSelection>;
 	/** After an edit: wait for the app to restart, then measure it again. */

@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -226,5 +227,19 @@ registerAction2(class extends Action2 {
 		// Empty on purpose: an empty page opens on the template chooser.
 		await fileService.writeFile(target, VSBuffer.fromString(''));
 		await editorService.openEditor(new VibezUiEditorInput(target), { pinned: true });
+	}
+});
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezPagesEditor, VibezPagesEditor.ID, localize('vibez.site', "Site")),
+	[new SyncDescriptor(VibezPagesInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openPages', title: localize2('vibez.openSite', "Vibez: Open Site Canvas"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezPagesInput(), { pinned: true });
 	}
 });

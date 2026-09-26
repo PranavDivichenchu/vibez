@@ -94,3 +94,37 @@ See [fork/README.md](fork/README.md) for why the budget exists.
 - **Layout is ours, not ELK's.** Fixed column widths, ports on fixed sides, and
   wires that always leave and arrive horizontally are most of what makes a node
   editor look tidy, and they are cheaper to own than a megabyte of WASM.
+
+## Site canvas
+
+Open a website folder, then choose **Vibez: Open Site Canvas** in the command
+palette (or **Open Site canvas** in the Vibez sidebar). Every page of the site
+appears side by side as the real, running page: styled, scrollable, with its
+scripts working. Lines run from each link, where it actually sits on the page,
+to the page it opens, and only ever through the gaps between pages, so none
+of the page is hidden.
+
+- **Inspect** (default): hover to see what anything is; clicks select instead
+  of navigating. **Browse**: the site works normally. Press `I` to switch.
+- **Double-click anything** to see what it does, in plain words: where a link
+  goes, what a button's code does ("counts up and changes text on the page"),
+  what a form sends and where, where the text or data comes from, and the
+  file and line that wrote it. Code links open beside the site. When the app
+  has been traced, the measured steps behind an element are listed too.
+- **Desktop / Tablet / Phone** re-renders every page at that width.
+- Scroll over a page to scroll it; scroll or drag the space between pages to
+  move around; pinch or ⌘-scroll to zoom; `F` fits every page.
+
+Static sites are served straight from the folder. For an app that needs a
+server (Next.js, Vite…), start its dev server and put its address in
+**App URL**; pages are then loaded through it. Either way the pages are served
+by Vibez on 127.0.0.1 with a small inspector script added at the top of each
+HTML page; the files themselves are never changed.
+
+Try `examples/navigation`, a four-page bakery site with a menu, a newsletter
+form and a little script.
+
+Limits: pages whose address needs a value (`/product/[id]`) are not shown yet;
+a click handler's description comes from reading its code for well-known
+moves and says "runs some code" when it recognises none; element-to-line
+mapping is exact for HTML files and best-effort for framework components.

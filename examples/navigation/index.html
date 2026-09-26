@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home · Juniper &amp; Rye</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="logo.svg" alt="Juniper and Rye logo"> Juniper &amp; Rye</a>
+      <button class="menu-toggle" aria-expanded="false">Menu</button>
+      <nav class="nav">
+        <a href="index.html" aria-current="page">Home</a>
+        <a href="menu.html">Menu</a>
+        <a href="story.html">Our story</a>
+        <a href="about.html">Visit us</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <h1>Bread worth waking up for.</h1>
+        <p>A neighbourhood bakery baking sourdough, rye and pastries in small batches every morning since 2016.</p>
+        <div class="actions">
+          <a class="btn" href="menu.html">See today's menu</a>
+          <a class="btn ghost" href="story.html">Our story</a>
+        </div>
+      </div>
+    </section>
+    <section>
+      <div class="wrap">
+        <h2>Baked this morning</h2>
+        <div class="grid">
+        <article class="card">
+          <div class="pic p1"></div>
+          <div class="body">
+            <h3>Dark rye loaf</h3>
+            <p>Forty percent rye, caraway, a crackling crust.</p>
+            <span class="price">$9</span>
+            <button class="btn add" data-add="Dark rye loaf">Add</button>
+          </div>
+        </article>
+        <article class="card">
+          <div class="pic p2"></div>
+          <div class="body">
+            <h3>Cardamom bun</h3>
+            <p>Knotted, buttery, with a crunchy sugar top.</p>
+            <span class="price">$4.50</span>
+            <button class="btn add" data-add="Cardamom bun">Add</button>
+          </div>
+        </article>
+        <article class="card">
+          <div class="pic p3"></div>
+          <div class="body">
+            <h3>Seeded sourdough</h3>
+            <p>Pumpkin, sunflower and flax, 36-hour ferment.</p>
+            <span class="price">$10</span>
+            <button class="btn add" data-add="Seeded sourdough">Add</button>
+          </div>
+        </article>
+        </div>
+      </div>
+    </section>
+    <section class="band">
+      <div class="wrap">
+        <h2>Fresh news, once a month</h2>
+        <p>New bakes, holiday hours and the occasional recipe. No spam.</p>
+        <form class="newsletter" action="/api/subscribe" method="post">
+          <input type="email" name="email" placeholder="you@example.com" required>
+          <button class="btn" type="submit">Subscribe</button>
+        </form>
+        <div class="thanks"></div>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <div class="wrap">
+      <span>© Juniper &amp; Rye bakery, a Vibez example site</span>
+      <a href="about.html">Hours &amp; address</a>
+      <a href="https://example.org/instagram">Instagram</a>
+      <a href="mailto:hello@example.org">hello@example.org</a>
+    </div>
+  </footer>
+  <div class="cart">Order · 0 items</div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { VibezPagesInput } from './vibezPagesEditor.js';
 import * as dom from '../../../../base/browser/dom.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
@@ -59,6 +60,9 @@ export class VibezFlowsView extends ViewPane {
 	protected override renderBody(container: HTMLElement): void {
 		super.renderBody(container);
 		container.classList.add('vibez-flows');
+		const site = dom.append(container, dom.$('button.vibez-open-site'));
+		site.textContent = 'Open Site canvas';
+		this._register(dom.addDisposableListener(site, 'click', () => void this.editorService.openEditor(new VibezPagesInput(), { pinned: true })));
 		this.list = dom.append(container, dom.$('.vibez-flow-list'));
 
 		const folder = this.contextService.getWorkspace().folders[0];
