@@ -141,6 +141,56 @@ Whichever of graph/preview is not the active tab appears as a 280px inset in the
 
 Non-React frameworks need their own adapter. React only in v1; keep the `postMessage` contract framework-agnostic.
 
+### 3.5 Pages: the `.ui` editor
+
+Vibez has two kinds of file of its own. A `.vi` file is logic, edited as a
+graph. A `.ui` file is one page, built by dragging, the way Figma or Framer
+works. They meet only at the boundary in [docs/ui-vi-contract.md](docs/ui-vi-contract.md):
+a `.vi` file declares the values and actions it offers, and a page refers to
+them by name.
+
+```
+┌───────────┬──────────────────────────────────────┬──────────────┐
+│ ADD       │   1280  834  390        Design | Try │  STYLE       │
+│ ▭ ▯ ▦ ▢   │  ┌────────────────────────────────┐  │  Clean  Paper│
+│ T ≡ —     │  │ Northwind              PLAN Pro│  │  CONNECT     │
+│ ▭ ▭ ⛓     │  │ ┌──────┐┌──────┐┌──────┐       │  │  Shows orders│
+│ ▣ ▤       │  │ │ 12   ││70,236││12 Oct│       │  │  LAYOUT      │
+│ LAYERS    │  │ └──────┘└──────┘└──────┘       │  │  ↓ → ▦  gap  │
+│ Page      │  │ Top customers   ⛓ each of orders│  │  SIZE        │
+│  Header   │  └────────────────────────────────┘  │  Fill Fit Px │
+└───────────┴──────────────────────────────────────┴──────────────┘
+```
+
+- **A page is stacks, not coordinates.** Frames lay their children out in a
+  column, a row or a grid, like Figma's auto layout, and compile to flexbox.
+  A row can stack on phones. Nothing is pinned at x and y, so a page works at
+  a width nobody previewed.
+- **Tokens, not numbers.** Spacing, colour, corners and type are picked from a
+  theme's scale. A theme is only values for those tokens, so one click restyles
+  the page. Fixed widths are the one raw number.
+- **Real devices.** Desktop 1280, tablet 834, phone 390, with the fold drawn
+  where the screen ends. The canvas is the compiled page, drawn by the same
+  function, so the preview does not merely resemble what ships.
+- **Connecting is picking from a list.** A text is offered words and numbers,
+  a repeating frame and a gallery are offered lists, a button is offered
+  actions. Each choice shows its sample value. Linking a list makes the frame
+  repeat once per item, drawn with the samples, and the elements inside it are
+  offered the item's fields. An action's inputs fill themselves from inputs on
+  the page with the same name.
+- **Try it** turns the canvas into the working page: type, click, and see what
+  would run and with what.
+- **It saves as it goes** and compiles to `.vibez/build/<page>.html` on every
+  save. A change made to the file by anything else (an agent, git) reloads the
+  canvas and becomes an undo step.
+- **Starting.** An empty `.ui` file opens on five templates drawn live. The
+  `Vibez: New page` command makes one and opens it.
+
+Built in `packages/ui` (model, renderer, compiler, links, templates, all pure
+and tested) and `fork/contrib/.../browser/ui` (the editor). `npm run ui:harness`
+serves the editor's real panels in a browser for working on them without
+restarting the IDE.
+
 ---
 
 ## 4. Gestures first, the agent second

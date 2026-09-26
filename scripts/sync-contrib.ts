@@ -23,6 +23,15 @@ for (const [from, to] of TREES) {
 	console.log(`  ${to}`);
 }
 
+// The page editor's browser harness, beside out/ so it survives a clean compile.
+const harness = join(dir, 'vibez-harness');
+mkdirSync(harness, { recursive: true });
+cpSync('fork/harness', harness, { recursive: true });
+for (const sample of ['dashboard.ui', 'dashboard.vi']) {
+	cpSync(join('examples/shop/pages', sample), join(harness, sample));
+}
+console.log('  vibez-harness');
+
 /** Each edit is one import or one registration, and each is idempotent. */
 const EDITS: [file: string, marker: string, anchor: string, insert: string][] = [
 	[

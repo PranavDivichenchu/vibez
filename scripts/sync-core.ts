@@ -52,6 +52,31 @@ for (const [from, to] of Object.entries(FILES)) {
 }
 console.log(`  synced ${Object.keys(FILES).length} core files -> platform/vibez/common`);
 
+// The page editor's core: the same isomorphic rules apply, and it lands beside
+// the graph's core so both the renderer and the main process can use it.
+const UI_FILES: Record<string, string> = {
+  'types.ts': 'vibezUiTypes.ts',
+  'themes.ts': 'vibezUiThemes.ts',
+  'catalog.ts': 'vibezUiCatalog.ts',
+  'ops.ts': 'vibezUiOps.ts',
+  'links.ts': 'vibezUiLinks.ts',
+  'render.ts': 'vibezUiRender.ts',
+  'compile.ts': 'vibezUiCompile.ts',
+  'templates.ts': 'vibezUiTemplates.ts',
+};
+for (const [from, to] of Object.entries(UI_FILES)) {
+  let source = readFileSync(join('packages/ui/src', from), 'utf8');
+  if (/from 'node:/.test(source)) {
+    console.error(`  ui/${from} imports Node and cannot cross into the fork.`);
+    process.exit(1);
+  }
+  for (const [a, b] of Object.entries(UI_FILES)) {
+    source = source.replaceAll(`'./${a}'`, `'./${b.replace(/\.ts$/, '.js')}'`);
+  }
+  writeFileSync(join(target, to), HEADER.replace('packages/core', 'packages/ui') + source);
+}
+console.log(`  synced ${Object.keys(UI_FILES).length} ui files -> platform/vibez/common`);
+
 // The codemods need the TypeScript compiler at runtime, so they live in the
 // node layer and are loaded lazily by the main process, never at startup.
 const nodeTarget = join(forkDir(), 'src/vs/platform/vibez/node');

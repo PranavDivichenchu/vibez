@@ -42,6 +42,7 @@ npm run fork:setup     clone Code - OSS at the pinned tag
 npm run fork:build     bundle vibez-core, apply the overlay
 npm run fork:diff      measure the divergence against upstream
 npm run fork:run       launch the built fork from source
+npm run ui:harness     serve the page editor's panels in a browser (after sync + compile)
 ```
 
 `fork:setup` needs roughly 5 GB free once upstream's dependencies are installed,

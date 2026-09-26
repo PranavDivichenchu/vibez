@@ -27,6 +27,11 @@ import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
+import { VibezUiEditor } from './ui/vibezUiEditor.js';
+import { VibezUiEditorInput } from './ui/vibezUiEditorInput.js';
+import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { dirname } from '../../../../base/common/resources.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 
 const VIBEZ_CONTAINER_ID = 'workbench.view.vibez';
@@ -34,6 +39,11 @@ const VIBEZ_CONTAINER_ID = 'workbench.view.vibez';
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(VibezEditor, VibezEditor.ID, localize('vibez.pane', "Graph")),
 	[new SyncDescriptor(VibezEditorInput)]
+);
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezUiEditor, VibezUiEditor.ID, localize('vibez.uiPane', "Page")),
+	[new SyncDescriptor(VibezUiEditorInput)]
 );
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
@@ -126,6 +136,19 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 			{ singlePerResource: true },
 			{ createEditorInput: ({ resource }) => ({ editor: new VibezEditorInput(resource) }) }
 		));
+
+		// A .ui file is a page, built by dragging. The text of it is still one
+		// "Open as text" away, for anyone who wants the JSON.
+		this._register(editorResolverService.registerEditor(
+			'**/*.ui',
+			{
+				id: VibezUiEditor.ID,
+				label: localize('vibez.ui.editor.label', "Vibez page"),
+				priority: RegisteredEditorPriority.default
+			},
+			{ singlePerResource: true },
+			{ createEditorInput: ({ resource }) => ({ editor: new VibezUiEditorInput(resource) }) }
+		));
 	}
 }
 
@@ -163,5 +186,45 @@ registerAction2(class extends Action2 {
 		}
 		const flow = URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow');
 		await editorService.openEditor(new VibezEditorInput(flow), { pinned: true });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibez.newPage',
+			title: localize2('vibez.newPage', "Vibez: New page"),
+			f1: true
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const contextService = accessor.get(IWorkspaceContextService);
+		const editorService = accessor.get(IEditorService);
+		const fileService = accessor.get(IFileService);
+		const quickInputService = accessor.get(IQuickInputService);
+		const folder = contextService.getWorkspace().folders[0];
+		if (!folder) {
+			return;
+		}
+		const name = await quickInputService.input({
+			prompt: localize('vibez.newPage.prompt', "What is the page called?"),
+			placeHolder: localize('vibez.newPage.placeholder', "home, pricing, sign-up…"),
+			validateInput: async value => /^[\w -]*$/.test(value) ? undefined : localize('vibez.newPage.invalid', "Letters, numbers, spaces and dashes only."),
+		});
+		if (!name?.trim()) {
+			return;
+		}
+		const slug = name.trim().toLowerCase().replace(/\s+/g, '-');
+		// Beside the page that is open, or in pages/ at the top of the folder.
+		const active = editorService.activeEditor;
+		const base = active instanceof VibezUiEditorInput ? dirname(active.resource) : URI.joinPath(folder.uri, 'pages');
+		let target = URI.joinPath(base, `${slug}.ui`);
+		for (let n = 2; await fileService.exists(target); n++) {
+			target = URI.joinPath(base, `${slug}-${n}.ui`);
+		}
+		// Empty on purpose: an empty page opens on the template chooser.
+		await fileService.writeFile(target, VSBuffer.fromString(''));
+		await editorService.openEditor(new VibezUiEditorInput(target), { pinned: true });
 	}
 });

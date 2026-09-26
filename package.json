@@ -19,7 +19,8 @@
     "fork:build": "node fork/apply.ts",
     "sync:contrib": "node scripts/sync-contrib.ts",
     "shop": "node --watch examples/shop/src/server.ts",
-    "ui:build": "node scripts/ui-build.ts"
+    "ui:build": "node scripts/ui-build.ts",
+    "ui:harness": "node scripts/ui-harness.ts"
   },
   "engines": {
     "node": ">=22.18"
