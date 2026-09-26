@@ -65,8 +65,20 @@ function parsePorts(raw: string | undefined): Map<string, PortType> {
   return out;
 }
 
+/**
+ * A tree is a whole request only if its root is one. When a span's parent is
+ * missing, it is either a request continued from another service (still an
+ * entry, and kept) or the tail of a trace whose root has not arrived or was
+ * cleared away (not a request at all). Counting the second kind turned a 15 ms
+ * database query into a "whole request" and reported a 336 ms page as 16 ms.
+ */
+function isRequest(root: SpanNode): boolean {
+  if (root.span.parentSpanId === undefined) return true;
+  return classify(root.span, true) === 'entry';
+}
+
 export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph {
-  const roots = toTrees(spans);
+  const roots = toTrees(spans).filter(isRequest);
   const factsBySpan = detect(roots);
 
   const nodes = new Map<SemanticKey, Acc>();

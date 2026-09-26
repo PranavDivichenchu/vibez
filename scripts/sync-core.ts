@@ -50,3 +50,11 @@ for (const [from, to] of Object.entries(FILES)) {
   writeFileSync(join(target, to), HEADER + source);
 }
 console.log(`  synced ${Object.keys(FILES).length} core files -> platform/vibez/common`);
+
+// The codemods need the TypeScript compiler at runtime, so they live in the
+// node layer and are loaded lazily by the main process, never at startup.
+const nodeTarget = join(forkDir(), 'src/vs/platform/vibez/node');
+mkdirSync(nodeTarget, { recursive: true });
+writeFileSync(join(nodeTarget, 'vibezMerge.ts'),
+  HEADER.replace('packages/core', 'packages/codemod') + readFileSync('packages/codemod/src/merge.ts', 'utf8'));
+console.log('  synced codemod -> platform/vibez/node/vibezMerge.ts');

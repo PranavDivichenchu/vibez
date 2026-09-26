@@ -35,6 +35,7 @@ async function query<T>(
   where: { file: string; line: number; fn: string },
   ports: { in?: string; out?: string } = {},
   selector?: string,
+  extraLatencyMs = 0,
 ): Promise<T[]> {
   return span('sqlite:query', {
     'db.system': 'sqlite',
@@ -46,7 +47,7 @@ async function query<T>(
     ...(ports.out === undefined ? {} : { 'vibez.dataOut': ports.out }),
     ...(selector === undefined ? {} : { 'vibez.selector': selector }),
   }, async () => {
-    await wait(ROUND_TRIP_MS);
+    await wait(ROUND_TRIP_MS + extraLatencyMs);
     return db.prepare(sql).all(...params) as T[];
   });
 }
@@ -80,3 +81,25 @@ export const getBilling = (orgId: number): Promise<Plan | undefined> =>
   query<Plan>('SELECT tier, renewsOn FROM Plan WHERE orgId = ? LIMIT 1', [orgId],
     { file: 'examples/shop/src/db.ts', line: 80, fn: 'getBilling' },
     { in: 'orgId:Number', out: 'plan:Object' }, '.plan-chip').then((rows) => rows[0]);
+
+export interface Alert { level: string; message: string }
+export interface Order { id: number; customer: string; total: number }
+
+/**
+ * Two slower lookups with nothing in common, planted for the drag.
+ *
+ * They run one after another in server.ts even though neither needs the
+ * other. Dragging one node onto the other in Vibez merges them into a single
+ * Promise.all, and the dashboard gets about 60 ms faster.
+ */
+export const getAlerts = (orgId: number): Promise<Alert[]> =>
+  query<Alert>("SELECT 'warning' AS level, 'Card on file expires next month' AS message WHERE ? > 0", [orgId],
+    { file: 'examples/shop/src/db.ts', line: 108, fn: 'getAlerts' },
+    { in: 'orgId:Number', out: 'alerts:List' }, '.alert', 46);
+
+export const getRecentOrders = (orgId: number): Promise<Order[]> =>
+  query<Order>(
+    "SELECT u.id AS id, u.name AS customer, s.value AS total FROM User u JOIN Stat s ON s.userId = u.id WHERE u.orgId = ? ORDER BY s.value DESC LIMIT 4",
+    [orgId],
+    { file: 'examples/shop/src/db.ts', line: 113, fn: 'getRecentOrders' },
+    { in: 'orgId:Number', out: 'orders:List' }, '.orders', 46);

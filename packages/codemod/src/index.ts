@@ -1,1 +1,1 @@
-export * from './parallelize.ts';
+export * from './merge.ts';

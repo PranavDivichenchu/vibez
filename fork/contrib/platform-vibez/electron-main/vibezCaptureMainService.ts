@@ -3,13 +3,13 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
-import { createServer, request as httpRequest, IncomingMessage, Server } from 'http';
+import { createServer, request as httpRequest, get as httpGet, IncomingMessage, Server } from 'http';
 import { gunzipSync } from 'zlib';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
-import { join } from '../../../base/common/path.js';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, promises as fsp } from 'fs';
+import { join, relative, extname } from '../../../base/common/path.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezPreviewInfo, IVibezSelection } from '../common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
 import { RawSpan } from '../common/vibezSpans.js';
@@ -178,6 +178,88 @@ font:13px/1.6 system-ui;text-align:center">
 		return this.lastSelection;
 	}
 
+	/**
+	 * Find where two calls happen together and plan the merge.
+	 *
+	 * A node's anchor is where its function is defined, not where it is called,
+	 * so the call site has to be found. It is found by reading the workspace
+	 * rather than guessed: every candidate file is planned, and if the pair is
+	 * called together in more than one place the answer is a refusal, because
+	 * editing the wrong one silently is worse than asking.
+	 */
+	async planMerge(a: string, b: string): Promise<IVibezGesturePlan> {
+		if (!this.workspacePath) {
+			return { ok: false, reason: 'Open a folder first.' };
+		}
+		// Loaded on demand: the compiler is large and most sessions never drag.
+		const ts = await loadTypeScript();
+		const { planMerge } = await import('../node/vibezMerge.js');
+
+		const hits: IVibezGesturePlan[] = [];
+		let refusal: IVibezGesturePlan | undefined;
+		for (const file of await sourceFiles(this.workspacePath)) {
+			let text: string;
+			try {
+				text = await fsp.readFile(file, 'utf8');
+			} catch {
+				continue;
+			}
+			if (!text.includes(a) || !text.includes(b)) {
+				continue;
+			}
+			const plan = planMerge(ts, text, file, a, b);
+			const located = { ...plan, file, relative: relative(this.workspacePath, file), fileText: text };
+			if (plan.ok) {
+				hits.push(located);
+			} else if (!refusal || refusal.reason?.startsWith('Could not find')) {
+				refusal = located;
+			}
+		}
+
+		if (hits.length === 1) {
+			return hits[0];
+		}
+		if (hits.length > 1) {
+			return {
+				ok: false,
+				reason: `${a} and ${b} are called together in ${hits.length} places (${hits.map(h => h.relative).join(', ')}). Vibez will not guess which one you meant.`
+			};
+		}
+		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${a} and ${b}.` };
+	}
+
+	/**
+	 * Re-measure after an edit.
+	 *
+	 * A file watcher needs a moment to notice the save and restart the app, and
+	 * measuring the old process would report the old code's numbers as the
+	 * new code's. So: wait to see it go down (or give it a moment), wait for it
+	 * to come back, discard one warm-up request, then measure clean.
+	 */
+	async replay(runs: number): Promise<IVibezReplayResult> {
+		const target = this.target;
+		const restarted = await until(async () => !(await ping(target, 600)), 2500);
+		const up = await until(() => ping(target, 900), 20000);
+		if (!up) {
+			return { ok: false, runs: 0, restarted, reason: `Nothing answered at ${target} after the change.` };
+		}
+
+		await ping(target, 10000);
+		await sleep(400);
+		this.traces.clear();
+		for (let i = 0; i < runs; i++) {
+			await ping(target, 10000);
+		}
+		// The app's exporter batches spans for a fraction of a second.
+		await sleep(1000);
+		if (this.pending) {
+			clearTimeout(this.pending);
+			this.pending = undefined;
+		}
+		this.writeFlow();
+		return { ok: true, runs: this.traces.size, restarted };
+	}
+
 	private async readBody(request: IncomingMessage): Promise<Buffer> {
 		const chunks: Buffer[] = [];
 		for await (const chunk of request) {
@@ -257,4 +339,72 @@ font:13px/1.6 system-ui;text-align:center">
 		this.server = undefined;
 		super.dispose();
 	}
+}
+
+const SKIP = new Set(['node_modules', '.git', '.vibez', 'out', 'dist', 'build', '.next', 'coverage', '.turbo']);
+const SOURCE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts']);
+
+async function sourceFiles(root: string, limit = 4000): Promise<string[]> {
+	const out: string[] = [];
+	const walk = async (dir: string): Promise<void> => {
+		if (out.length >= limit) {
+			return;
+		}
+		let entries: import('fs').Dirent[];
+		try {
+			entries = await fsp.readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (out.length >= limit) {
+				return;
+			}
+			if (entry.isDirectory()) {
+				if (!SKIP.has(entry.name) && !entry.name.startsWith('.')) {
+					await walk(join(dir, entry.name));
+				}
+			} else if (SOURCE.has(extname(entry.name)) && !entry.name.endsWith('.d.ts')) {
+				out.push(join(dir, entry.name));
+			}
+		}
+	};
+	await walk(root);
+	return out;
+}
+
+type TypeScriptModule = typeof import('typescript');
+
+async function loadTypeScript(): Promise<TypeScriptModule> {
+	const mod = await import('typescript') as unknown as { default?: TypeScriptModule } & TypeScriptModule;
+	return mod.default ?? mod;
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function until(check: () => Promise<boolean>, timeoutMs: number, everyMs = 90): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (await check()) {
+			return true;
+		}
+		await sleep(everyMs);
+	}
+	return false;
+}
+
+function ping(url: string, timeoutMs: number): Promise<boolean> {
+	return new Promise(resolve => {
+		const request = httpGet(url, response => {
+			response.resume();
+			response.on('end', () => resolve(true));
+		});
+		request.on('error', () => resolve(false));
+		request.setTimeout(timeoutMs, () => {
+			request.destroy();
+			resolve(false);
+		});
+	});
 }

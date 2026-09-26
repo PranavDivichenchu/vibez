@@ -1,5 +1,5 @@
 import { span } from './tracing.ts';
-import type { Customer, Plan, Stat } from './db.ts';
+import type { Alert, Customer, Order, Plan, Stat } from './db.ts';
 
 const money = (n: number): string => `$${n.toLocaleString('en-US')}`;
 
@@ -30,6 +30,17 @@ th{text-align:left;font-size:12px;font-weight:400;color:#6B6B67;padding:10px 18p
 td{padding:12px 18px;font-size:13.5px;border-bottom:1px solid #F2F2EF}
 tbody tr:last-child td{border-bottom:0}
 td:first-child{font-weight:500}
+.alert{display:flex;align-items:center;gap:10px;background:#FFF8EB;border:1px solid #F1DDB5;color:#7A5314;
+  border-radius:10px;padding:11px 15px;margin-bottom:18px;font-size:13px}
+.alert i{width:7px;height:7px;border-radius:50%;background:#C98A1B;display:block;flex:none}
+.split{display:grid;grid-template-columns:minmax(0,2fr) minmax(220px,1fr);gap:16px;align-items:start}
+.orders{background:#fff;border:1px solid #E4E4E1;border-radius:10px;overflow:hidden}
+.orders h2{margin:0;padding:14px 18px;font-size:15px;font-weight:600;border-bottom:1px solid #E4E4E1}
+.orders li{display:flex;justify-content:space-between;padding:11px 18px;border-bottom:1px solid #F2F2EF;font-size:13.5px}
+.orders li:last-child{border-bottom:0}
+.orders ul{list-style:none;margin:0;padding:0}
+.orders span{color:#6B6B67}
+@media (max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
 td:nth-child(3){color:#6B6B67}
 @media (max-width:760px){.side{display:none}.main{padding:20px}}
 `;
@@ -55,7 +66,7 @@ export const StatsGrid = (customers: Customer[], stats: Stat[]): Promise<string>
   });
 
 export const DashboardPage = (
-  body: () => Promise<{ grid: string; plan: Plan | undefined; count: number; value: number }>,
+  body: () => Promise<{ grid: string; plan: Plan | undefined; alerts: Alert[]; orders: Order[]; count: number; value: number }>,
 ): Promise<string> =>
   span('render DashboardPage', {
     'vibez.component': 'DashboardPage',
@@ -65,7 +76,12 @@ export const DashboardPage = (
     'vibez.dataIn': 'req:Object',
     'vibez.dataOut': 'orgId:Number',
   }, async () => {
-    const { grid, plan, count, value } = await body();
+    const { grid, plan, alerts, orders, count, value } = await body();
+    const alert = alerts[0]
+      ? `<div class="alert"><i></i>${alerts[0].message}</div>`
+      : '';
+    const recent = `<section class="orders"><h2>Top accounts</h2><ul>${orders
+      .map((order) => `<li>${order.customer}<span>${money(order.total)}</span></li>`).join('')}</ul></section>`;
     const nav = ['Dashboard', 'Orders', 'Customers', 'Products', 'Settings']
       .map((item, i) => `<a href="#" class="${i === 0 ? 'on' : ''}">${item}</a>`).join('');
     const tile = (k: string, v: string) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`;
@@ -76,8 +92,9 @@ export const DashboardPage = (
   <main class="main">
     <div class="top"><h1>Dashboard</h1>
       <span class="plan-chip"><i></i>${plan?.tier ?? 'Free'} plan &middot; renews ${plan?.renewsOn ?? '—'}</span></div>
+    ${alert}
     <div class="tiles">${tile('Customers', String(count))}${tile('Orders this week', '312')}${tile('Revenue', money(value))}${tile('Refunds', '7')}</div>
-    ${grid}
+    <div class="split">${grid}${recent}</div>
   </main>
 </div></body></html>`;
   });

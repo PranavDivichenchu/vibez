@@ -6,7 +6,7 @@
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezPreviewInfo, IVibezSelection } from '../../../../platform/vibez/common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**
  * The renderer's handle on the receiver running in the main process.
@@ -43,6 +43,14 @@ class VibezCaptureService implements IVibezCaptureService {
 
 	selection(): Promise<IVibezSelection> {
 		return this.proxy.selection();
+	}
+
+	planMerge(a: string, b: string): Promise<IVibezGesturePlan> {
+		return this.proxy.planMerge(a, b);
+	}
+
+	replay(runs: number): Promise<IVibezReplayResult> {
+		return this.proxy.replay(runs);
 	}
 }
 

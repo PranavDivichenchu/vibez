@@ -50,3 +50,22 @@ test('data ports carry their declared types', () => {
   assert.equal(page.ports.out.find((p) => p.name === 'userId')?.type, 'String');
   assert.equal(byLabel('StatsGrid').ports.in.find((p) => p.name === 'stats')?.type, 'List');
 });
+
+test('orphaned fragments of a trace are not counted as requests', () => {
+  // The tail of a request whose root was cleared: two queries, no entry.
+  const fragment = dashboardRuns(1).filter(span => span.attributes['db.statement'] !== undefined)
+    .slice(0, 2)
+    .map(span => ({ ...span, traceId: 'late', spanId: `late-${span.spanId}` }));
+  const clean = buildGraph(dashboardRuns(6));
+  const polluted = buildGraph([...dashboardRuns(6), ...fragment]);
+  assert.equal(polluted.runs, clean.runs, 'the fragment is not a run');
+  assert.equal(Math.round(polluted.rootTotalMs), Math.round(clean.rootTotalMs), 'and does not drag the total down');
+});
+
+test('a request continued from another service is still a request', () => {
+  const continued = dashboardRuns(1).map(span =>
+    span.parentSpanId === undefined ? { ...span, parentSpanId: 'upstream-span' } : span);
+  const graph = buildGraph(continued);
+  assert.equal(graph.runs, 1);
+  assert.ok(graph.nodes.some(node => node.kind === 'entry'));
+});

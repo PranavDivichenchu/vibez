@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { tracer, flush } from './tracing.ts';
-import { seed, listCustomers, getUserStats, getBilling } from './db.ts';
+import { seed, listCustomers, getUserStats, getBilling, getAlerts, getRecentOrders } from './db.ts';
 import { DashboardPage, StatsGrid } from './render.ts';
 
 seed(12);
@@ -22,9 +22,13 @@ const server = createServer((req, res) => {
         const customers = await listCustomers(1);
         const stats = await getUserStats(customers);
         const plan = await getBilling(1);
+        const alerts = await getAlerts(1);
+        const orders = await getRecentOrders(1);
         return {
           grid: await StatsGrid(customers, stats),
           plan,
+          alerts,
+          orders,
           count: customers.length,
           value: stats.reduce((total, stat) => total + stat.value, 0),
         };

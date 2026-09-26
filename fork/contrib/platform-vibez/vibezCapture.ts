@@ -36,6 +36,32 @@ export interface IVibezSelection {
 	seq: number;
 }
 
+export interface IVibezGesturePlan {
+	ok: boolean;
+	/** Why it could not be done, phrased for the person who dragged. */
+	reason?: string;
+	summary?: string;
+	/** Absolute path of the file that would change. */
+	file?: string;
+	relative?: string;
+	line?: number;
+	start?: number;
+	end?: number;
+	replacement?: string;
+	original?: string;
+	hoisted?: boolean;
+	/** The whole file as it was when planned, so a stale plan is caught before it lands. */
+	fileText?: string;
+}
+
+export interface IVibezReplayResult {
+	ok: boolean;
+	runs: number;
+	/** Whether the app was seen going down and coming back after the edit. */
+	restarted: boolean;
+	reason?: string;
+}
+
 export interface IVibezCaptureService {
 	readonly _serviceBrand: undefined;
 	start(workspacePath: string): Promise<IVibezCaptureStatus>;
@@ -45,4 +71,8 @@ export interface IVibezCaptureService {
 	preview(target: string): Promise<IVibezPreviewInfo>;
 	/** The last region clicked inside the preview. */
 	selection(): Promise<IVibezSelection>;
+	/** Work out what dragging `a` onto `b` would change. Reads, never writes. */
+	planMerge(a: string, b: string): Promise<IVibezGesturePlan>;
+	/** After an edit: wait for the app to restart, then measure it again. */
+	replay(runs: number): Promise<IVibezReplayResult>;
 }
