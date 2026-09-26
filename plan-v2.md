@@ -1,31 +1,40 @@
-# Vibez v2 — three features
+# Vibez v2 — the queue, the voice, the slate
 
-Continues `plan.md`. Sections 16–22.
+Continues `plan.md`. Sections 16–23. Supersedes the first draft, kept at `.vibez/plan-v2.superseded.md`.
 
-None of this makes sense until §15 is real. An iPad that circles a graph nobody trusts is a toy, and a room full of agents editing a codebase nobody can see is worse than one agent. Ship v1, watch someone use it, then start here.
+Three features were asked for: an iPad you can circle things on, a voice input, and several agents working at once with teammates watching. A design review changed the shape of all three.
 
-One thing changes in the framing. §1 says "not an iPad tool." Still true. The iPad in §17 is a pointing surface for the Mac, not a second copy of Vibez.
+What changed, in one table.
+
+| First draft | Now | Why |
+|---|---|---|
+| One transport built first, three features on top | Actors first, transport fourth | Two of the three features need no network at all |
+| "Multi-agent + presence" as one feature | The queue, and presence as a separate optional thing | The queue is the whole value and has no dependencies. The cursors are decoration with many. |
+| Three dev servers in parallel | One measurement lane, serialized | 4–5GB of RAM, and parallel measurement makes numbers incomparable anyway |
+| Voice lives on the iPad | Voice lives on the desktop first | Push-to-talk on a keyboard needs no pairing, no certificate, no pad |
+| Whisper large-v3-turbo, 250ms partials | Short-form streaming model, honest numbers | Streaming Whisper chunks at 0.5–1s before it can decode anything |
+| Graph-biased decoding is the unfair advantage | Snap-to-vocabulary is, and the circle already pins the nouns | `initial_prompt` is soft conditioning. A closed 50-word vocabulary deserves a deterministic match. |
+| The iPad is an input surface | The iPad is a review surface | Circling a node is not faster than clicking it. Sitting back and looking at your app is the actual gain. |
+| Yjs awareness | 100 lines over the existing socket | Nothing here is collaboratively edited |
+
+Order follows dependency, not excitement. The queue ships alone, the voice ships alone, the slate needs the link, presence needs two people who asked for it.
 
 ---
 
-## 16. The spine
+## 16. Actors
 
-The three features look unrelated and are not. Each one needs the same three things, and building them three times is how this project dies.
+The one thing everything below needs, and the only retrofit into v1 code.
 
-### 16.1 Actors
-
-Everything in v1 has exactly one implicit actor: you. Selection is *the* selection. `choreograph()` takes one event stream. The fence belongs to nobody because there is nobody else.
-
-Retrofit an actor dimension before anything else is built on top:
+v1 has a single implicit actor. Selection is *the* selection, `choreograph()` takes one event stream, the fence belongs to nobody because nobody else exists. Three agents in §17 break all of that on day one.
 
 ```ts
-type ActorId = string        // 'local' | 'pad:<deviceId>' | 'agent:<runId>' | 'peer:<userId>'
+type ActorId = string        // 'local' | 'agent:<runId>' | 'pad:<deviceId>' | 'peer:<userId>'
 
 interface Actor {
   id: ActorId
-  kind: 'human' | 'pad' | 'agent'
+  kind: 'human' | 'agent' | 'pad'
   name: string
-  hue: number                // ring and cursor only, §19.6
+  hue: number                // rings and cursors only, never a node body
 }
 
 interface AgentEvent { /* ...existing... */ actor: ActorId }
@@ -33,189 +42,160 @@ interface Selection { nodes: SemanticKey[]; actor: ActorId; at: number }
 interface Timeline  { steps: Step[]; actor: ActorId }
 ```
 
-Doing this at the end means touching every reducer twice. Doing it first costs a day.
-
-### 16.2 One link, three features
-
-`packages/link`: a WebSocket server in the extension host, bound to the LAN interface, advertised over mDNS as `_vibez._tcp`. One versioned message union, shared by the pad, the microphone and the room.
-
-```ts
-type Msg =
-  | { t: 'hello';   actor: Actor; protocol: 1 }
-  | { t: 'graph';   flow: FlowId; rev: number; graph: Graph }
-  | { t: 'patch';   flow: FlowId; rev: number; ops: Op[] }
-  | { t: 'camera';  actor: ActorId; x: number; y: number; zoom: number }
-  | { t: 'cursor';  actor: ActorId; x: number; y: number }
-  | { t: 'ink';     actor: ActorId; strokeId: string; pts: InkPt[]; done: boolean }
-  | { t: 'select';  actor: ActorId; nodes: SemanticKey[]; origin: 'click' | 'ink' | 'region' }
-  | { t: 'audio';   actor: ActorId; seq: number; pcm: ArrayBuffer }
-  | { t: 'asr';     actor: ActorId; text: string; final: boolean }
-  | { t: 'intent';  actor: ActorId; utterance: string; scope: SemanticKey[] }
-  | { t: 'timeline';actor: ActorId; steps: Step[] }
-  | { t: 'fence';   held: Record<ActorId, string[]> }
-```
-
-Two rules on this wire, both load-bearing.
-
-**Graph coordinates, never screen pixels.** A 13-inch iPad and a 27-inch monitor agree with no calibration because nothing on the wire is measured in pixels.
-
-**Never source code.** The link carries the IR, selections, strokes, audio and timelines. Files stay on the machine that owns them. The pad shows the graph, not your repo. A remote teammate sees nodes and numbers, not your buffers. That is a privacy story, and it also keeps every payload under 50KB because the graph is capped at 40 nodes by design.
-
-### 16.3 Send the IR, not the screen
-
-No pixel streaming anywhere in this document. Every surface renders the same React Flow bundle from the same IR. Screen sharing is blurry, breaks ink registration, burns bandwidth, and makes the pad a dumb terminal instead of a device with its own camera.
-
-### 16.4 One pairing primitive
-
-A short-lived token in a QR or an invite link, exchanged once for a long-lived device key in `~/.vibez/devices.db`, revocable from a list in settings. The pad uses it, the teammate uses it, a future CLI would use it. Written once.
-
-### 16.5 The secure-context problem
-
-This decides whether voice can live on the iPad at all, so it belongs in the spine rather than in §18. Safari grants `getUserMedia` only in a secure context, and `http://192.168.1.x` is not one.
-
-| Option | Cost | Verdict |
-|---|---|---|
-| Self-signed cert, trust profile installed on the iPad | six-step install, once per device | works, ugly, keep as an escape hatch |
-| Real cert for a wildcard host whose DNS points at the LAN IP | a domain, a DNS record per device, renewals | correct long term, real infrastructure |
-| Ask the user to install a VPN mesh | they install another product first | cut |
-| Capture audio on the desktop; the pad only holds the button | free | **first cut** |
-
-Ship the desktop-mic fallback. You are holding an iPad three feet from a laptop; the laptop's microphone is fine. Revisit the certificate only if someone actually wants to walk away from the desk.
-
-### 16.6 Web, not native
-
-The pad client is a PWA served by the extension host and added to the home screen. No App Store, no TestFlight, no second language, and the canvas bundle is already written. PencilKit would give better ink prediction, but the stroke here lives 400ms and then evaporates, so it does not matter. Go native only if §17's gate fails on latency and nothing else.
+Do it before §17, in its own commit, with nothing else in flight. If it touches more than a dozen files the event model is wrong, and that is worth knowing while there is still only one feature sitting on it.
 
 ---
 
-## 17. The slate
+## 17. The queue
 
-An iPad paired to the IDE. You circle things with a pencil. Circling is how you tell the agent where to work.
+Several agents editing at once, one lane that measures, and a landing order that tells you which patches actually mattered.
 
-### 17.1 What it is not
+### 17.1 The thing nobody else can show you
 
-No file tree. No terminal. No editor. No full agent transcript. No sketch-to-code, no handwriting recognition, no text entry that needs precision from a finger. The Mac keeps the code. The pad points at it.
+Two agents each report a win. Agent A takes 2.40s to 0.31s. Agent B takes 800ms to 240ms. Both true, both measured. Land A, and B's number quietly becomes 240ms to 230ms, because A removed the contention B was waiting on.
 
-### 17.2 Pairing
+A terminal cannot show you that. A diff cannot. The canvas can, because it re-measures after every land and the node either stays warm or does not. This is the reason parallel agents belong in this product specifically, and it is the feature to build first.
 
-`Vibez: Pair a device` puts a QR on the canvas. It encodes `https://<host>/p#<token>`, token is 8 random bytes, 60-second TTL, single use. The pad opens it, upgrades to the WS, and trades the token for a device key.
+### 17.2 Worktrees for editing
 
-The desktop then asks once: *Pranav's iPad wants to pair*, with a four-digit code shown on both screens. A QR photographed over your shoulder is not enough. Paired devices are listed in settings and revocable individually.
+```
+repo/
+├── .git/
+├── <your working tree>
+└── .vibez/worktrees/
+    ├── agent-a/          own branch, own .next, node_modules linked
+    └── agent-b/
+```
 
-### 17.3 The pad renders its own graph
+Editing is cheap: tokens and disk, no RAM. Three concurrent editing agents is comfortable. The fence in §17.3 keeps them off each other's files, so the worktrees rarely diverge in ways that matter.
 
-Same bundle, same IR, its own camera. Camera sync is a toggle, defaulting to follow-desktop. Drawing detaches the follow, and a pill offers to re-sync. Nobody's camera is ever moved by someone else without a gesture, which is §5.4's rule extended to a second screen.
+`git worktree` does not populate `node_modules`. Link it from the main tree, give each worktree its own `.next`, and accept roughly 1GB of build cache per lane.
 
-### 17.4 Ink
+### 17.3 Fences, without a lock manager
 
-`PointerEvent` with `pointerType === 'pen'`. `getCoalescedEvents()` for the full sample stream, `getPredictedEvents()` to hide latency. Finger pans and zooms, pencil draws — the Procreate split, with no mode toggle and free palm rejection.
+§4.3's scope fence becomes an allocation, with one policy that makes deadlock structurally impossible: **nothing ever waits.**
 
-Ink renders on its own canvas layer above React Flow at the same transform. It is echoed locally on the first frame and never waits for the network. Strokes also stream to the desktop at 60Hz so the desktop canvas shows the line being drawn, which is most of why the two screens feel like one surface.
+- An actor requests a fence from its plan, before any write.
+- Granted only if the file set is disjoint from every fence currently held.
+- An agent that discovers it needs one more file gets the extension only if that file is uncontested.
+- A contested extension aborts the run cleanly and re-plans. It does not queue, block or retry against a held fence.
 
-### 17.5 Strokes resolve into selections
+No waiting means no cycles. The alternative, extension-with-blocking, is a lock manager and a deadlock detector, which is a week of work to support a case that happens twice a day.
 
-Four gestures. Not five.
+On the canvas a contested node gets a hatched border and a chip reading `held by agent-a`. Fences are visible to everyone and expire when a run ends.
 
-| Gesture | Recognizer | Result |
-|---|---|---|
-| circle | endpoints within 15% of the stroke's bounding-box diagonal | selects every node ≥60% inside the closed polygon |
-| tap | pen down and up under 120ms, under 6px travel | selects the node under it |
-| scribble | four or more direction reversals inside one node's box | deselects that node |
-| strike | open stroke crossing exactly one wire, overlapping no node | selects that edge |
+### 17.4 One measurement lane
 
-Anything else is an annotation and does nothing.
+The temptation is a dev server per worktree. Resist it. Three Next dev servers is 4–5GB before Electron, and worse, three builds racing on one machine produce timings that cannot be compared to each other, which defeats the point of measuring at all.
 
-Resolution happens on the pad, instantly, against the local IR. The desktop receives `select`, not geometry. The ink fades over 400ms once resolved.
+```
+  agent-a edits ─┐
+  agent-b edits ─┼──► measurement queue ──► one worktree at a time
+  agent-c edits ─┘         │                  build → replay ×N → stats
+                           │                  server reaped after
+                           ▼
+                     patch card, measured
+```
 
-This is the load-bearing claim of the whole feature: **ink is an input method for the scope fence in §4.3, not a new mechanism.** The agent surface area added by the iPad is zero. If it turns out to be more than zero, something has gone wrong.
+One server alive at a time, on an otherwise idle machine, reaped when its measurement ends. Parallel editing, serialized measurement. RAM is bounded at one server no matter how many agents run, and every number in the session was produced under the same conditions.
 
-### 17.6 A circle that catches eleven nodes
+A measurement is 1–3 minutes: 30–90s build plus 15–20 replays. That is long enough that the wait needs a UI, which is what §17.5 is.
 
-One node is obvious. Eleven is a fence over half the repo, which is worse than no fence.
+### 17.5 The queue strip
 
-Over six nodes, the pad shows one line and two buttons: `6 nodes · 4 files — fence all, or just the slow one?` Never silently fence a third of the codebase because a pencil stroke was generous.
+A strip under the canvas, one row per agent.
 
-### 17.7 Circle the app, not the graph
+```
+┌────────────────────────────────────────────────────────────┐
+│ a  getUserStats        edited · queued 2nd      claims −87% │
+│ b  StatsGrid           measuring ⟳  run 12/20               │
+│ c  lib/api/fetch.ts    editing                              │
+└────────────────────────────────────────────────────────────┘
+```
 
-Second tab on the pad: the preview. §3.4 already tags DOM regions with `data-vibez-node`, and data nodes already inherit the region of the ancestor that awaited them. So circling the table in the running app fences `getUserStats`, not `StatsGrid`.
+Three states, no more: editing, queued, measuring. A finished run becomes a patch card carrying its claimed delta and, after landing, its measured one.
 
-This is the demo. Circle the part of your app that feels slow, say why is this slow, and land on the line.
+### 17.6 Landing
 
-One honesty note: the pad's preview is a second session against the same dev server, not a mirror of the desktop's iframe. Its client state is its own. That is fine — you are circling a region, not a moment — but label it `your session` so nobody is confused about why their form input is not there.
+A patch, not a merge. A person picks the order, one at a time, and after each land the queue rebuilds, replays and re-measures against the new baseline.
 
-### 17.8 Latency budget
+Significance per §11.2, with one correction: Mann-Whitney across 40 nodes at α=0.05 lights roughly two of them by chance on every rebuild, which is the exact wolf-crying §11.2 exists to prevent. Benjamini-Hochberg over the node set, about ten lines.
 
-| Stage | Budget |
-|---|---|
-| pen sample → ink pixel on the pad | one frame, under 16ms, local, never networked |
-| stroke end → selection resolved on the pad | under 30ms, local |
-| selection → highlight on the desktop | under 80ms over LAN |
-| graph rev → repaint on the pad | under 120ms |
+A patch whose win does not survive the land says so on its card, in the plainest available words: `claimed −70% · measured −4% · not significant`. Keeping that card visible is the honest part of the feature.
 
-Above 150ms p95 on the round trip, the pad drops camera mirroring and goes fully local. A jittery mirrored camera is worse than no mirroring.
+### 17.7 Undo and attribution
+
+§10.5's git-stash undo becomes per actor. A landed patch is a real commit with `Co-authored-by`. Every actor action lands in an append-only `.vibez/room.log`. One key ends every run and releases every fence.
+
+### 17.8 What this does not need
+
+No network. No pairing. No accounts. No presence. No relay. It runs on one laptop with the lid open and it is the most valuable of the three features.
 
 ---
 
 ## 18. The voice
 
-You are holding an iPad with a pencil in one hand. There is no keyboard. Speech is the only fast way to say what you want, which makes it a necessity here rather than a novelty.
+### 18.1 On the desktop first
 
-### 18.1 Ours is an easier problem than dictation
+The first draft put the microphone on the iPad and immediately hit a wall: Safari grants `getUserMedia` only in a secure context, and `http://192.168.1.x` is not one, so voice-on-pad needs a certificate story before it needs a model.
 
-Whisper Flow transcribes arbitrary prose into a text field. We do not need that. The circle already pinned the nouns; the mouth only has to supply a verb.
+Skip all of it. Hold ⌥Space at the keyboard. No pairing, no certificate, no pad, and the feature ships two phases earlier. When the pad exists it forwards a button press and the audio still comes from the machine three feet away.
 
-Real utterances are four words long: *why is this slow*, *make it one query*, *undo that*, *is this cached*. A transcription error on "the" costs nothing. A transcription error on `getUserStats` costs everything — and §18.4 is how that one is fixed.
+### 18.2 The problem is easier than dictation
 
-### 18.2 Pipeline
+Whisper Flow transcribes arbitrary prose into a text field. This does not.
+
+Utterances here are four words long, and the nouns are already pinned by whatever is selected on the canvas. Nobody says `getUserStats`. They select it and say *make it one query*. A transcription error on "the" costs nothing, and the error that would cost everything is the one the selection already prevented.
+
+Design consequence: **ship with no vocabulary biasing at all, measure, and add §18.5 only if the measurement demands it.** The first draft built the biasing apparatus as though the feature depended on it. It does not.
+
+### 18.3 Pipeline
 
 ```
-pad mic ── 20ms frames ──► link ──► VAD (30ms hop)
-                                      │ speech
-                                      ▼
-                            streaming ASR, local
-                               │ partials every 300ms  ──► ghost line, pad + agent panel
-                               │ final on endpoint
-                               ▼
-                            deterministic cleanup
-                               ▼
-                            intent{ utterance, scope, nodes } ──► Agent SDK
+mic ── 20ms frames ──► VAD (30ms hop, endpointing only)
+                         │
+                         ▼
+                  streaming ASR, local
+                     │ partials ──► ghost line in the agent panel
+                     │ final on release
+                     ▼
+                  deterministic cleanup, ~40 rules
+                     ▼
+                  snap to vocabulary
+                     ▼
+                  intent{ utterance, scope, nodes } ──► Agent SDK
 ```
 
-16kHz mono s16le, 20ms frames, raw PCM at 32KB/s. Opus only if this ever leaves the LAN.
+16kHz mono s16le. VAD endpoints inside a held press and trims leading silence. It never starts anything.
 
-### 18.3 Model
+### 18.4 Model
 
-| Option | Where | First partial | Notes |
-|---|---|---|---|
-| whisper.cpp large-v3-turbo, Metal | local | ~250ms on Apple silicon | default |
-| whisper.cpp base.en | local | ~90ms | fallback where there is no GPU worth using |
-| hosted streaming ASR | cloud | ~150ms | opt-in, off by default, named in the status bar |
+Evaluate before committing. Week one of the phase, on a fixed set of 50 recorded utterances.
 
-Local by default is positioning, not only privacy. Vibez's whole claim is *measured, not described*. A tool that uploads your voice so a server can hear four words is not that tool.
+| Candidate | First partial, realistic | Notes |
+|---|---|---|
+| Moonshine / Parakeet, short-form streaming | 150–300ms | Built for exactly this input shape. Start here. |
+| whisper.cpp base.en | ~300ms | Fast, weak on symbol names, which §18.6 fixes anyway |
+| whisper.cpp large-v3-turbo | 500–1500ms | Best accuracy, too slow to feel live. Streaming chunks at 0.5–1s before it can decode. |
+| hosted streaming ASR | ~150ms | Opt-in, off by default, named in the status bar |
 
-### 18.4 Bias the decoder with the graph
+Local by default is positioning, not only privacy. Vibez claims *measured, not described*. A tool that uploads your voice so a server can hear four words is not that tool.
 
-This is the part nobody building generic dictation can copy. Whisper accepts an `initial_prompt`; feed it the flow's vocabulary before every utterance — node labels, symbol names, file basenames, fact names, and a short verb list.
-
-`getUserStats` then decodes as one symbol instead of "get user stats". `p95` stays `p95`. `queries.ts` does not become "queries dot TS".
-
-Refresh the bias set on every graph rev. Whisper's prompt window is 224 tokens, so cap at 200 and rank: selected nodes first, then heat, then recency. We know the fifty nouns the user might say, because they are on the screen in front of them.
-
-### 18.5 Push to talk, never an open microphone
-
-Hold the thumb bar in the bottom-left of the pad, where the non-drawing hand already rests. On the desktop, hold ⌥Space. Release ends the utterance.
-
-No wake word. No voice-activated start. VAD is used only for endpointing inside a held press and for trimming leading silence. iPadOS shows its own microphone indicator; we show one too, so the state is never ambiguous.
-
-### 18.6 Cleanup is rules, not a model
+### 18.5 Cleanup is rules, not a model
 
 Roughly forty deterministic rules: strip fillers from a fixed list, collapse stuttered repeats, drop the abandoned clause before *no wait* or *actually*, normalize numbers.
 
-No LLM cleanup pass. A model that politely rewrites *don't touch the auth code* is a catastrophe, and the agent tolerates disfluency perfectly well anyway.
+No LLM cleanup pass. A model that politely rewrites *don't touch the auth code* is a catastrophe, and the agent tolerates disfluency perfectly well.
+
+### 18.6 Snap, then bias
+
+If the measurement in §18.4 shows symbol names being mangled, the fix is deterministic before it is probabilistic.
+
+**Snap.** Match each transcript token against the current flow's vocabulary by phonetic distance, double-metaphone plus bounded edit distance, and correct in place. Closed vocabulary of about fifty nouns that are on the screen, so this is reliable in a way prompt conditioning is not.
+
+**Bias, only if snap is not enough.** Whisper takes an `initial_prompt`; feed it node labels, symbol names, file basenames and fact names, refreshed per graph rev, ranked selected-first then by heat. Cap at 200 tokens because the prompt window is 224. It is soft conditioning and it can induce repetition, so it is the second tool, not the first.
 
 ### 18.7 The utterance is never the whole prompt
-
-What actually reaches the Agent SDK:
 
 ```ts
 {
@@ -228,208 +208,267 @@ What actually reaches the Agent SDK:
 }
 ```
 
-Four spoken words plus `n+1 · 12 duplicate queries · queries.ts:88` is an unambiguous instruction. The detectors in §9 did the hard part before anyone opened their mouth.
+Four spoken words plus `n+1 · 12 duplicate queries · queries.ts:88` is unambiguous. The detectors in §9 did the hard part before anyone opened their mouth.
 
-### 18.8 Nothing writes to disk without a tap
+### 18.8 Nothing reaches disk without a tap
 
-Every voice-initiated turn first renders one line on both screens:
+Every voice turn first renders one line:
 
 ```
 getUserStats · batch 12 queries into 1 · 1 file
 ```
 
-Tap to run. Tap to cancel. Never a silence timeout, never an auto-confirm. Voice starts the work; a finger commits it.
+Click to run, click to cancel. Never a silence timeout, never an auto-confirm. Voice starts the work, a deliberate gesture commits it. This is the difference between usable and frightening.
 
-### 18.9 Budget
+### 18.9 Budget and failure
 
 | Stage | Budget |
 |---|---|
 | press → first partial | 300ms |
 | release → final, 10s of speech | 600ms |
 | final → intent dispatched | 50ms |
-| any failure | fall back to a text field prefilled with the last partial |
+| any failure | a text field, prefilled with the last partial |
 
 Never lose an utterance. Losing what someone just said is the one unforgivable failure in a voice interface.
 
 ### 18.10 Banned
 
-Wake words. A voice that talks back. Always-on transcription. Transcripts persisted by default. Dictating code character by character. Reading the diff aloud.
+Wake words. A voice that talks back. Always-on transcription. Persisted transcripts. Dictating code character by character. Reading the diff aloud.
 
 ---
 
-## 19. The room
+## 19. The link
 
-Multiple agents working at once, and multiple people watching it happen on the same canvas.
+Only now, and only because §20 needs a second device.
 
-### 19.1 These are two problems
+### 19.1 One socket, one pairing primitive
 
-"Several agents work in parallel" is a work-isolation problem. "I can see what my teammate is doing" is a presence problem. They share a canvas and nothing else. Building them as one feature is the standard way this goes wrong.
+`packages/link`: a WebSocket server in the extension host, bound to the LAN interface, advertised over mDNS as `_vibez._tcp`. A short-lived token in a QR, exchanged once for a device key in `~/.vibez/devices.db`, revocable per device from settings.
 
-### 19.2 We do not build collaborative text editing
-
-Live Share exists and is better than anything we would ship. If a team wants shared buffers they can run it alongside.
-
-Vibez shares the graph, the fences, the agent activity and the measured numbers. Those are exactly the things Live Share does not have, and they are the reason a shared canvas is worth anything here.
-
-### 19.3 Each agent gets a worktree
-
-```
-repo/
-├── .git/
-├── <your working tree>
-└── .vibez/worktrees/
-    ├── agent-a/          git worktree, own branch, own port
-    └── agent-b/
+```ts
+type Msg =
+  | { t: 'hello';    actor: Actor; protocol: 1 }
+  | { t: 'graph';    flow: FlowId; rev: number; graph: Graph }
+  | { t: 'patch';    flow: FlowId; rev: number; ops: Op[] }
+  | { t: 'camera';   actor: ActorId; x: number; y: number; zoom: number }
+  | { t: 'cursor';   actor: ActorId; x: number; y: number }
+  | { t: 'ink';      actor: ActorId; strokeId: string; pts: InkPt[]; done: boolean }
+  | { t: 'select';   actor: ActorId; nodes: SemanticKey[]; origin: 'click' | 'ink' | 'region' }
+  | { t: 'ptt';      actor: ActorId; down: boolean }
+  | { t: 'timeline'; actor: ActorId; steps: Step[] }
+  | { t: 'fence';    held: Record<ActorId, string[]> }
 ```
 
-Own dev server, own port, own OTLP stream tagged with the actor, own graph rev, own replay. Consequence: every agent's claim is independently measured, and two agents' numbers are comparable because the same Playwright script produced both.
+No `audio` message. The microphone stayed on the desktop, §18.1; the pad sends a button state.
 
-The cost is real — three dev servers is what a laptop tolerates. Hard cap of three concurrent agents, the cap is visible in the UI, and idle worktree servers are reaped after five minutes.
+### 19.2 Two rules
 
-### 19.4 The fence becomes a lock
+**Graph coordinates, never screen pixels.** A 13-inch iPad and a 27-inch monitor agree with no calibration because nothing on the wire is measured in pixels.
 
-§4.3's fence is per-turn. Promote it to a global allocation:
+**Never source code.** The IR, selections, strokes and timelines. Files stay on the machine that owns them. The pad shows the graph, not your repo. That keeps payloads under 50KB, since the graph is capped at 40 nodes by design, and it is the right default if a peer ever joins.
 
-- An actor requests a fence, from a circle, a click, or an agent's own plan.
-- The host grants it only if the file set is disjoint from every fence currently held.
-- An overlap is refused with a reason drawn on the canvas: contested nodes get a hatched border and a chip reading `held by Maya's agent`.
-- Fences expire when the run ends, or on a timeout, and every fence is visible to everyone in the room.
+### 19.3 No pixel streaming
 
-Conflict avoidance, not conflict resolution. It is boring, and it beats three agents racing in one tree.
+Every surface renders the same bundle from the same IR. Screen sharing is blurry, breaks ink registration and makes the pad a dumb terminal instead of a device with its own camera.
 
-### 19.5 Landing is sequential and re-measured
+---
 
-Each finished run is a patch, not a merge. A person picks the order. After each land: rebuild, replay, re-measure, Mann-Whitney against the *new* baseline.
+## 20. The slate
 
-The second patch frequently stops being a win once the first one lands. A terminal cannot show you that. The canvas can, and that is the actual argument for putting multi-agent work in this product rather than somewhere else.
+An iPad paired to the IDE. Reframed from the first draft.
 
-### 19.6 Presence
+### 20.1 It is a review surface, not an input surface
 
-Yjs awareness over the same link, ephemeral, never persisted. Shared: camera rect, cursor in graph coordinates, live strokes, selection, held fences, agent chips. Not shared: file contents, terminal, keystrokes.
+Circling a node on the graph is not faster than clicking it with a mouse, and pretending otherwise is how this becomes a demo.
+
+What the iPad actually adds is a second screen that does not compete with the editor for space, and a posture where you are looking at your running app instead of your code. You hold it, you poke at your app, you circle the part that feels wrong, and the Mac lands on the line. The circling is what you do while you are already over there, not the reason to go.
+
+That is a smaller claim than the first draft made, and it is the one that survives contact with a mouse.
+
+### 20.2 Hard prerequisite
+
+The best gesture on the pad is circling a region of the running app, which needs §3.4's region-to-node mapping to reach server-side nodes. It does not today: the bridge tags DOM from the fiber tree in the browser, the spans come from the Node process, and nothing joins the two traces.
+
+Fix in v1 Phase 3: propagate trace context into the HTML, a meta tag carrying `traceparent` that the client shim reads. Without it, circling a region can only ever select client-side nodes, and this phase has no headline.
+
+### 20.3 Pairing
+
+`Vibez: Pair a device` puts a QR on the canvas encoding `https://<host>/p#<token>`, 8 random bytes, 60-second TTL, single use. The desktop then asks once, with a four-digit code shown on both screens, so a QR photographed over your shoulder is not enough.
+
+### 20.4 The pad renders its own graph
+
+Same bundle, same IR, its own camera. Camera sync is a toggle defaulting to follow-desktop; drawing detaches it and a pill offers to re-sync. Nobody's camera is ever moved by someone else, which is §5.4's rule on a second screen.
+
+### 20.5 Ink
+
+`PointerEvent` with `pointerType === 'pen'`. Finger pans and zooms, pencil draws. That split is the Procreate convention and palm rejection comes free with it.
+
+Ink renders on its own layer above React Flow at the same transform, echoed locally on the first frame, never waiting for the network. Strokes also stream to the desktop at 60Hz so the desktop shows the line being drawn, which is most of why two screens feel like one surface.
+
+Two things to verify in week one, before anything is built on them: `getCoalescedEvents` and especially `getPredictedEvents` on current iPadOS Safari. WebKit shipped them late and predicted events may still be missing, which changes the latency story.
+
+### 20.6 Latency, honestly
+
+| Stage | Budget |
+|---|---|
+| pen sample → ink pixel | 50ms |
+| stroke end → selection resolved on the pad | 30ms, local |
+| selection → highlight on the desktop | 80ms over LAN |
+| graph rev → repaint on the pad | 120ms |
+
+The first draft said 16ms. Native PencilKit is around 9ms; a Safari canvas is realistically 30–50ms and there is no way around that from a web view. For a lasso that lives 300ms and then evaporates, 50ms is fine. Above 80ms it is not, and that is the only argument that justifies a native client.
+
+Above 150ms p95 on the round trip the pad drops camera mirroring and goes fully local. A jittery mirrored camera is worse than none.
+
+### 20.7 Four gestures
+
+| Gesture | Recognizer | Result |
+|---|---|---|
+| circle | endpoints within 15% of the stroke's bounding-box diagonal | selects every node ≥60% inside the closed polygon |
+| tap | pen down and up under 120ms, under 6px travel | selects the node under it |
+| scribble | four or more direction reversals inside one node's box | deselects that node |
+| strike | open stroke crossing exactly one wire, overlapping no node | selects that edge |
+
+Anything else is an annotation and does nothing. Resolution happens on the pad against the local IR; the desktop receives `select`, not geometry. Ink fades over 400ms once resolved.
+
+The load-bearing claim: ink is an input method for the fence in §4.3, not a new mechanism. The agent surface area added by the iPad is zero.
+
+### 20.8 A circle that catches eleven nodes
+
+One node is obvious. Eleven is a fence over half the repo, which is worse than no fence. Over six, the pad shows one line and two buttons: `6 nodes · 4 files — fence all, or just the slow one?`
+
+### 20.9 The preview tab
+
+The pad's preview is a second session against the same dev server, not a mirror of the desktop's iframe, so its client state is its own. That is fine, since you are circling a region rather than a moment, but label it `your session` so nobody wonders where their form input went.
+
+### 20.10 Not on the pad
+
+No file tree. No terminal. No editor. No full agent transcript. No sketch-to-code, no handwriting recognition, no text entry that needs precision from a finger.
+
+---
+
+## 21. Presence
+
+The remainder of "watch your teammates," demoted to optional and gated on demand.
+
+### 21.1 Gate
+
+Build this when two people have used §17's queue together for a week and asked for it. Not before. The queue is what makes collaboration legible; cursors are what make it feel busy.
+
+### 21.2 About a hundred lines
+
+Nothing here is collaboratively edited, so there is no CRDT and no Yjs. Ephemeral last-write-wins state over the socket that already exists.
 
 | Signal | Render |
 |---|---|
 | teammate cursor | 8px dot with a name label, their hue, 100ms interpolation |
-| teammate camera | a thin rect in the minimap only, never on the canvas |
-| teammate selection | 2px ring in their hue, outside our own selection ring |
-| held fence | hatched node border, lock chip in the header band |
+| teammate selection | 2px ring in their hue, outside our own |
+| held fence | hatched border, lock chip in the header band, from §17.3 |
 | their agent editing | the §5.2 blue pulse, tinted their hue |
-| their ink | live stroke in their hue, same 400ms fade |
 
-§7.3 already spends two color channels: latency on bodies and headers, type on pins and wires. Identity is a third, so it gets a strict surface allocation — **actor hue appears only on rings, cursors and strokes.** Never on a node body, header, pin or wire. Six fixed hues, none of them in the warm heat ramp. Every actor also carries a name label, so the hue is never the only signal.
+Not shared: file contents, terminal, keystrokes, camera rect.
 
-### 19.7 Attention
+### 21.3 The third color channel
 
-Several actors animating at once is unreadable.
+§7.3 already spends two: latency on bodies and headers, type on pins and wires. Identity is a third, so it gets a strict allocation. **Actor hue appears only on rings, cursors and strokes.** Never a node body, header, pin or wire. Six fixed hues, none in the warm heat ramp, and every actor carries a name label so hue is never the only signal.
 
-- At most two concurrent full timelines. Everything else collapses to a ring pulse and a chip in the ribbon.
+### 21.4 Attention
+
+- At most two concurrent full timelines. Everything else is a ring pulse and a chip.
 - Only your own actions move your camera. `Follow Maya` is a toggle with a persistent banner.
 - A teammate's timeline plays at 60% opacity.
-- §5.4's six-second cap is per actor; the canvas total is ten seconds per turn. Overflow is dropped, not queued.
+- §5.4's six-second cap is per actor; the canvas total is ten seconds per turn, and overflow is dropped rather than queued.
 
-### 19.8 LAN first, and the first server bill
+### 21.5 One host, LAN only
 
-On a LAN, a teammate scans the same QR from §17.2 and there is no infrastructure at all. That version works at a table, and it is the honest v1 of this feature.
+The repo lives on the host. Peers' agents run in host-side worktrees under host-side fences; a peer proposes a patch and only the host lands it. Joining grants reading the graph and proposing work, nothing else.
 
-Remote means a relay: auth, accounts, presence fan-out, reconnect, and a monthly bill before there is any revenue. Do not build it until the LAN version has survived a week of real use by a real pair.
+No relay, no accounts, no remote. A relay means auth, presence fan-out, reconnect and a monthly bill before there is revenue. It is the first thing in Vibez that costs money, and it waits until the free version has been worn out.
 
-### 19.9 Security
+### 21.6 Banned
 
-The room has one host, and the repo lives there.
-
-- Peers' agents run in host-side worktrees under host-side fences. A peer never gets write access to your tree; they propose a patch, and only the host lands it.
-- Joining a room grants reading the graph and proposing work. Nothing else.
-- Every actor action is attributed in an append-only `.vibez/room.log`.
-- One key ends every run and releases every fence.
-- §10.5's git-stash undo becomes per actor. A landed patch is a real commit with `Co-authored-by`.
-
-### 19.10 Banned
-
-Voice or video chat. A chat sidebar — use the tool you already use. Photo avatars. Emoji reactions on nodes. "X is typing." Any leaderboard of who fixed more nodes.
+Voice or video chat. A chat sidebar. Photo avatars. Emoji reactions on nodes. "X is typing." Any leaderboard of who fixed more nodes.
 
 ---
 
-## 20. Roadmap
+## 22. Roadmap
 
-Order is forced. The spine is the shared dependency. The slate is single-player and proves the transport with one device. Voice rides the same socket and introduces no new distributed state. The room introduces all of it, plus auth and money, so it goes last.
+Each phase ships something usable on its own. None of them touch the fork; all of it is `vibez-core` and `packages/link`, which is the payoff §10.1 was buying.
 
-None of these three need a single line of fork diff. All of it lands in `vibez-core` and `packages/link`, which is the payoff §10.1 was buying.
+### Phase 7 — Actors and the queue (weeks 15–18)
 
-### Phase 7 — The spine (weeks 15–16)
-
-- [ ] `packages/link`: WS server, mDNS advert, token pairing, device keys
 - [ ] `ActorId` through `AgentEvent`, `Selection`, `Timeline`; choreographer keyed by actor
-- [ ] Graph on the wire: full snapshot plus patches, rev numbers
-- [ ] Pairing UI, device list, per-device revoke
+- [ ] Worktree per editing agent, `node_modules` linked, own `.next`
+- [ ] Fences as no-wait allocations; contested extension aborts and re-plans
+- [ ] One measurement lane, one server alive, reaped after each run
+- [ ] Queue strip: editing / queued / measuring, patch cards
+- [ ] Sequential landing, re-measure per land, Benjamini-Hochberg over the node set
+- [ ] Per-actor undo, `Co-authored-by`, `.vibez/room.log`, kill switch
 
-**Gate:** two windows on two machines showing the same graph, camera-synced. If the actor retrofit touches more than a dozen files, the model is wrong — fix it now, not with three features stacked on top.
+**Gate:** two agents produce two patches that both claim a win, and after landing the first, the canvas shows the second one stop mattering. If that moment is not obvious on screen without explanation, the strip is wrong.
 
-### Phase 8 — The slate (weeks 17–19)
+### Phase 8 — The voice (weeks 19–20)
 
-- [ ] Pad PWA: the same canvas bundle, follow toggle
-- [ ] Pencil ink layer, coalesced and predicted events, local echo
-- [ ] Four gestures, resolved on the pad, 400ms fade
-- [ ] Selection feeds the existing fence — no new agent surface
-- [ ] Pad preview tab, region circling through `data-vibez-node`
-- [ ] Over-six-node disambiguation
-- [ ] Latency budget instrumented, shown in the pad's status line
-
-**Gate:** circle a node on the pad, the desktop fence appears in under 100ms, with no setup beyond the QR. If you reach for the keyboard to fix the selection, the gestures are wrong.
-
-### Phase 9 — The voice (weeks 20–22)
-
-- [ ] Audio frames over the link, VAD endpointing
-- [ ] whisper.cpp with Metal, streaming partials
-- [ ] Graph-biased prompt, refreshed per rev, capped at 200 tokens
-- [ ] Deterministic cleanup, roughly forty rules, tested
+- [ ] ⌥Space push-to-talk on the desktop, VAD for endpointing only
+- [ ] Model bake-off on 50 recorded utterances, §18.4
+- [ ] Streaming partials in the agent panel
+- [ ] Deterministic cleanup, ~40 rules, tested
 - [ ] Intent envelope: utterance, fence, node IR, baseline
-- [ ] One-line resolved instruction, explicit tap to run
-- [ ] Desktop-mic fallback when the pad has no secure context
+- [ ] One-line resolved instruction, explicit click to run
+- [ ] Snap-to-vocabulary, and prompt biasing only if snap is not enough
 
-**Gate:** a circle plus "why is this slow" produces the right fence and the right answer three times out of three, spoken at normal speed with a fan running. And every proper noun on the canvas transcribes exactly.
+**Gate:** select a node, say *why is this slow*, three times out of three, at normal speed with a fan running. No vocabulary work shipped unless the measurement demanded it.
 
-### Phase 10 — The room (weeks 23–27)
+### Phase 9 — The link (weeks 21–22)
 
-- [ ] Worktree per agent, port allocation, per-actor OTLP tagging
-- [ ] Fences as global locks, contested rendering, expiry
-- [ ] Sequential landing, re-measure and significance after each land
-- [ ] Yjs awareness, presence rendering per §19.6
-- [ ] Attention caps per §19.7
-- [ ] Append-only room log, kill switch, per-actor undo
-- [ ] LAN only. No relay, no accounts.
+- [ ] `packages/link`: WS server, mDNS, token pairing, device keys
+- [ ] Graph on the wire, snapshot plus patches, rev numbers
+- [ ] Pairing UI, device list, per-device revoke
+- [ ] Trace-context propagation into the HTML, the §20.2 prerequisite
 
-**Gate:** two people and three agents in one room for an afternoon, nobody loses work, and nobody asks what is happening on their screen.
+**Gate:** two windows on two machines showing the same graph, camera-synced, and clicking a region of the preview selects a server-side node.
+
+### Phase 10 — The slate (weeks 23–25)
+
+- [ ] Verify `getCoalescedEvents` / `getPredictedEvents` on iPadOS. First task, before anything else.
+- [ ] Pad PWA: same canvas bundle, follow toggle
+- [ ] Pencil ink layer, local echo, 60Hz stroke stream to the desktop
+- [ ] Four gestures, resolved on the pad, 400ms fade
+- [ ] Selection feeds the existing fence, no new agent surface
+- [ ] Preview tab, region circling, `your session` label
+- [ ] Over-six-node disambiguation
+- [ ] Latency instrumented and shown in the pad's status line
+
+**Gate:** on the third day, somebody picks up the pad without being asked to. If the honest report is that the mouse was fine, the slate is a demo and the right move is to say so and stop.
+
+### Phase 11 — Presence (unscheduled)
+
+Gated on §21.1. Two people, one week on the queue, and an actual request.
 
 ---
 
-## 21. Risks
+## 23. Risks
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Ink is a gimmick and people go back to the mouse | Fatal for §17 | Phase 8 gate. If the mouse selects one node faster, circling the *preview* is the only remaining justification. If that is weak too, cut the slate. |
-| ASR mangles symbol names | High | Graph-biased prompt §18.4. Measure noun accuracy against a fixed list of 50 symbols, not WER. |
-| Voice feels like an accident waiting to happen | High | Nothing reaches disk without a tap, §18.8. |
-| Secure-context wall blocks the pad microphone | Medium | Desktop-mic fallback ships first; the certificate is optional work. |
-| Three dev servers melt the laptop | High | Hard cap of three, visible in the UI, idle servers reaped at five minutes. |
-| Parallel agent output is unmergeable | High | Disjoint fences by construction, sequential landing, re-measure after each. |
-| Presence turns the canvas into a disco | Medium | §19.7 caps; two animated actors maximum. |
-| A third color channel collides with heat and types | Medium | Identity hue confined to rings, cursors and strokes, §19.6. |
-| The relay becomes the product, and a bill | Medium | LAN only until a real pair has used it for a week. |
-| The pad grows a file tree and becomes an editor | Medium | §17.1. |
-| These features grow the fork diff | Low | They do not touch the fork. All of it is `vibez-core` plus `packages/link`. |
+| The queue's headline moment never happens, because patches rarely interact | Fatal for §17 | Phase 7 gate. Plant two interacting problems in `examples/next-shop` and check it reproduces before building the strip. |
+| Measurement lane becomes the bottleneck, agents idle waiting | High | 1–3 minutes per run and a visible queue. If depth regularly exceeds three, cap editing agents at two. |
+| An agent's plan cannot predict its file set, so fences abort constantly | High | Measure abort rate in Phase 7. Over 20% means the fence granularity is wrong, probably folder-level rather than file-level. |
+| ASR is slower than the table claims | Medium | Bake-off before integration, §18.4. The fallback is a smaller model, not a longer wait. |
+| Voice feels like an accident waiting to happen | High | Nothing reaches disk without a click, §18.8. |
+| Safari ink latency above 80ms | Medium | Measured in Phase 10 task one. The only thing that justifies a native client, and the phase is cheap to abandon. |
+| Trace context never joins server and client | High | It is a Phase 9 deliverable with its own gate. §20 has no headline without it. |
+| The pad is a demo | Medium | Phase 10 gate is written to kill it, and it is the last thing built, so killing it costs nothing already spent. |
+| Presence turns the canvas into a disco | Low | §21.4 caps, and the feature is demand-gated anyway. |
+| A third color channel collides with heat and types | Medium | Hue confined to rings, cursors and strokes, §21.3. |
+| These features grow the fork diff | Low | They do not touch the fork. |
 
 ---
 
-## 22. Definition of done for v2
+## 24. Definition of done
 
-Two people at one table, one laptop, one iPad, in under five minutes:
+**The queue.** Three agents work at once on one laptop. Nothing races, nothing conflicts, and the fan does not come on. Two patches both claim a win, and after landing the first, the second says `claimed −70% · measured −4% · not significant` on its own card without anyone asking.
 
-1. Scan a QR. The graph is on the pad, with no configuration.
-2. Circle the loud node with a pencil and say *why is this slow*.
-3. The fence lands on one file. The answer is one line, and the canvas already showed it.
-4. Say *make it one query*, tap to confirm, watch the choreography run on both screens at once.
-5. The teammate, on their own machine, sees the fence, the pulse and the number drop without asking what is going on.
-6. A second agent works a different node the entire time and never touches the first one's files.
-7. Landing both patches re-measures. One of them turns out not to have mattered, and the canvas says so.
+**The voice.** You select a node, hold a key, say four words, read one line, and click once. The number drops. You never opened the agent panel to type.
 
-The part that makes it a product rather than a demo: the person holding the iPad never typed anything.
+**The slate.** You are sitting back with your app on the iPad. Something looks slow. You circle it with the pencil and the Mac, across the room, has already opened the file. You did not touch the keyboard, and on the third day you reached for the pad on your own.

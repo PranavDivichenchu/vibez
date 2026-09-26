@@ -34,6 +34,7 @@ async function query<T>(
   params: Array<string | number>,
   where: { file: string; line: number; fn: string },
   ports: { in?: string; out?: string } = {},
+  selector?: string,
 ): Promise<T[]> {
   return span('sqlite:query', {
     'db.system': 'sqlite',
@@ -43,6 +44,7 @@ async function query<T>(
     'code.function': where.fn,
     ...(ports.in === undefined ? {} : { 'vibez.dataIn': ports.in }),
     ...(ports.out === undefined ? {} : { 'vibez.dataOut': ports.out }),
+    ...(selector === undefined ? {} : { 'vibez.selector': selector }),
   }, async () => {
     await wait(ROUND_TRIP_MS);
     return db.prepare(sql).all(...params) as T[];
@@ -68,7 +70,7 @@ export async function getUserStats(customers: Customer[]): Promise<Stat[]> {
     const [row] = await query<Stat>(
       'SELECT orders, value, lastSeen FROM Stat WHERE userId = ?', [customer.id],
       { file: 'examples/shop/src/db.ts', line: 71, fn: 'getUserStats' },
-      { in: 'userId:Number', out: 'rows:List' });
+      { in: 'userId:Number', out: 'rows:List' }, 'tbody');
     if (row) out.push(row);
   }
   return out;
@@ -77,4 +79,4 @@ export async function getUserStats(customers: Customer[]): Promise<Stat[]> {
 export const getBilling = (orgId: number): Promise<Plan | undefined> =>
   query<Plan>('SELECT tier, renewsOn FROM Plan WHERE orgId = ? LIMIT 1', [orgId],
     { file: 'examples/shop/src/db.ts', line: 80, fn: 'getBilling' },
-    { in: 'orgId:Number', out: 'plan:Object' }).then((rows) => rows[0]);
+    { in: 'orgId:Number', out: 'plan:Object' }, 'span.plan').then((rows) => rows[0]);

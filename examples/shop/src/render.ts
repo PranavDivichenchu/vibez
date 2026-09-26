@@ -9,6 +9,7 @@ export const StatsGrid = (customers: Customer[], stats: Stat[]): Promise<string>
     'code.filepath': 'examples/shop/src/render.ts',
     'code.lineno': 8,
     'code.function': 'StatsGrid',
+    'vibez.selector': 'table',
     'vibez.dataIn': 'rows:List',
     'vibez.dataOut': 'html:Object',
   }, async () => {
@@ -28,6 +29,7 @@ export const DashboardPage = (
     'code.filepath': 'examples/shop/src/render.ts',
     'code.lineno': 27,
     'code.function': 'DashboardPage',
+    'vibez.selector': 'body',
     'vibez.dataIn': 'req:Object',
     'vibez.dataOut': 'orgId:Number',
   }, async () => {

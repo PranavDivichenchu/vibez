@@ -20,7 +20,11 @@ export class VibezEditorInput extends EditorInput {
 
 	static readonly ID = 'workbench.input.vibez.graph';
 
-	constructor(public readonly resource: URI) {
+	constructor(
+		public readonly resource: URI,
+		/** Set when something else, like a click in the preview, picked a node. */
+		public readonly selectNode?: string,
+	) {
 		super();
 	}
 

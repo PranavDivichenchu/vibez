@@ -22,6 +22,7 @@ interface Acc {
   perCall: number[];
   occurrences: number;
   facts: Map<string, Fact>;
+  domKey: string | undefined;
   dataIn: Map<string, PortType>;
   dataOut: Map<string, PortType>;
 }
@@ -95,6 +96,7 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
         perCall: [],
         occurrences: 0,
         facts: new Map<string, Fact>(),
+        domKey: str(node.span.attributes['vibez.selector']),
         dataIn: parsePorts(str(node.span.attributes['vibez.dataIn'])),
         dataOut: parsePorts(str(node.span.attributes['vibez.dataOut'])),
       };
@@ -105,6 +107,7 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       acc.perCall.push(own);
       acc.occurrences += 1;
       if (acc.anchor === null) acc.anchor = anchorOf(node.span);
+      acc.domKey ??= str(node.span.attributes['vibez.selector']);
       for (const fact of factsBySpan.get(node.span.spanId) ?? []) acc.facts.set(fact.code, fact);
       nodes.set(key, acc);
 
@@ -171,6 +174,7 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       heat,
       band: bandOf(heat),
       facts: [...acc.facts.values()],
+      ...(acc.domKey === undefined ? {} : { domKey: acc.domKey }),
     };
   });
 

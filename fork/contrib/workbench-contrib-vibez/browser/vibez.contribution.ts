@@ -14,16 +14,20 @@ import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/edit
 import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
-import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IFileService } from '../../../../platform/files/common/files.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
 import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezFlowsView } from './vibezFlowsView.js';
+import { VibezPreviewEditor } from './vibezPreviewEditor.js';
+import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
+import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
 
 const VIBEZ_CONTAINER_ID = 'workbench.view.vibez';
 
@@ -31,6 +35,17 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 	EditorPaneDescriptor.create(VibezEditor, VibezEditor.ID, localize('vibez.pane', "Graph")),
 	[new SyncDescriptor(VibezEditorInput)]
 );
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezPreviewEditor, VibezPreviewEditor.ID, localize('vibez.previewPane', "Preview")),
+	[new SyncDescriptor(VibezPreviewEditorInput)]
+);
+
+// This is Vibez, not VS Code with a guest in it: the first thing a window shows
+// should be this product's own surface, never upstream's walkthrough.
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
+	overrides: { 'workbench.startupEditor': 'none' }
+}]);
 
 /**
  * Vibez gets its own rail entry, beside Explorer and Search rather than below
@@ -70,6 +85,8 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 		@IVibezCaptureService captureService: IVibezCaptureService,
 		@IWorkspaceContextService contextService: IWorkspaceContextService,
 		@ILogService logService: ILogService,
+		@IFileService fileService: IFileService,
+		@IEditorService editorService: IEditorService,
 	) {
 		super();
 
@@ -80,6 +97,21 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 			captureService.start(folder.uri.fsPath).then(
 				status => logService.info(`[vibez] capture ${status.listening ? `listening on ${status.port}` : 'not listening'}`),
 				error => logService.warn(`[vibez] capture failed to start: ${error}`));
+		}
+
+		// If this workspace has a flow, open it. An empty editor area on launch is
+		// better than someone else's welcome page, but the graph is better still.
+		const startupFlow = folder?.uri.scheme === 'file' ? URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow') : undefined;
+		// The graph and the running app, side by side. Only on a window that has
+		// nothing else open: restoring someone's tabs beats being opinionated.
+		if (startupFlow) {
+			fileService.exists(startupFlow).then(async exists => {
+				if (!exists || editorService.activeEditor !== undefined) {
+					return;
+				}
+				await editorService.openEditor(new VibezEditorInput(startupFlow), { pinned: true });
+				await editorService.openEditor(new VibezPreviewEditorInput(), { pinned: true, preserveFocus: true }, SIDE_GROUP);
+			}, () => undefined);
 		}
 
 		this._register(editorResolverService.registerEditor(
@@ -98,6 +130,20 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 }
 
 registerWorkbenchContribution2(VibezContribution.ID, VibezContribution, WorkbenchPhase.BlockRestore);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibez.openPreview',
+			title: localize2('vibez.openPreview', "Vibez: Open the preview"),
+			f1: true
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezPreviewEditorInput(), { pinned: true });
+	}
+});
 
 registerAction2(class extends Action2 {
 	constructor() {

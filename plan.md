@@ -264,8 +264,24 @@ These are the default things people build when told to make software teach, and 
 Three things are mandatory, and skipping any one produces boxes near lines:
 
 1. **Ports.** Wires terminate on visible pins.
-2. **Header bands.** Tonally distinct, carrying icon, name and cost. This is what makes a node read as an object.
+2. **Header bands.** Tonally distinct, carrying icon, name and cost. This is what
+   makes a node read as an object.
 3. **Weighted bezier wires.** Two kinds, visibly different.
+
+### 7.1a Inputs and outputs must not look the same
+
+Blueprints separates execution from data. Scratch makes direction obvious to
+someone who has never seen a node editor, because a plug and a socket cannot be
+confused. Take both.
+
+| | Input, on the left | Output, on the right |
+|---|---|---|
+| **Exec** | hollow outlined arrow, set into the edge | solid arrow protruding past it |
+| **Data** | ring socket, recessed, hollow when unwired | filled dot on a short stem, sticking out |
+
+The rule underneath: **an input is a socket, an output is a plug.** Direction is
+then readable on a single node, without tracing a wire to its other end. A loose
+output keeps its stem but hollows out, so "nothing consumes this" still reads.
 
 ### 7.2 Beziers, not right angles
 
@@ -567,25 +583,19 @@ it reports `getUserStats 2.08 s · 86% of flow · 12 × 173 ms`.
 - [ ] Click node → reveal anchor in a real editor tab
 - [ ] Layout persistence keyed by semantic key
 
-### Phase 3 — Fork and preview
+### Phase 3 — Fork and preview  ✅
 
-Fork half, done:
-
-- [x] Fork Code – OSS, branding overlay, `vibez` CLI, `.vibez-ide` data folder
+- [x] Fork Code – OSS, branding, `vibez` CLI, `.vibez-ide` data folder
 - [x] The graph as a workbench `EditorPane`, exclusive for `.flow`
 - [x] Vibez in the activity bar with a Flows view
-- [x] Trace receiver in the main process, exposed to the renderer over IPC
+- [x] Trace receiver in the main process, over IPC to the renderer
 - [x] Recording starts with the window; flows appear because the app ran
-- [x] Flows view watches `.vibez/flows` and updates live
-- [ ] Welcome screen still upstream's; `configurationDefaults` did not take
+- [x] Upstream's walkthrough replaced: a window opens on its own graph
+- [x] Dev-server proxy injecting the bridge, so the app is never modified
+- [x] Heat tint and outlines over the real page
+- [x] Click a region → the graph opens on the node that drew it
+- [x] Graph and preview side by side on a fresh window
 - [ ] Build and sign for macOS and Windows
-
-Preview half, next:
-
-- [ ] Dev-server proxy with bridge injection
-- [ ] Fiber walk → `data-vibez-node` → rect `postMessage`
-- [ ] Preview tab, inset PiP, swap
-- [ ] Node → region outline, region → node selection, heat tint
 
 ### Phase 4 — Agent and choreographer
 
@@ -668,4 +678,6 @@ And by the tenth time, the interface is calling it an N+1 query, because they no
 
 ## 16+. After v1
 
-Three v2 features — the iPad slate, voice intent, and the multi-agent room — are planned in [plan-v2.md](plan-v2.md). None of them start until §15 is real.
+Three v2 features are planned in [plan-v2.md](plan-v2.md), in dependency order: the agent queue, the voice, the iPad slate. None of them start until §15 is real.
+
+Two v1 changes they depend on: stack capture at span start, so compute nodes have anchors (§3.3), and trace-context propagation into the HTML, so a preview region can reach a server-side node (§3.4).

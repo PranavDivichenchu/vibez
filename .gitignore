@@ -5,7 +5,5 @@ out/
 .DS_Store
 .vibez/
 .env
-tools/preview/view.json
-tools/preview/preview.html
 
 packages/vibez-core/dist/

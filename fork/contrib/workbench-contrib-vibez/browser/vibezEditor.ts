@@ -56,6 +56,7 @@ export class VibezEditor extends EditorPane {
 	private root!: HTMLElement;
 	private world!: HTMLElement;
 	private hud!: HTMLElement;
+	private legend!: HTMLElement;
 	private readonly rendered = this._register(new DisposableStore());
 
 	private scale = 1;
@@ -79,6 +80,7 @@ export class VibezEditor extends EditorPane {
 		this.root = dom.append(parent, dom.$('.vibez-graph'));
 		this.world = dom.append(this.root, dom.$('.vibez-world'));
 		this.hud = dom.append(this.root, dom.$('.vibez-hud'));
+		this.legend = dom.append(this.root, dom.$('.vibez-legend'));
 		this.installCamera();
 	}
 
@@ -110,6 +112,9 @@ export class VibezEditor extends EditorPane {
 		this.render();
 		this.touched = false;
 		this.fit();
+		if (input.selectNode) {
+			this.highlight(input.selectNode);
+		}
 	}
 
 	private renderEmpty(message: string): void {
@@ -162,31 +167,71 @@ export class VibezEditor extends EditorPane {
 			card.style.top = `${box.y}px`;
 			card.style.width = `${box.w}px`;
 			card.style.height = `${box.h}px`;
+			card.dataset['vibezId'] = node.id;
 			this.renderNode(card, node, box.rows);
 			this.rendered.add(dom.addDisposableListener(card, dom.EventType.CLICK, () => this.select(card, node)));
 		}
 
 		for (const point of layout.ports) {
 			const node = byId.get(point.node);
+			const port = node && [...node.ports.in, ...node.ports.out].find(p => p.id === point.port);
+			const isIn = point.side === 'in';
+
 			if (point.kind === 'exec') {
-				const tri = svg('svg', { class: 'vibez-tri', width: 9, height: 12, viewBox: '0 0 9 12' });
-				tri.appendChild(svg('path', { d: 'M0 0 L9 6 L0 12 Z', fill: onPath.has(point.node) ? 'var(--vz-crit)' : 'var(--vz-t2)' }));
-				(tri as unknown as HTMLElement).style.left = `${point.x - 4}px`;
-				(tri as unknown as HTMLElement).style.top = `${point.y - 6}px`;
-				this.world.appendChild(tri);
+				// Blueprints' exec pin, read as a Scratch plug: an input is a hollow
+				// socket sitting in the edge, an output is a solid arrow sticking out
+				// of it. Direction is legible without following a single wire.
+				const colour = onPath.has(point.node) ? 'var(--vz-crit)' : 'var(--vz-t2)';
+				const arrow = svg('svg', { class: `vibez-exec ${isIn ? 'in' : 'out'}`, width: 11, height: 13, viewBox: '0 0 11 13' });
+				arrow.appendChild(svg('path', {
+					d: 'M0.8 1 L9.6 6.5 L0.8 12 Z',
+					fill: isIn ? 'var(--vz-body)' : colour,
+					stroke: colour,
+					'stroke-width': 1.5,
+					'stroke-linejoin': 'round'
+				}));
+				const host = arrow as unknown as HTMLElement;
+				host.style.left = `${point.x - (isIn ? 5.5 : 1)}px`;
+				host.style.top = `${point.y - 6.5}px`;
+				this.world.appendChild(arrow);
 				continue;
 			}
-			const port = node && [...node.ports.in, ...node.ports.out].find(p => p.id === point.port);
-			const pin = dom.append(this.world, dom.$('.vibez-pin'));
+
 			const type = port?.type ?? 'Unknown';
-			pin.style.color = `var(--${type})`;
-			pin.style.borderColor = `var(--${type})`;
-			pin.style.left = `${point.x - 4.5}px`;
-			pin.style.top = `${point.y - 4.5}px`;
-			if (port?.connected) {
-				pin.classList.add('connected');
+			if (isIn) {
+				const socket = dom.append(this.world, dom.$('.vibez-pin.socket'));
+				socket.style.borderColor = `var(--${type})`;
+				if (port?.connected) {
+					socket.classList.add('connected');
+					socket.style.color = `var(--${type})`;
+				}
+				socket.style.left = `${point.x - 5.5}px`;
+				socket.style.top = `${point.y - 5.5}px`;
+			} else {
+				const plug = dom.append(this.world, dom.$('.vibez-plug'));
+				plug.style.color = `var(--${type})`;
+				if (!port?.connected) {
+					plug.classList.add('loose');
+				}
+				plug.style.left = `${point.x - 1}px`;
+				plug.style.top = `${point.y - 4.5}px`;
 			}
 		}
+
+		// Built node by node, not with innerHTML: the workbench enforces Trusted
+		// Types and an innerHTML assignment throws at runtime.
+		dom.clearNode(this.legend);
+		const key = (mark: Node, text: string) => {
+			const item = dom.append(this.legend, dom.$('span.vibez-key'));
+			dom.append(item, dom.$('span.vibez-key-mark')).appendChild(mark);
+			dom.append(item, dom.$('span')).textContent = text;
+		};
+		key(dom.$('.vibez-pin.socket.vibez-key-inline'), localize('vibez.key.in', "in"));
+		key(dom.$('.vibez-plug.vibez-key-inline'), localize('vibez.key.out', "out"));
+		const execMark = svg('svg', { width: 9, height: 11, viewBox: '0 0 11 13' });
+		execMark.appendChild(svg('path', { d: 'M0.8 1 L9.6 6.5 L0.8 12 Z', fill: 'currentColor' }));
+		key(execMark, localize('vibez.key.order', "order it ran in"));
+		key(dom.$('.vibez-key-wire'), localize('vibez.key.time', "where the time goes"));
 
 		dom.clearNode(this.hud);
 		for (const text of [
@@ -248,6 +293,16 @@ export class VibezEditor extends EditorPane {
 	}
 
 	/** Selecting a node opens the code it came from, beside the graph. */
+	/** Mark a node as chosen without opening its source, for arrivals from elsewhere. */
+	private highlight(nodeId: string): void {
+		for (const other of this.world.querySelectorAll('.vibez-node.selected')) {
+			other.classList.remove('selected');
+		}
+		const card = this.world.querySelector(`.vibez-node[data-vibez-id="${CSS.escape(nodeId)}"]`);
+		card?.classList.add('selected');
+		card?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	}
+
 	private select(card: HTMLElement, node: GNode): void {
 		for (const other of this.world.querySelectorAll('.vibez-node.selected')) {
 			other.classList.remove('selected');
