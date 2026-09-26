@@ -252,6 +252,20 @@ It is the escape hatch, not the main event. If someone reaches for the chat to
 fix an N+1, the gesture for it is missing or undiscoverable, and that is a bug
 in the canvas rather than a job for a model.
 
+### 4.2a Agents speak Vibez, through MCP
+
+`packages/mcp` is an MCP server, so Claude or any other agent works on a Vibez
+app in Vibez's terms rather than raw JSON: pages read as outlines with ids,
+edits are the editor's own moves (add, set, move, remove, duplicate, wrap)
+applied as an all-or-nothing batch, and links are written `dashboard.vi#orders`,
+`item.customer`, `input.email`. Every edit is checked like the editor checks it,
+and a refusal lists what would fit. `vi_declare` lets an agent add the values
+and actions a page needs to a `.vi` file's exports; `flow_read` gives it the
+measured flow, so "why is this slow" is answered from traces.
+
+The editor watches the files, so an agent's change lands on the canvas live and
+is one undo away. The agent panel in the IDE will run the same server.
+
 ### 4.3 The panel, when it is there
 
 Three lines at most. What the agent is doing shows as **activity chips** and as

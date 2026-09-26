@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/codemod && tsc --noEmit -p packages/ui",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/codemod && tsc --noEmit -p packages/ui && tsc --noEmit -p packages/mcp",
     "trace": "node scripts/trace.ts",
     "fork:setup": "node scripts/fork-setup.ts",
     "fork:diff": "node scripts/fork-diff.ts",

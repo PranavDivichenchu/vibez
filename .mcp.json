@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vibez": {
+      "command": "node",
+      "args": ["packages/mcp/src/server.ts", "--root", "examples/shop"]
+    }
+  }
+}
