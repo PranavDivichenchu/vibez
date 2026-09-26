@@ -1,0 +1,13 @@
+{
+  "name": "vibez",
+  "private": true,
+  "version": "0.0.0",
+  "description": "An IDE where your codebase is a node graph built from what actually ran",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "test": "node --test 'packages/*/test/*.test.ts'",
+    "demo": "node packages/core/src/demo.ts",
+    "typecheck": "tsc -b"
+  },
+  "engines": { "node": ">=22.18" }
+}
