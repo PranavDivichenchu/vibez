@@ -1,8 +1,24 @@
-import { createHash } from 'node:crypto';
 import type { NodeKind, SemanticKey } from './types.ts';
 import type { RawSpan } from './spans.ts';
 
-const sha = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 12);
+/**
+ * FNV-1a, doubled and interleaved for 64 bits of output.
+ *
+ * Deliberately not node:crypto: keeping this module free of Node lets the whole
+ * of core compile into the editor's renderer as well as its main process. The
+ * hash only has to separate a few dozen nodes within one graph, so cryptographic
+ * strength buys nothing here.
+ */
+const sha = (input: string): string => {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < input.length; i++) {
+    const code = input.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (code + i), 0x85ebca6b) >>> 0;
+  }
+  return (a.toString(16).padStart(8, '0') + b.toString(16).padStart(8, '0')).slice(0, 12);
+};
 
 /**
  * Strip literals and collapse IN-list arity so that queries differing only by

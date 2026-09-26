@@ -21,8 +21,8 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
-import { Graph } from '../common/vibezTypes.js';
-import { humanMs, verdict } from '../common/vibezHeat.js';
+import { Graph } from '../../../../platform/vibez/common/vibezTypes.js';
+import { humanMs, verdict } from '../../../../platform/vibez/common/vibezHeat.js';
 
 /**
  * The flows in this workspace, in the activity bar.

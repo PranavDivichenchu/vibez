@@ -59,8 +59,9 @@ agent) stays a service on the other side of the process boundary.
 **The merge budget is on modified upstream files, not lines.** Line count is the
 wrong metric: a 5,000-line directory upstream has never heard of conflicts
 never, while a twenty-line edit inside `workbench.common.main.ts` conflicts most
-months. Budget is 12 modified files. Current count is **2**: `product.json` and
-one import line in `workbench.common.main.ts`. Everything else is new files.
+months. Budget is 12 modified files. Current count is **4**: `product.json`, one import
+in `workbench.common.main.ts`, one in `workbench.desktop.main.ts`, and a service
+plus channel registration in `app.ts`. Sixteen new files carry everything else.
 `npm run fork:diff` prints both and fails on the first number only.
 
 ### 2.4 Animation is programmatic, never generated.
@@ -568,9 +569,19 @@ it reports `getUserStats 2.08 s · 86% of flow · 12 × 173 ms`.
 
 ### Phase 3 — Fork and preview
 
-- [ ] Fork Code – OSS, branding layer, bundle `vibez-core`
-- [ ] Activity bar entries, welcome screen, first-run flow
+Fork half, done:
+
+- [x] Fork Code – OSS, branding overlay, `vibez` CLI, `.vibez-ide` data folder
+- [x] The graph as a workbench `EditorPane`, exclusive for `.flow`
+- [x] Vibez in the activity bar with a Flows view
+- [x] Trace receiver in the main process, exposed to the renderer over IPC
+- [x] Recording starts with the window; flows appear because the app ran
+- [x] Flows view watches `.vibez/flows` and updates live
+- [ ] Welcome screen still upstream's; `configurationDefaults` did not take
 - [ ] Build and sign for macOS and Windows
+
+Preview half, next:
+
 - [ ] Dev-server proxy with bridge injection
 - [ ] Fiber walk → `data-vibez-node` → rect `postMessage`
 - [ ] Preview tab, inset PiP, swap

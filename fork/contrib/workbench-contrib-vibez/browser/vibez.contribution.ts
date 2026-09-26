@@ -16,6 +16,8 @@ import { EditorExtensions } from '../../../common/editor.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
+import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
 import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
@@ -63,8 +65,23 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.vibez';
 
-	constructor(@IEditorResolverService editorResolverService: IEditorResolverService) {
+	constructor(
+		@IEditorResolverService editorResolverService: IEditorResolverService,
+		@IVibezCaptureService captureService: IVibezCaptureService,
+		@IWorkspaceContextService contextService: IWorkspaceContextService,
+		@ILogService logService: ILogService,
+	) {
 		super();
+
+		// Recording starts with the window. A flow should exist because the app
+		// ran, not because anyone remembered to press a button first.
+		const folder = contextService.getWorkspace().folders[0];
+		if (folder?.uri.scheme === 'file') {
+			captureService.start(folder.uri.fsPath).then(
+				status => logService.info(`[vibez] capture ${status.listening ? `listening on ${status.port}` : 'not listening'}`),
+				error => logService.warn(`[vibez] capture failed to start: ${error}`));
+		}
+
 		this._register(editorResolverService.registerEditor(
 			'**/*.flow',
 			{

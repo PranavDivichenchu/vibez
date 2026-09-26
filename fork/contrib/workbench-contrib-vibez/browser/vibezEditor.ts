@@ -17,9 +17,9 @@ import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
-import { Graph, GNode } from '../common/vibezTypes.js';
-import { Layout, layoutGraph } from '../common/vibezLayout.js';
-import { humanMs } from '../common/vibezHeat.js';
+import { Graph, GNode } from '../../../../platform/vibez/common/vibezTypes.js';
+import { Layout, layoutGraph } from '../../../../platform/vibez/common/vibezLayout.js';
+import { humanMs } from '../../../../platform/vibez/common/vibezHeat.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 

@@ -3,14 +3,16 @@ import { join } from 'node:path';
 import { forkDir } from './fork-dir.ts';
 
 /**
- * Copies the pure, dependency-free parts of @vibez/core into the fork's own
- * source tree.
+ * Copies @vibez/core into the fork's platform layer.
  *
- * The graph is a workbench surface, not an extension, so this logic has to
- * compile as part of VS Code's own build. That build uses ESM with .js import
- * specifiers and requires a copyright header on every file, so the copy is
- * rewritten rather than symlinked. Only files with no Node dependency can make
- * the trip: the renderer runs in a browser context.
+ * It lands in `platform/` rather than `workbench/` because both sides need it:
+ * the renderer lays the graph out, and the main process builds it from spans.
+ * VS Code's layering forbids platform importing workbench, so platform is the
+ * only place it can live.
+ *
+ * The copy is rewritten rather than symlinked: VS Code's build wants a
+ * copyright header and `.js` import specifiers. Nothing here may import Node —
+ * core was made isomorphic for exactly this reason.
  */
 const HEADER = `/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Vibez. All rights reserved.
@@ -21,15 +23,28 @@ const HEADER = `/*--------------------------------------------------------------
 
 `;
 
-const FILES = { 'types.ts': 'vibezTypes.ts', 'heat.ts': 'vibezHeat.ts', 'layout.ts': 'vibezLayout.ts' };
-const target = join(forkDir(), 'src/vs/workbench/contrib/vibez/common');
+const FILES: Record<string, string> = {
+  'types.ts': 'vibezTypes.ts',
+  'spans.ts': 'vibezSpans.ts',
+  'keys.ts': 'vibezKeys.ts',
+  'heat.ts': 'vibezHeat.ts',
+  'detect.ts': 'vibezDetect.ts',
+  'build.ts': 'vibezBuild.ts',
+  'layout.ts': 'vibezLayout.ts',
+};
+
+const target = join(forkDir(), 'src/vs/platform/vibez/common');
 mkdirSync(target, { recursive: true });
 
 for (const [from, to] of Object.entries(FILES)) {
   let source = readFileSync(join('packages/core/src', from), 'utf8');
+  if (/from 'node:/.test(source)) {
+    console.error(`  ${from} imports Node and cannot cross into the fork.`);
+    process.exit(1);
+  }
   for (const [a, b] of Object.entries(FILES)) {
     source = source.replaceAll(`'./${a}'`, `'./${b.replace(/\.ts$/, '.js')}'`);
   }
   writeFileSync(join(target, to), HEADER + source);
-  console.log(`  ${from} -> contrib/vibez/common/${to}`);
 }
+console.log(`  synced ${Object.keys(FILES).length} core files -> platform/vibez/common`);
