@@ -16,7 +16,7 @@ import { ITelemetryService } from '../../../../platform/telemetry/common/telemet
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
-import { EditError, moveElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
+import { EditError, moveElement, removeElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
 import { ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
 import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -49,7 +49,8 @@ type EditOp =
 	| { op: 'text'; text: string }
 	| { op: 'attr'; name: string; value: string | null }
 	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' | 'inside' }
-	| { op: 'insert'; element: string; where: 'before' | 'after' | 'inside'; accent?: string | null };
+	| { op: 'insert'; element: string; where: 'before' | 'after' | 'inside'; accent?: string | null }
+	| { op: 'remove' };
 
 /** Attributes the edit panel may change. Anything else is edited in code. */
 const EDITABLE_ATTRIBUTES = /^(href|src|alt|title|placeholder|style)$/;
@@ -253,6 +254,7 @@ export class VibezPagesEditor extends EditorPane {
 		}
 		let html = before;
 		let where = at ?? -1;
+		let removed = false;
 		if (at === null && !ops.every(op => op.op === 'insert')) {
 			return fail('Choose an element on the page first.');
 		}
@@ -275,6 +277,11 @@ export class VibezPagesEditor extends EditorPane {
 						({ html, at: where } = insertElement(html, String(op.element), at === null ? null : where, op.where === 'before' || op.where === 'inside' ? op.where : 'after', tag || undefined, op.accent ?? null));
 						at = where;
 						break;
+					case 'remove':
+						html = removeElement(html, where, tag);
+						where = -1;
+						removed = true;
+						break;
 					case 'move':
 						({ html, at: where } = moveElement(html, where, Number(op.target), op.where === 'after' || op.where === 'inside' ? op.where : 'before', tag, op.targetTag));
 						break;
@@ -285,7 +292,7 @@ export class VibezPagesEditor extends EditorPane {
 		}
 		if (html !== before) {
 			await this.write(resource, file, html);
-			siteHistory.record({ label: `a change to ${file}`, changes: [{ file, before, after: html }] });
+			siteHistory.record({ label: removed ? `deleting <${tag || 'element'}> from ${file}` : `a change to ${file}`, changes: [{ file, before, after: html }] });
 		}
 		this.post({ type: 'edited', file, at: where });
 	}

@@ -134,6 +134,10 @@ of the page is hidden.
 - **Reorder** (toolbar): the other way to drag. The element slots in
   before or after another one (a blue line shows where), which keeps the
   page's layout flowing naturally on every screen size.
+- **Delete something**: select it and press Delete (or Backspace), or use
+  **Delete** at the bottom of its Edit panel. It is removed from the HTML file
+  with everything inside it, without leaving a blank line behind. The page's
+  `<html>`, `<head>`, `<body>` and `<main>` cannot be deleted.
 - **Undo / Redo** (`⌘Z`, `⇧⌘Z`, or the toolbar) cover every canvas change.
   A file with unsaved changes in an editor is never written, and a change is
   refused if the file no longer matches the page on screen.

@@ -256,3 +256,31 @@ export function moveElement(html: string, at: number, target: number, where: 'be
   }
   return { html: rest.slice(0, te) + ' ' + piece + rest.slice(te), at: te + 1 };
 }
+
+/** Elements a page cannot do without. Removing one breaks the page rather than editing it. */
+const STRUCTURAL = new Set(['html', 'head', 'body', 'main']);
+
+/**
+ * Deletes an element, and everything inside it, from the file.
+ *
+ * On a line of its own, the whole line goes, so no blank line is left behind.
+ * Inline, only the element goes, and a doubled space around it is closed up.
+ */
+export function removeElement(html: string, at: number, tag?: string): string {
+  const el = expect(html, at, tag);
+  if (STRUCTURAL.has(el.tag)) { throw new EditError(`The page's <${el.tag}> cannot be deleted.`); }
+  if (!el.isVoid && el.closeStart < 0) { throw new EditError('Could not find where this element ends in the file.'); }
+  if (ownLines(html, el.start, el.end)) {
+    const from = lineStart(html, el.start);
+    const to = Math.min(html.length, lineEnd(html, el.end) + 1);
+    return html.slice(0, from) + html.slice(to);
+  }
+  let before = html.slice(0, el.start);
+  let after = html.slice(el.end);
+  if (/ $/.test(before) && (/^[ \n\r]/.test(after) || after.startsWith('</'))) {
+    before = before.slice(0, -1);
+  } else if (/^ /.test(after) && (/(^|\n)[ \t]*$/.test(before) || /<[a-zA-Z][^>]*>$/.test(before))) {
+    after = after.slice(1);
+  }
+  return before + after;
+}

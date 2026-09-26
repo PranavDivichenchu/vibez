@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { elementAt, attributesAt, setAttribute, setStyle, setText, isTextOnly, moveElement, EditError } from '../src/edit.ts';
+import { elementAt, attributesAt, setAttribute, setStyle, setText, isTextOnly, moveElement, removeElement, EditError } from '../src/edit.ts';
 import { annotateHtml } from '../src/pages.ts';
 
 const PAGE = `<!doctype html>
@@ -127,4 +127,27 @@ test('an element can be moved into another container, as its last child', () => 
   const inline = '<p>Hello <b>big</b> world <span>end</span></p>';
   assert.equal(moveElement(inline, inline.indexOf('<b>'), inline.indexOf('<span>'), 'inside').html, '<p>Hello world <span>end <b>big</b></span></p>');
   assert.throws(() => moveElement(PAGE, story, at('<img'), 'inside'), EditError);
+});
+
+test('removeElement: a block on its own line goes with its line', () => {
+  const html = '<main>\n  <h1>Hi</h1>\n  <a class="b" href="#">Button</a>\n  <p>Text</p>\n</main>\n';
+  const at = html.indexOf('<a ');
+  assert.equal(removeElement(html, at, 'a'), '<main>\n  <h1>Hi</h1>\n  <p>Text</p>\n</main>\n');
+});
+
+test('removeElement: inline, the space around it is closed up', () => {
+  const html = '<p>Call <a href="tel:1">us</a> today</p>';
+  assert.equal(removeElement(html, html.indexOf('<a '), 'a'), '<p>Call today</p>');
+  const nav = '<nav><a href="a">A</a> <a href="b">B</a></nav>';
+  assert.equal(removeElement(nav, nav.indexOf('<a href="a"'), 'a'), '<nav><a href="b">B</a></nav>');
+  assert.equal(removeElement(nav, nav.indexOf('<a href="b"'), 'a'), '<nav><a href="a">A</a></nav>');
+});
+
+test('removeElement: nested content goes too; void elements work; the page frame is refused', () => {
+  const html = '<div>\n  <section class="x">\n    <h2>T</h2>\n    <img src="a.png">\n  </section>\n</div>\n';
+  assert.equal(removeElement(html, html.indexOf('<section'), 'section'), '<div>\n</div>\n');
+  assert.equal(removeElement(html, html.indexOf('<img'), 'img'), '<div>\n  <section class="x">\n    <h2>T</h2>\n  </section>\n</div>\n');
+  const page = '<html><body><main><p>x</p></main></body></html>';
+  assert.throws(() => removeElement(page, page.indexOf('<main'), 'main'), /cannot be deleted/);
+  assert.throws(() => removeElement(page, page.indexOf('<p>'), 'div'), EditError);
 });

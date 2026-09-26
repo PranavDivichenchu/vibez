@@ -114,6 +114,9 @@ button,input{font:inherit;color:inherit}
 .edit .note{margin:0;color:var(--muted);font-size:12px}
 .edit .foot{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:var(--muted)}
 .edit .foot .btn{margin-left:auto;font-size:11.5px;padding:3px 8px}
+.edit .foot .btn + .btn{margin-left:0}
+.btn.danger{color:var(--vscode-errorForeground,#f14c4c);border-color:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 45%,transparent)}
+.btn.danger:hover{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 14%,transparent)}
 #addel.on{outline:1px solid var(--accent);outline-offset:2px}
 #lib{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:280px;z-index:6;display:flex;flex-direction:column;border-radius:12px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.4)}
 #lib[hidden]{display:none}
@@ -431,10 +434,12 @@ board.addEventListener('wheel', function(e){
 }, { passive: false });
 window.addEventListener('resize', placeLabels);
 document.addEventListener('keydown', function(e){
-  if (e.target && /^(input|textarea)$/i.test(e.target.tagName)) { return; }
+  if (e.target && (/^(input|textarea|select|button)$/i.test(e.target.tagName) || e.target.isContentEditable)) { return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
   if (e.key === 'f' || e.key === 'F') { fit(); }
   if (e.key === 'Escape') { closePanel(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && S.cur && S.mode === 'inspect') { e.preventDefault(); removeElement(S.cur.c, S.cur.info); return; }
   var holder = (S.cur && S.cur.c) || (S.lastPlaced && S.lastPlaced.c);
   if (/^Arrow/.test(e.key) && holder && S.mode === 'inspect') {
     var step = e.shiftKey ? 10 : 1;
@@ -569,6 +574,7 @@ window.addEventListener('message', function(e){
     else if (m.type === 'insertDrop') { insertDrop(c, m); }
     else if (m.type === 'selected') { S.activeCard = c; }
     else if (m.type === 'nudge') { nudgeSave(c, m); }
+    else if (m.type === 'deleteKey') { removeElement(c, { at: m.at, tag: m.tag, text: m.text }); }
     else if (m.type === 'reselected') { reselected(c, m.info); }
     else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
     else if (m.type === 'hover') { S.hot = m.key ? { c: c, key: m.key } : null; drawWires(); }
@@ -704,6 +710,19 @@ function send(p){
   if (!ops.length) { return; }
   S.saving = true; S.editCard = p.c;
   vscode.postMessage({ type: 'edit', file: fileOf(p.c), at: p.info.at, tag: p.info.tag, ops: ops });
+}
+/** Deletes the element from its file. One step in the undo history, like every other edit. */
+function removeElement(c, info){
+  if (!c || !info || info.at === null || info.at === undefined || info.at < 0) { return; }
+  flush();
+  if (S.saving) { notice('Still saving the last change. Try again in a moment.', true); return; }
+  if (/^(html|head|body|main)$/i.test(info.tag || '')) { notice('The page\u2019s <' + info.tag + '> cannot be deleted.', true); return; }
+  S.saving = true; S.editCard = c;
+  closePanel();
+  tell(c, { type: 'clear' });
+  vscode.postMessage({ type: 'edit', file: fileOf(c), at: info.at, tag: info.tag, ops: [{ op: 'remove' }] });
+  var what = info.text ? '\u201c' + String(info.text).slice(0, 40) + '\u201d' : (info.tag ? '<' + info.tag + '>' : 'it');
+  notice('Deleted ' + what + '. \u2318Z brings it back.', false);
 }
 function move(c, m){
   flush();
@@ -966,6 +985,13 @@ function editSection(c, info){
   }
   var foot = el('div', 'foot');
   foot.appendChild(el('span', '', 'Saves to ' + info.page + ' as you edit · \u2318Z undoes'));
+  if (!/^(html|head|body|main)$/i.test(info.tag || '')) {
+    var del = el('button', 'btn danger', 'Delete');
+    del.type = 'button';
+    del.title = 'Delete this ' + (info.tag ? '<' + info.tag + '> ' : '') + 'and everything inside it from ' + info.page + ' (Delete key; \u2318Z brings it back)';
+    del.addEventListener('click', function(e){ e.preventDefault(); removeElement(c, info); });
+    foot.appendChild(del);
+  }
   if (info.inlineStyle) {
     var reset = el('button', 'btn', 'Clear its styles');
     reset.title = 'Remove the style attribute from this element (what it had before is restored by Undo)';

@@ -347,6 +347,12 @@ on(document, 'keydown', function(e){
   if (typing || e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { post({ type: 'toggle' }); e.preventDefault(); }
   if (e.key === 'f' || e.key === 'F') { post({ type: 'fit' }); e.preventDefault(); }
+  if (mode === 'inspect' && selected && movable(selected) && FROM_DISK && (e.key === 'Delete' || e.key === 'Backspace')) {
+    e.preventDefault();
+    var gone = selected;
+    post({ type: 'deleteKey', at: Number(gone.getAttribute('data-vz-at')), tag: gone.tagName.toLowerCase(), text: info(gone).text });
+    return;
+  }
   if (mode === 'inspect' && selected && movable(selected) && FROM_DISK && /^Arrow/.test(e.key)) {
     var step = e.shiftKey ? 10 : 1;
     nudge(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
