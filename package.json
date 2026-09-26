@@ -17,7 +17,8 @@
     "fork:diff": "node scripts/fork-diff.ts",
     "fork:run": "node scripts/fork-run.ts",
     "sync:core": "node scripts/sync-core.ts",
-    "fork:build": "node fork/apply.ts"
+    "fork:build": "node fork/apply.ts",
+    "sync:contrib": "node scripts/sync-contrib.ts"
   },
   "engines": {
     "node": ">=22.18"
