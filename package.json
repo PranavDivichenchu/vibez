@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/codemod",
     "trace": "node scripts/trace.ts",
     "fork:setup": "node scripts/fork-setup.ts",
     "fork:diff": "node scripts/fork-diff.ts",
@@ -25,6 +25,6 @@
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.6.3",
-    "typescript": "^7.0.2"
+    "typescript": "^5.9.3"
   }
 }

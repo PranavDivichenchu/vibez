@@ -143,37 +143,66 @@ Non-React frameworks need their own adapter. React only in v1; keep the `postMes
 
 ---
 
-## 4. The agent panel
+## 4. Gestures first, the agent second
 
-### 4.1 Short messages, loud canvas
+### 4.1 What a drag can and cannot mean
 
-The agent writes three lines at most. What it is actually doing shows up as **activity chips** in the transcript and as animation on the graph.
+The graph is a projection of code built from traces (§2.1). You cannot drag it
+into new software, because the projection is lossy: it holds no branches, no
+loop constructs, no error handling, and nothing that never ran. There is no
+inverse from "node moved" to "code edited" in general, and every attempt to
+invent one has died.
+
+But it is not lossy for the handful of changes this product exists to make.
+Those have exactly one sane reading in code, so a gesture can compile straight
+to an edit with no model involved.
+
+| Gesture | Means | Becomes |
+|---|---|---|
+| Drag two sibling nodes together | "these should overlap" | one `Promise.all` |
+| Drop a node on the cache target | "stop asking twice" | memoised call |
+| Collapse a repeated node's `12×` | "ask once for all of them" | batched query, matched in memory |
+| Strike a node through | "stop calling this" | the call removed |
+
+These are **deterministic codemods**: instant, free, exact, reversible, and they
+cannot hallucinate. They also line up one-to-one with what the detectors already
+find, which is the point — the detector names the fault and the gesture fixes it.
+
+`packages/codemod` holds them. Each refuses rather than guesses: `parallelize`
+walks away if a later call uses an earlier one's result, because pretending
+otherwise produces code that does not run.
+
+### 4.2 So what is the agent for
+
+Everything the gestures do not cover, which is everything needing judgement or
+new code: "add a loading state", "why is this flaky", "split this component".
+
+It is the escape hatch, not the main event. If someone reaches for the chat to
+fix an N+1, the gesture for it is missing or undiscoverable, and that is a bug
+in the canvas rather than a job for a model.
+
+### 4.3 The panel, when it is there
+
+Three lines at most. What the agent is doing shows as **activity chips** and as
+animation on the canvas, not as prose.
 
 ```
-  you   why is the dashboard slow?
+  you   why is checkout flaky?
 
-  ⬡     One query runs 12 times instead of once.
+  ⬡     Two requests race, and the slower one wins about 1 in 5.
 
-        ◦ read  lib/db/queries.ts              ✓
-        ◦ found the loop at line 88            ✓
-        ◦ editing  getUserStats                ⟳
-        ◦ rebuild
-        ◦ replay 15 runs
+        ◦ scoped to 2 files                    ✓
+        ◦ read  app/checkout/actions.ts        ✓
+        ◦ editing  submitOrder                 ⟳
 ```
 
-Each chip corresponds to an animation on the canvas. You watch it work rather than reading about it.
+Chips are emitted by the IDE from tool calls, never written by the model. See §5.
 
-### 4.2 Chips are derived, not written
+### 4.4 Scope is the canvas selection
 
-A chip is emitted by the IDE from an agent tool call, never by the model. The model calls `read_file`; the IDE renders `read lib/db/queries.ts` and sweeps the matching nodes. The model never knows chips exist.
-
-### 4.3 Scoped by selection
-
-Selecting nodes on the canvas before you type sets a **scope fence**: the agent may only edit those files, enforced server-side before writes reach disk. The chip row shows the fence as a first chip: `scoped to 2 files`.
-
-This is the single biggest quality lever. The thing agents do worst in a large codebase is wander.
-
----
+Selecting nodes before typing sets a fence: the agent may only edit those files,
+enforced in the extension host before any write reaches disk. The thing agents
+do worst in a large codebase is wander.
 
 ## 5. Choreography
 
