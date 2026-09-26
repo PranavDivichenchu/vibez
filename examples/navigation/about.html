@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Visit us · Juniper &amp; Rye</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html"><img src="logo.svg" alt="Juniper and Rye logo"> Juniper &amp; Rye</a>
+      <button class="menu-toggle" aria-expanded="false">Menu</button>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="menu.html">Menu</a>
+        <a href="story.html">Our story</a>
+        <a href="about.html" aria-current="page">Visit us</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section>
+      <div class="wrap">
+        <h1>Visit us</h1>
+        <p>41 Alder Street. Tuesday to Sunday, 7am until we sell out (usually around 2pm).</p>
+        <h2>Ask us anything</h2>
+        <form class="contact" action="/api/contact" method="post" style="display:grid;gap:12px;max-width:520px">
+          <input name="name" placeholder="Your name" style="padding:12px;border-radius:10px;border:1px solid var(--line)">
+          <input name="email" type="email" placeholder="Email" style="padding:12px;border-radius:10px;border:1px solid var(--line)">
+          <textarea name="message" rows="4" placeholder="Message" style="padding:12px;border-radius:10px;border:1px solid var(--line)"></textarea>
+          <button class="btn" type="submit" style="justify-self:start">Send</button>
+        </form>
+        <p style="margin-top:40px"><a href="menu.html">Check today's menu before you come</a></p>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <div class="wrap">
+      <span>© Juniper &amp; Rye bakery, a Vibez example site</span>
+      <a href="about.html">Hours &amp; address</a>
+      <a href="https://example.org/instagram">Instagram</a>
+      <a href="mailto:hello@example.org">hello@example.org</a>
+    </div>
+  </footer>
+  <div class="cart">Order · 0 items</div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -10,7 +10,8 @@ import { spawn, ChildProcess } from 'child_process';
 import { join, relative, extname } from '../../../base/common/path.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezTestRequest, IVibezTestResult } from '../common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezSiteInfo, IVibezTestRequest, IVibezTestResult } from '../common/vibezCapture.js';
+import { VibezSiteServer } from './vibezSiteServer.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
 import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
@@ -42,8 +43,20 @@ export class VibezCaptureMainService extends Disposable implements IVibezCapture
 	 */
 	private readonly traces = new Map<string, DecodedSpan[]>();
 
+	private readonly siteServer: VibezSiteServer;
+
 	constructor(@ILogService private readonly logService: ILogService) {
 		super();
+		this.siteServer = new VibezSiteServer(logService);
+		this._register({ dispose: () => this.siteServer.dispose() });
+	}
+
+	site(root: string, target: string): Promise<IVibezSiteInfo> {
+		return this.siteServer.serve(root, target);
+	}
+
+	async sitePreviews(dir: string, pages: Record<string, string>): Promise<void> {
+		this.siteServer.setPreviews(dir, pages);
 	}
 
 	private sourceWatcher: FSWatcher | undefined;

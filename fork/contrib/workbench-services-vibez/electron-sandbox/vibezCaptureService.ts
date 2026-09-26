@@ -6,7 +6,9 @@
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezTestRequest, IVibezTestResult } from '../../../../platform/vibez/common/vibezCapture.js';
+// The queue's proxy registers alongside, so the desktop entry point needs no second import.
+import './vibezQueueService.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezSiteInfo, IVibezTestRequest, IVibezTestResult } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**
  * The renderer's handle on the receiver running in the main process.
@@ -39,6 +41,14 @@ class VibezCaptureService implements IVibezCaptureService {
 
 	preview(target: string): Promise<IVibezPreviewInfo> {
 		return this.proxy.preview(target);
+	}
+
+	site(root: string, target: string): Promise<IVibezSiteInfo> {
+		return this.proxy.site(root, target);
+	}
+
+	sitePreviews(dir: string, pages: Record<string, string>): Promise<void> {
+		return this.proxy.sitePreviews(dir, pages);
 	}
 
 	selection(): Promise<IVibezSelection> {

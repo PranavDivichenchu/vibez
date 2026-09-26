@@ -16,7 +16,7 @@ const after = buildGraph(
 );
 
 test('a file read scans the nodes that live in that file', () => {
-  const { beats } = choreograph([{ kind: 'read', file: 'lib/db/queries.ts' }], before, before);
+  const { beats } = choreograph([{ kind: 'read', file: 'lib/db/queries.ts', actor: 'local' }], before, before);
   const scan = beats.find(beat => beat.op === 'scan');
   assert.ok(scan, 'a scan beat exists');
   assert.equal(scan.nodes.length, nodesInFile(before, 'lib/db/queries.ts').length);
@@ -24,24 +24,24 @@ test('a file read scans the nodes that live in that file', () => {
 });
 
 test('reading a file with no nodes animates nothing', () => {
-  const { beats } = choreograph([{ kind: 'read', file: 'README.md' }], before, before);
+  const { beats } = choreograph([{ kind: 'read', file: 'README.md', actor: 'local' }], before, before);
   assert.equal(beats.length, 0);
 });
 
 test('a grep flashes what matches by label or symbol', () => {
-  const { beats } = choreograph([{ kind: 'grep', query: 'getUserStats' }], before, before);
+  const { beats } = choreograph([{ kind: 'grep', query: 'getUserStats', actor: 'local' }], before, before);
   const flash = beats.find(beat => beat.op === 'flash');
   assert.ok(flash && flash.nodes.length === 1);
 });
 
 test('a build desaturates and then restores', () => {
-  const { beats } = choreograph([{ kind: 'build', state: 'start' }], before, before);
+  const { beats } = choreograph([{ kind: 'build', state: 'start', actor: 'local' }], before, before);
   const toggles = beats.filter(beat => beat.op === 'desaturate');
   assert.deepEqual(toggles.map(beat => beat.on), [true, false]);
 });
 
 test('fifteen replay runs produce one beat, not fifteen', () => {
-  const events: AgentEvent[] = Array.from({ length: 15 }, (_, i) => ({ kind: 'replay', run: i + 1, of: 15 }));
+  const events: AgentEvent[] = Array.from({ length: 15 }, (_, i) => ({ kind: 'replay', run: i + 1, of: 15, actor: 'local' }));
   const flows = choreograph(events, before, before).beats.filter(beat => beat.op === 'flow');
   assert.equal(flows.length, 1);
 });
@@ -59,7 +59,7 @@ test('an unchanged graph choreographs nothing at all', () => {
 });
 
 test('a long turn is scaled, never clipped mid-beat', () => {
-  const events: AgentEvent[] = Array.from({ length: 40 }, () => ({ kind: 'read', file: 'lib/db/queries.ts' }));
+  const events: AgentEvent[] = Array.from({ length: 40 }, () => ({ kind: 'read', file: 'lib/db/queries.ts', actor: 'local' }));
   const timeline = choreograph(events, before, before);
   assert.equal(timeline.durationMs, MAX_TIMELINE_MS);
   const last = timeline.beats[timeline.beats.length - 1]!;
@@ -68,11 +68,11 @@ test('a long turn is scaled, never clipped mid-beat', () => {
 
 test('beats never overlap and always move forward', () => {
   const events: AgentEvent[] = [
-    { kind: 'scope', files: ['lib/db/queries.ts'] },
-    { kind: 'read', file: 'lib/db/queries.ts' },
-    { kind: 'edit', file: 'lib/db/queries.ts' },
-    { kind: 'build', state: 'start' },
-    { kind: 'replay', run: 1, of: 15 },
+    { kind: 'scope', files: ['lib/db/queries.ts'], actor: 'local' },
+    { kind: 'read', file: 'lib/db/queries.ts', actor: 'local' },
+    { kind: 'edit', file: 'lib/db/queries.ts', actor: 'local' },
+    { kind: 'build', state: 'start', actor: 'local' },
+    { kind: 'replay', run: 1, of: 15, actor: 'local' },
   ];
   const { beats } = choreograph(events, before, after);
   for (let i = 1; i < beats.length; i++) {

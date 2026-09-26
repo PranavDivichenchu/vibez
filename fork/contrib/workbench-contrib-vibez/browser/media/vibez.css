@@ -79,6 +79,19 @@
 .vibez-empty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
 	align-items: center; justify-content: center; color: var(--vz-t2); font-size: 13px; }
 
+.vibez-flows .vibez-flow-list { display: flex; flex-direction: column; padding: 4px 0; }
+.vibez-flow-row { padding: 8px 18px; cursor: pointer; border-left: 2px solid transparent; }
+.vibez-flow-row:hover { background: var(--vscode-list-hoverBackground); }
+.vibez-flow-row:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.vibez-flow-title { font-size: 13px; }
+.vibez-flow-meta { display: flex; gap: 10px; margin-top: 3px; font-size: 11px;
+	color: var(--vscode-descriptionForeground); font-family: var(--monaco-monospace-font); }
+.vibez-flow-cost.warm { color: #C79A53; }
+.vibez-flow-cost.hot { color: #E0705B; }
+.vibez-flow-fact { margin-top: 5px; font-size: 11px; color: #E0705B; }
+.vibez-flow-empty { padding: 14px 18px; font-size: 12px; color: var(--vscode-descriptionForeground); line-height: 1.6; }
+.vibez-flow-empty .hint { margin-top: 4px; opacity: .75; }
+
 .vibez-preview { position: absolute; inset: 0; background: #0B0C0E; }
 
 /* ------------------------------------------------------------ drag */
@@ -232,3 +245,37 @@
 
 /* A branch under a dragged step shows which output it would land on. */
 
+
+/* ------------------------------------------------------------ queue */
+
+/* A file an agent holds: a hatched ring in its colour, and who holds it. */
+.vibez-node.vz-held::before { content: ''; position: absolute; inset: -5px; border-radius: 12px; z-index: -1; pointer-events: none;
+	background: repeating-linear-gradient(135deg, hsla(var(--actor-hue, 212), 70%, 60%, .55) 0 4px, transparent 4px 8px); }
+.vibez-node .vz-held-chip { position: absolute; left: 6px; top: -21px; font-size: 10px; line-height: 15px; padding: 0 7px;
+	border-radius: 8px; white-space: nowrap; pointer-events: auto; color: #fff; background: hsl(var(--actor-hue, 212), 45%, 32%);
+	box-shadow: 0 0 0 1px hsla(var(--actor-hue, 212), 70%, 60%, .6); }
+/* What an agent is doing, as it does it: a sweep for a read, a ring for an edit. */
+.vibez-node.vz-agent-scan { animation: vz-agent-scan .6s ease-out 1; }
+@keyframes vz-agent-scan { 0% { box-shadow: inset 4px 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, .9); }
+	100% { box-shadow: inset 400px 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, 0); } }
+.vibez-node.vz-agent-edit { animation: vz-agent-edit .9s ease-in-out 2; }
+@keyframes vz-agent-edit { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, 0); }
+	50% { box-shadow: 0 0 0 6px hsla(var(--actor-hue, 212), 70%, 62%, .35); border-color: hsl(var(--actor-hue, 212), 70%, 62%); } }
+@media (prefers-reduced-motion: reduce) { .vibez-node.vz-agent-scan, .vibez-node.vz-agent-edit { animation-duration: 1ms; animation-iteration-count: 1; } }
+
+/* ------------------------------------------------------- launch tiles */
+
+.vibez-launch { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 12px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, rgba(128,128,128,.2)); }
+.vibez-tile { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 9px 10px; text-align: left;
+	border-radius: 8px; border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.25)); cursor: pointer; font: inherit;
+	background: var(--vscode-sideBar-background); color: var(--vscode-foreground); transition: background .12s, border-color .12s; }
+.vibez-tile:hover { background: var(--vscode-list-hoverBackground); border-color: var(--vscode-focusBorder); }
+.vibez-tile:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.vibez-tile-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; font-size: 16px !important;
+	background: rgba(128,128,128,.14); color: var(--vscode-foreground); }
+.vibez-tile.primary .vibez-tile-icon { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.vibez-tile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vibez-tile-title { font-size: 13px; font-weight: 600; }
+.vibez-tile-detail { font-size: 11.5px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vibez-tile-go { flex: none; opacity: 0; color: var(--vscode-descriptionForeground); transition: opacity .12s; }
+.vibez-tile:hover .vibez-tile-go { opacity: 1; }

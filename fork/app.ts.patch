@@ -1,32 +1,40 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index 3fb0f3a..7a34a29 100644
+index 3fb0f3a..7672649 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
-@@ -54,6 +54,8 @@ import { IProcessMainService } from '../../platform/process/common/process.js';
+@@ -54,6 +54,10 @@ import { IProcessMainService } from '../../platform/process/common/process.js';
  import { ProcessMainService } from '../../platform/process/electron-main/processMainService.js';
  import { IKeyboardLayoutMainService, KeyboardLayoutMainService } from '../../platform/keyboardLayout/electron-main/keyboardLayoutMainService.js';
  import { ILaunchMainService, LaunchMainService } from '../../platform/launch/electron-main/launchMainService.js';
 +import { IVibezCaptureService } from '../../platform/vibez/common/vibezCapture.js';
 +import { VibezCaptureMainService } from '../../platform/vibez/electron-main/vibezCaptureMainService.js';
++import { IVibezQueueService } from '../../platform/vibez/common/vibezQueueService.js';
++import { VibezQueueMainService } from '../../platform/vibez/electron-main/vibezQueueMainService.js';
  import { ILifecycleMainService, LifecycleMainPhase, ShutdownReason } from '../../platform/lifecycle/electron-main/lifecycleMainService.js';
  import { ILoggerService, ILogService } from '../../platform/log/common/log.js';
  import { IMenubarMainService, MenubarMainService } from '../../platform/menubar/electron-main/menubarMainService.js';
-@@ -1009,6 +1011,9 @@ export class CodeApplication extends Disposable {
+@@ -1009,6 +1013,12 @@ export class CodeApplication extends Disposable {
  		// Launch
  		services.set(ILaunchMainService, new SyncDescriptor(LaunchMainService, undefined, false /* proxied to other processes */));
  
 +		// Vibez: the trace receiver owns a socket and writes files, so it lives here
 +		services.set(IVibezCaptureService, new SyncDescriptor(VibezCaptureMainService, undefined, false));
 +
++		// Vibez: the agent queue spawns agents and app servers, so it lives here too
++		services.set(IVibezQueueService, new SyncDescriptor(VibezQueueMainService, undefined, false));
++
  		// Diagnostics
  		services.set(IDiagnosticsMainService, new SyncDescriptor(DiagnosticsMainService, undefined, false /* proxied to other processes */));
  		services.set(IDiagnosticsService, ProxyChannel.toService(getDelayedChannel(sharedProcessReady.then(client => client.getChannel('diagnostics')))));
-@@ -1129,6 +1134,9 @@ export class CodeApplication extends Disposable {
+@@ -1129,6 +1139,12 @@ export class CodeApplication extends Disposable {
  		const launchChannel = ProxyChannel.fromService(accessor.get(ILaunchMainService), disposables, { disableMarshalling: true });
  		this.mainProcessNodeIpcServer.registerChannel('launch', launchChannel);
  
 +		const vibezChannel = ProxyChannel.fromService(accessor.get(IVibezCaptureService), disposables, { disableMarshalling: true });
 +		mainProcessElectronServer.registerChannel('vibez', vibezChannel);
++
++		const vibezQueueChannel = ProxyChannel.fromService(accessor.get(IVibezQueueService), disposables, { disableMarshalling: true });
++		mainProcessElectronServer.registerChannel('vibezQueue', vibezQueueChannel);
 +
  		const diagnosticsChannel = ProxyChannel.fromService(accessor.get(IDiagnosticsMainService), disposables, { disableMarshalling: true });
  		this.mainProcessNodeIpcServer.registerChannel('diagnostics', diagnosticsChannel);

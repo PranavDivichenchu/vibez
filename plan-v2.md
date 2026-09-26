@@ -21,7 +21,7 @@ Order follows dependency, not excitement. The queue ships alone, the voice ships
 
 ---
 
-## 16. Actors
+## 16. Actors  ✅
 
 The one thing everything below needs, and the only retrofit into v1 code.
 
@@ -46,7 +46,7 @@ Do it before §17, in its own commit, with nothing else in flight. If it touches
 
 ---
 
-## 17. The queue
+## 17. The queue  ✅
 
 Several agents editing at once, one lane that measures, and a landing order that tells you which patches actually mattered.
 

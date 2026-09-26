@@ -24,6 +24,10 @@ const HEADER = `/*--------------------------------------------------------------
 `;
 
 const FILES: Record<string, string> = {
+  'pages.ts': 'vibezPages.ts',
+  'edit.ts': 'vibezEdit.ts',
+  'templates.ts': 'vibezTemplates.ts',
+  'elements.ts': 'vibezElements.ts',
   'types.ts': 'vibezTypes.ts',
   'spans.ts': 'vibezSpans.ts',
   'keys.ts': 'vibezKeys.ts',
@@ -34,6 +38,12 @@ const FILES: Record<string, string> = {
   'diff.ts': 'vibezDiff.ts',
   'choreo.ts': 'vibezChoreo.ts',
   'branches.ts': 'vibezBranches.ts',
+  'actors.ts': 'vibezActors.ts',
+  'fence.ts': 'vibezFence.ts',
+  'significance.ts': 'vibezSignificance.ts',
+  'queue.ts': 'vibezQueue.ts',
+  'agentStream.ts': 'vibezAgentStream.ts',
+  'replay.ts': 'vibezReplay.ts',
 };
 
 const target = join(forkDir(), 'src/vs/platform/vibez/common');

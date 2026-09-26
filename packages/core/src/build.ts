@@ -3,6 +3,7 @@ import { type RawSpan, type SpanNode, coveredNs, durMs, selfMs, toTrees } from '
 import { classify, normalizedName, semanticKey } from './keys.ts';
 import { bandOf, heatOf, stats } from './heat.ts';
 import { detect } from './detect.ts';
+import { runOf } from './replay.ts';
 
 export interface BuildOptions {
   /** 'rough' for dev-server timings, which are relative only. */
@@ -298,4 +299,53 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
     rootTotalMs,
     builtAt: new Date().toISOString(),
   };
+}
+
+export interface RunSamples {
+  /** Whole-request time per run: the sum of the requests that started in it. */
+  flow: number[];
+  /** Per node, its time in each run (0 when it did not run). Same keys as the graph. */
+  nodes: Record<SemanticKey, number[]>;
+  labels: Record<SemanticKey, string>;
+}
+
+/**
+ * One sample per replay run, for significance testing.
+ *
+ * The graph keeps percentiles; a Mann-Whitney test needs the runs themselves.
+ * Requests are assigned to runs by when they started (`windows` are epoch ms,
+ * one per run), and a node's time in a run is the union of its calls, exactly
+ * as the graph measures it. Runs in which no request arrived are dropped.
+ */
+export function runSamples(spans: RawSpan[], windows: Array<readonly [number, number]>): RunSamples {
+  const roots = toTrees(spans).filter(isRequest);
+  const flow = windows.map(() => 0);
+  const seen = windows.map(() => false);
+  const cover = new Map<SemanticKey, Array<Array<readonly [number, number]>>>();
+  const labels: Record<SemanticKey, string> = {};
+
+  for (const root of roots) {
+    const run = runOf(root.span.startNs / 1e6, windows);
+    if (run < 0) continue;
+    seen[run] = true;
+    flow[run]! += durMs(root.span);
+    const visit = (node: SpanNode, lineage: NodeKind[]): void => {
+      const kind = classify(node.span, node.parent === null);
+      const normalized = normalizedName(kind, node.span);
+      const key = semanticKey(kind, normalized, lineage);
+      labels[key] ??= displayLabel(kind, node.span, normalized);
+      const perRun = cover.get(key) ?? windows.map(() => []);
+      perRun[run]!.push([node.span.startNs, node.span.endNs]);
+      cover.set(key, perRun);
+      for (const child of node.children) visit(child, [...lineage, kind]);
+    };
+    visit(root, []);
+  }
+
+  const kept = seen.flatMap((ran, i) => (ran ? [i] : []));
+  const nodes: Record<SemanticKey, number[]> = {};
+  for (const [key, perRun] of cover) {
+    nodes[key] = kept.map((i) => coveredNs(perRun[i]!) / 1e6);
+  }
+  return { flow: kept.map((i) => flow[i]!), nodes, labels };
 }

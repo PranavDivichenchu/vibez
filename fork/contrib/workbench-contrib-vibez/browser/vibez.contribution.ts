@@ -3,6 +3,9 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
+import { VibezDashboardEditor } from './vibezDashboardEditor.js';
+import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -21,6 +24,15 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
+import { VibezFlowsView } from './vibezFlowsView.js';
+import { VibezQueueView } from './vibezQueueView.js';
+import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
 import { VibezUiEditor } from './ui/vibezUiEditor.js';
@@ -58,13 +70,40 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 	overrides: { 'workbench.startupEditor': 'none' }
 }]);
 
+const VIBEZ_CONTAINER_ID = 'workbench.view.vibez';
+
+/**
+ * Vibez's rail entry: the way into the site canvas, the dashboard and the
+ * agents, and the list of recorded flows. The recorded graph is still where
+ * agents are scoped (select nodes, then start an agent), so it stays one click
+ * away. `.vi` and `.ui` files are not listed here: they open from the explorer
+ * like any other file.
+ */
+const vibezViewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
+	id: VIBEZ_CONTAINER_ID,
+	title: localize2('vibez.container', "Vibez"),
+	icon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEZ_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
+	storageId: VIBEZ_CONTAINER_ID,
+	order: 2,
+}, ViewContainerLocation.Sidebar, { isDefault: false });
+
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
+	id: VibezFlowsView.ID,
+	name: localize2('vibez.flows', "Flows"),
+	containerIcon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(VibezFlowsView),
+	canToggleVisibility: false,
+	canMoveView: true,
+	// The container already registers workbench.view.vibez; declaring an open
+	// command here too collides on that id and takes the whole workbench down.
+}], vibezViewContainer);
+
 /**
  * `.vi` and `.ui` files open as their own editors by default, the way `.md`
- * opens in a preview. The association is part of the product rather than
- * something contributed at runtime, so it holds on first launch with no
- * extensions installed at all. There is no separate rail entry or file list
- * for either: a `.vi` file's logic graph opens the moment you open the file,
- * the same way its `.ui` page already does.
+ * opens in a preview, and a recorded `.flow` opens as the measured graph. The
+ * associations are part of the product rather than something contributed at
+ * runtime, so they hold on first launch with no extensions installed at all.
  */
 class VibezContribution extends Disposable implements IWorkbenchContribution {
 
@@ -86,6 +125,20 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 				status => logService.info(`[vibez] capture ${status.listening ? `listening on ${status.port}` : 'not listening'}`),
 				error => logService.warn(`[vibez] capture failed to start: ${error}`));
 		}
+
+		// A recorded .flow opens as the measured graph, where agents are scoped.
+		this._register(editorResolverService.registerEditor(
+			'**/*.flow',
+			{
+				id: VibezEditor.ID,
+				label: localize('vibez.editor.label', "Vibez graph"),
+				// Exclusive, not default: nothing else owns .flow, and prompting
+				// the reader to choose an editor for our own file type is noise.
+				priority: RegisteredEditorPriority.exclusive
+			},
+			{ singlePerResource: true },
+			{ createEditorInput: ({ resource }) => ({ editor: new VibezEditorInput(resource) }) }
+		));
 
 		// A .ui file is a page, built by dragging. The text of it is still one
 		// "Open as text" away, for anyone who wants the JSON.
@@ -169,5 +222,102 @@ registerAction2(class extends Action2 {
 		// Empty on purpose: an empty page opens on the template chooser.
 		await fileService.writeFile(target, VSBuffer.fromString(''));
 		await editorService.openEditor(new VibezUiEditorInput(target), { pinned: true });
+	}
+});
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezPagesEditor, VibezPagesEditor.ID, localize('vibez.site', "Site")),
+	[new SyncDescriptor(VibezPagesInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibez.openGraph',
+			title: localize2('vibez.openGraph', "Vibez: Open the graph"),
+			f1: true
+		});
+	}
+
+	async run(accessor: ServicesAccessor): Promise<void> {
+		const contextService = accessor.get(IWorkspaceContextService);
+		const editorService = accessor.get(IEditorService);
+		const folder = contextService.getWorkspace().folders[0];
+		if (!folder) {
+			return;
+		}
+		const flow = URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow');
+		await editorService.openEditor(new VibezEditorInput(flow), { pinned: true });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openPages', title: localize2('vibez.openSite', "Vibez: Open Site Canvas"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezPagesInput(), { pinned: true });
+	}
+});
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezDashboardEditor, VibezDashboardEditor.ID, localize('vibez.dashboard', "Dashboard")),
+	[new SyncDescriptor(VibezDashboardInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openDashboard', title: localize2('vibez.openDashboard', "Vibez: Open Dashboard"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezDashboardInput(), { pinned: true });
+	}
+});
+
+/**
+ * The queue strip lives in the panel, under the canvas: one row per agent,
+ * editing in parallel and measured one at a time.
+ */
+const VIBEZ_QUEUE_CONTAINER_ID = 'workbench.panel.vibezQueue';
+
+const vibezQueueContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
+	id: VIBEZ_QUEUE_CONTAINER_ID,
+	title: localize2('vibez.queueContainer', "Agents"),
+	icon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEZ_QUEUE_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
+	storageId: VIBEZ_QUEUE_CONTAINER_ID,
+	order: 20,
+}, ViewContainerLocation.Panel, { doNotRegisterOpenCommand: true });
+
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
+	id: VibezQueueView.ID,
+	name: localize2('vibez.queue', "Agents"),
+	containerIcon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(VibezQueueView),
+	canToggleVisibility: false,
+	canMoveView: true,
+}], vibezQueueContainer);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openQueue', title: localize2('vibez.openQueue', "Vibez: Open Agents"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IViewsService).openView(VibezQueueView.ID, true);
+	}
+});
+
+/** One key ends every run and releases every fence. */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibez.stopAllAgents',
+			title: localize2('vibez.stopAllAgents', "Vibez: Stop All Agents"),
+			f1: true,
+			keybinding: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.Period, weight: KeybindingWeight.WorkbenchContrib },
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IVibezQueueService).stopAll();
 	}
 });
