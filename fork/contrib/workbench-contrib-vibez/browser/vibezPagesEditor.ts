@@ -7,6 +7,7 @@ import './media/vibezPages.css';
 import * as dom from '../../../../base/browser/dom.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -92,12 +93,14 @@ export class VibezPagesEditor extends EditorPane {
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
 		this._register(siteHistory.onDidChange(e => {
+			if (e.structural) {
+				// Pages came or went: start from a fresh view (on the new page, if there is one).
+				this.fresh = true;
+			}
 			if (!this.ready) {
 				return;
 			}
 			if (e.structural) {
-				// Pages came or went: start from a fresh view (on the new page, if there is one).
-				this.fresh = true;
 				void this.load();
 			} else if (e.focus) {
 				VibezPagesEditor.focusNext = undefined;
@@ -116,18 +119,50 @@ export class VibezPagesEditor extends EditorPane {
 			return;
 		}
 		if (!this.webview) {
-			this.webview = this._register(this.webviews.createWebviewElement({
-				title: 'Vibez site',
-				options: { purpose: WebviewContentPurpose.WebviewView, enableFindWidget: false, retainContextWhenHidden: true },
-				contentOptions: { allowScripts: true, allowForms: true },
-				extension: undefined,
-			}));
-			this.webview.mountTo(this.container, dom.getWindow(this.container));
-			this._register(this.webview.onMessage(e => void this.onMessage(e.message)));
-			this.webview.setHtml(siteCanvasHtml());
+			this.createWebview();
 		} else if (this.ready) {
 			await this.load();
 		}
+	}
+
+
+	/**
+	 * The workbench takes a hidden editor's DOM out of the page and puts it back
+	 * when the tab is shown again. A webview's frame does not survive that (it
+	 * comes back empty and deaf), so the webview is dropped when the tab is
+	 * hidden and a new one is made when it is shown. Its view state (zoom,
+	 * mode, device) is kept by the page itself between the two.
+	 */
+	private hiddenSinceDrawn = false;
+
+	protected override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		if (!visible) {
+			this.hiddenSinceDrawn = true;
+			return;
+		}
+		if (this.webview && this.hiddenSinceDrawn) {
+			this.hiddenSinceDrawn = false;
+			this.createWebview();
+		}
+	}
+
+	private readonly webviewStore = this._register(new DisposableStore());
+
+	private createWebview(): void {
+		this.webviewStore.clear();
+		this.ready = false;
+		dom.clearNode(this.container);
+		const webview = this.webviewStore.add(this.webviews.createWebviewElement({
+			title: 'Vibez site',
+			options: { purpose: WebviewContentPurpose.WebviewView, enableFindWidget: false, retainContextWhenHidden: true },
+			contentOptions: { allowScripts: true, allowForms: true },
+			extension: undefined,
+		}));
+		this.webview = webview;
+		webview.mountTo(this.container, dom.getWindow(this.container));
+		this.webviewStore.add(webview.onMessage(e => void this.onMessage(e.message)));
+		webview.setHtml(siteCanvasHtml());
 	}
 
 	override layout(size: dom.Dimension): void {

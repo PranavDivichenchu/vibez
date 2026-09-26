@@ -7,6 +7,7 @@ import './media/vibezPages.css';
 import * as dom from '../../../../base/browser/dom.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { basename } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
@@ -83,18 +84,50 @@ export class VibezDashboardEditor extends EditorPane {
 			return;
 		}
 		if (!this.webview) {
-			this.webview = this._register(this.webviews.createWebviewElement({
-				title: 'Vibez dashboard',
-				options: { purpose: WebviewContentPurpose.WebviewView, enableFindWidget: false, retainContextWhenHidden: true },
-				contentOptions: { allowScripts: true, allowForms: true },
-				extension: undefined,
-			}));
-			this.webview.mountTo(this.container, dom.getWindow(this.container));
-			this._register(this.webview.onMessage(e => void this.onMessage(e.message)));
-			this.webview.setHtml(dashboardHtml());
+			this.createWebview();
 		} else if (this.ready) {
 			await this.load();
 		}
+	}
+
+
+	/**
+	 * The workbench takes a hidden editor's DOM out of the page and puts it back
+	 * when the tab is shown again. A webview's frame does not survive that (it
+	 * comes back empty and deaf), so the webview is dropped when the tab is
+	 * hidden and a new one is made when it is shown. Its view state (zoom,
+	 * mode, device) is kept by the page itself between the two.
+	 */
+	private hiddenSinceDrawn = false;
+
+	protected override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		if (!visible) {
+			this.hiddenSinceDrawn = true;
+			return;
+		}
+		if (this.webview && this.hiddenSinceDrawn) {
+			this.hiddenSinceDrawn = false;
+			this.createWebview();
+		}
+	}
+
+	private readonly webviewStore = this._register(new DisposableStore());
+
+	private createWebview(): void {
+		this.webviewStore.clear();
+		this.ready = false;
+		dom.clearNode(this.container);
+		const webview = this.webviewStore.add(this.webviews.createWebviewElement({
+			title: 'Vibez dashboard',
+			options: { purpose: WebviewContentPurpose.WebviewView, enableFindWidget: false, retainContextWhenHidden: true },
+			contentOptions: { allowScripts: true, allowForms: true },
+			extension: undefined,
+		}));
+		this.webview = webview;
+		webview.mountTo(this.container, dom.getWindow(this.container));
+		this.webviewStore.add(webview.onMessage(e => void this.onMessage(e.message)));
+		webview.setHtml(dashboardHtml());
 	}
 
 	override layout(size: dom.Dimension): void {

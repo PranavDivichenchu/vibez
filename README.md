@@ -141,6 +141,21 @@ of the page is hidden.
 Editing works on pages served from the folder's HTML files; pages from a
 running app (App URL) are read-only for now.
 
+### Dashboard: add pages from templates
+
+**Vibez: Open Dashboard** (or **+ Add page** on the site canvas, or the
+sidebar) shows seven templates as live previews that already wear your site's
+header, footer and styles: **Blank**, Landing page, About / team, Contact,
+Pricing, Menu / products and Blog post. Pick one, give the page a name (the
+file name fills itself in), and choose whether to add it to the navigation on
+every page. The new page opens on the site canvas, ready to edit and drag.
+
+New pages copy everything outside the `<main>` of the site's home page (its
+head, header, navigation, footer and scripts). Each template brings a small
+stylesheet scoped to `.vz-page` that inherits your fonts and colours. Adding a
+page is one undo step, links included: ⌘Z on the canvas takes it all back.
+**Your pages** lists every page with Show (on the canvas) and Code.
+
 Static sites are served straight from the folder. For an app that needs a
 server (Next.js, Vite…), start its dev server and put its address in
 **App URL**; pages are then loaded through it. Either way the pages are served
