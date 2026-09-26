@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { heldElementsCss } from '../vibezTeamBanner.js';
 import * as dom from '../../../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
@@ -73,6 +74,7 @@ export class VibezUiCanvas extends Disposable {
 	private readonly host: HTMLElement;
 	private readonly shadow: ShadowRoot;
 	private readonly pageStyle: HTMLStyleElement;
+	private readonly heldStyle: HTMLStyleElement;
 	private readonly overlay: HTMLElement;
 	private readonly hoverBox: HTMLElement;
 	private readonly selectBox: HTMLElement;
@@ -111,6 +113,8 @@ export class VibezUiCanvas extends Disposable {
 		this.shadow = this.host.attachShadow({ mode: 'open' });
 		this.pageStyle = document.createElement('style');
 		this.shadow.appendChild(this.pageStyle);
+		this.heldStyle = document.createElement('style');
+		this.shadow.appendChild(this.heldStyle);
 
 		this.overlay = dom.append(this.element, dom.$('.vz-ui-overlay'));
 		this.parentBox = dom.append(this.overlay, dom.$('.vz-ui-box.parent'));
@@ -126,6 +130,11 @@ export class VibezUiCanvas extends Disposable {
 	}
 
 	// ------------------------------------------------------------ state
+
+	/** Outlines the elements another person's agent holds; they survive every re-render. */
+	markHeld(ids: string[]): void {
+		this.heldStyle.textContent = heldElementsCss(ids.map(id => ({ id })));
+	}
 
 	setDevice(device: Device): void {
 		this.device = device;
@@ -197,7 +206,7 @@ export class VibezUiCanvas extends Disposable {
 
 		// Everything but the style element is redrawn: pages are small, and a
 		// full redraw is what guarantees the canvas matches the document.
-		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle) {
+		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle && this.shadow.lastChild !== this.heldStyle) {
 			this.shadow.lastChild.remove();
 		}
 		this.pageStyle.textContent = PAGE_CSS(theme.colors.accent, theme.colors.accentSoft);

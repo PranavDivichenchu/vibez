@@ -43,3 +43,8 @@ test('the worst collision comes first', () => {
   ], now);
   assert.deepEqual(found.map((o) => o.level), ['overlapping', 'adjacent']);
 });
+
+test('another of your own agents is named as yours', () => {
+  const mine = overlaps({ paths: ['pages/pricing.ui'] }, [claim('pages/pricing.ui', { person: 'you' })], now)[0]!;
+  assert.match(describeOverlap(mine), /^overlapping: Your other agent is already on the same file/);
+});

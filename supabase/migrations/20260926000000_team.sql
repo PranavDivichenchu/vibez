@@ -241,7 +241,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   if tg_table_name = 'team_agents' then
     if tg_op = 'INSERT' then
-      insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, case when new.task = '' then 'joined' else 'started' end, new.task);
+      insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, case when new.task = '' then 'started an agent' else 'started' end, new.task);
     elsif new.status is distinct from old.status and new.status = 'done' then
       insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, 'finished', new.task);
     elsif new.task is distinct from old.task then

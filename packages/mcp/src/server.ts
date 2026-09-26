@@ -126,6 +126,31 @@ const actionSchema = z.object({
   about: z.string().optional(),
 });
 
+/**
+ * What a page edit touches, as the team names it: page.ui#element for each
+ * element changed, moved, removed or added (new elements by their new id),
+ * or the whole page when its own settings change. Claims this narrow let two
+ * agents work on different parts of one page, warned but not in each other's way.
+ */
+function touchedOnPage(path: string, ops: Op[], created: Record<string, string>): string[] {
+  if (ops.some((op) => op.op === 'page')) return [path];
+  const ids = new Set<string>();
+  for (const op of ops) {
+    if ('id' in op && op.id) ids.add(op.id);
+  }
+  for (const id of Object.values(created)) ids.add(id);
+  const named = [...ids].filter((id) => !id.startsWith('$') && id !== 'page');
+  return named.length ? named.map((id) => `${path}#${id}`) : [path];
+}
+
+const finishers = new WeakMap<McpServer, () => Promise<void>>();
+
+/** Ends a server's session on the team (its claims are released), then closes it. */
+export async function closeVibezServer(server: McpServer): Promise<void> {
+  await finishers.get(server)?.();
+  await server.close();
+}
+
 export function createVibezServer(root: string): McpServer {
   const ws = new Workspace(root);
   const server = new McpServer(
@@ -141,6 +166,7 @@ export function createVibezServer(root: string): McpServer {
   );
 
   const team = registerTeamTools(server, root);
+  finishers.set(server, team.finish);
 
   /** Heads-up lines for an edit's reply when another agent holds these files or files next to them. */
   const headsUp = (warnings: string[]): string[] => warnings.length
@@ -279,7 +305,7 @@ export function createVibezServer(root: string): McpServer {
     const doc = await ws.readPage(path);
     const linked = await ws.linkedFor(path);
     const result = applyOps(doc, ops as Op[], { linked, pages: await pagesFrom(path) });
-    const collisions = await team.around([path], result.doc.links.map((l) => ws.resolveFrom(path, l)));
+    const collisions = await team.around(touchedOnPage(path, ops as Op[], result.created), result.doc.links.map((l) => ws.resolveFrom(path, l)));
     await ws.writePage(path, result.doc);
     await collisions.claim();
     const names = Object.entries(result.created);
@@ -646,4 +672,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const server = createVibezServer(root);
   await server.connect(new StdioServerTransport());
   console.error(`vibez mcp ready for ${root}`);
+  // The client ends a session by closing stdin or stopping the process; either way the agent's claims go with it.
+  let closing = false;
+  const stop = () => {
+    if (closing) return;
+    closing = true;
+    const timeout = setTimeout(() => process.exit(0), 3000);
+    void closeVibezServer(server).finally(() => { clearTimeout(timeout); process.exit(0); });
+  };
+  process.stdin.on('end', stop);
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
 }

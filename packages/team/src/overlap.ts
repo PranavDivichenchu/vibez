@@ -118,7 +118,8 @@ function pick(current: { level: OverlapLevel; why: string } | undefined, next: {
 
 /** One line a person or an agent can act on. */
 export function describeOverlap(o: Overlap): string {
-  const who = `${o.claim.person}'s agent`;
+  // A claim by another of this person's own agents names them as that.
+  const who = o.claim.person === 'you' ? 'Your other agent' : `${o.claim.person}'s agent`;
   const when = o.idleMinutes >= STALE_MINUTES ? ` (quiet for ${o.idleMinutes} min, it may have stopped)` : '';
   const doing = o.claim.task ? `, working on "${o.claim.task}"` : '';
   const verb = o.level === 'overlapping' ? 'is already on' : o.level === 'adjacent' ? 'is close by:' : 'may be doing the same thing:';

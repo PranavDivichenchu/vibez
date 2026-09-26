@@ -50,7 +50,7 @@ change appears on the canvas as it is written and is one ⌘Z away.
 
 The same vocabulary is available as the resource `vibez://reference`.
 
-On a team project, `ui_edit`, `vi_edit` and `site_edit` also check the team before writing. When another person's agent holds the file (or the page's linked `.vi` file, or another element on the same page), the reply starts with a heads-up naming them and their task. The edit still goes ahead: claims warn, they never block. The file is then claimed for this agent. Without a team these tools behave exactly as before.
+On a team project, `ui_edit`, `vi_edit` and `site_edit` also check the team before writing. When another person's agent holds the file (or the page's linked `.vi` file, or another element on the same page), the reply starts with a heads-up naming them and their task. The edit still goes ahead: claims warn, they never block. What it touched is then claimed for this agent: for a page, just the elements it changed (`page.ui#element`), so two agents can work on different parts of one page. When the client ends the session, the agent's claims are released. Without a team these tools behave exactly as before.
 
 ## Using it
 

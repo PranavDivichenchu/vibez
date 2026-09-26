@@ -26,6 +26,7 @@ import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezQueueView } from './vibezQueueView.js';
+import { VibezTeamView } from './vibezTeamView.js';
 import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
@@ -97,7 +98,24 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
 	canMoveView: true,
 	// The container already registers workbench.view.vibez; declaring an open
 	// command here too collides on that id and takes the whole workbench down.
+}, {
+	// Several people's agents on this project: who is working on what, and what they hold.
+	id: VibezTeamView.ID,
+	name: localize2('vibez.team', "Team"),
+	containerIcon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(VibezTeamView),
+	canToggleVisibility: true,
+	canMoveView: true,
 }], vibezViewContainer);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openTeam', title: localize2('vibez.openTeam', "Vibez: Open Team"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IViewsService).openView(VibezTeamView.ID, true);
+	}
+});
 
 /**
  * `.vi` and `.ui` files open as their own editors by default, the way `.md`

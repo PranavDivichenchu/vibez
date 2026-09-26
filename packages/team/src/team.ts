@@ -43,6 +43,7 @@ export class TeamSession {
   readonly agentKind: string;
   readonly machine: string | undefined;
   private agentId: string | undefined;
+  private task = '';
   private members: Member[] = [];
 
   constructor(rest: SupabaseRest, workspaceId: string, agentKind = 'agent', machine?: string) {
@@ -82,6 +83,7 @@ export class TeamSession {
 
   /** This agent's row, created on first use and kept alive by heartbeats. */
   async ensureAgent(task?: string): Promise<string> {
+    if (task !== undefined) this.task = task;
     if (this.agentId) {
       if (task !== undefined) {
         await this.rest.update('team_agents', { id: `eq.${this.agentId}` }, { task, status: 'working', last_seen: new Date().toISOString() });
@@ -208,6 +210,31 @@ export class TeamSession {
     return mine.map((m) => ({ ...m, from: this.nameOf(m.from_user) }));
   }
 
+  /**
+   * The conversation as a person sees it: recent messages and handoffs to
+   * them, to everyone, or from them, oldest first. Nothing is marked read.
+   */
+  async messages(limit = 60): Promise<(MessageRow & { from: string; to: string; unread: boolean })[]> {
+    await this.loadMembers();
+    const me = this.me;
+    const rows = await this.rest.select<MessageRow>('team_messages', { workspace_id: this.ws(), order: 'created_at.desc', limit: String(limit) });
+    return rows.reverse().map((m) => ({
+      ...m,
+      from: this.nameOf(m.from_user),
+      to: m.to_user === null ? 'everyone' : this.nameOf(m.to_user),
+      unread: m.from_user !== me && (m.kind === 'handoff' ? m.accepted_by === null : !m.read_by.includes(me)),
+    }));
+  }
+
+  async markRead(ids: string[]): Promise<void> {
+    if (ids.length) await this.rest.rpc('team_mark_read', { p_ids: ids });
+  }
+
+  /** Take a note down for everyone; it stays in the history but is no longer shown. */
+  async forget(noteId: string): Promise<void> {
+    await this.rest.update('team_memories', { id: `eq.${noteId}`, workspace_id: this.ws() }, { retired_at: new Date().toISOString() });
+  }
+
   /** Hand this agent's work to someone: its claims are released and travel with the handoff. */
   async handoff(to: string, summary: string, payload: HandoffPayload): Promise<string> {
     const recipient = await this.recipient(to);
@@ -216,7 +243,7 @@ export class TeamSession {
     const paths = [...new Set([...(payload.paths ?? []).map(normalizePath), ...held])];
     const [row] = await this.rest.insert<MessageRow>('team_messages', {
       workspace_id: this.workspaceId, to_user: recipient, kind: 'handoff', body: summary, from_agent: agent,
-      payload: { ...payload, paths },
+      payload: { ...payload, ...(payload.task || !this.task ? {} : { task: this.task }), paths },
     });
     await this.release();
     await this.heartbeat('done');
@@ -226,6 +253,7 @@ export class TeamSession {
   async accept(messageId: string): Promise<HandoffPayload> {
     const agent = await this.ensureAgent();
     const payload = await this.rest.rpc<HandoffPayload>('team_accept_handoff', { p_message: messageId, p_agent: agent });
+    if (payload.task) this.task = payload.task;
     if (payload.task) await this.rest.update('team_agents', { id: `eq.${agent}` }, { task: payload.task, status: 'working', last_seen: new Date().toISOString() });
     return payload;
   }

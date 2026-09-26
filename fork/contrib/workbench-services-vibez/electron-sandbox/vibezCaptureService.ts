@@ -8,6 +8,7 @@ import { InstantiationType, registerSingleton } from '../../../../platform/insta
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 // The queue's proxy registers alongside, so the desktop entry point needs no second import.
 import './vibezQueueService.js';
+import './vibezTeamService.js';
 import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezSiteInfo, IVibezTestRequest, IVibezTestResult } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**

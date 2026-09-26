@@ -3,6 +3,8 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { IVibezTeamService } from '../../../../../platform/vibez/common/vibezTeamService.js';
+import { VibezTeamBanner } from '../vibezTeamBanner.js';
 import './media/vibezUi.css';
 import * as dom from '../../../../../base/browser/dom.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
@@ -59,6 +61,7 @@ export class VibezUiEditor extends EditorPane {
 
 	private root!: HTMLElement;
 	private toolbar!: HTMLElement;
+	private banner!: VibezTeamBanner;
 	private body!: HTMLElement;
 	private chooser!: HTMLElement;
 	private problem!: HTMLElement;
@@ -92,6 +95,7 @@ export class VibezUiEditor extends EditorPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IOpenerService private readonly openerService: IOpenerService,
+		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezUiEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -101,6 +105,8 @@ export class VibezUiEditor extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		this.root = dom.append(parent, h('div.vz-ui', { tabindex: '0' }));
 		this.toolbar = dom.append(this.root, h('div.vz-ui-toolbar'));
+		this.banner = this._register(new VibezTeamBanner(this.team, held => this.canvas?.markHeld(held.map(h => h.id))));
+		this.root.appendChild(this.banner.element);
 		this.body = dom.append(this.root, h('div.vz-ui-body'));
 
 		this.canvas = this._register(new VibezUiCanvas({
@@ -152,6 +158,7 @@ export class VibezUiEditor extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.inputScope.clear();
 		this.resource = input.resource;
+		this.banner.setFile(input.resource.scheme === 'file' ? input.resource.fsPath : undefined);
 		this.past = [];
 		this.future = [];
 		this.selected = undefined;

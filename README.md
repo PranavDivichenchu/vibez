@@ -305,6 +305,16 @@ Once a project has a team, every agent using the Vibez MCP server gets the
   agents). `team_handoff` passes a task, its next steps and its files to
   someone, and `team_accept` takes it over.
 
+**In the IDE**, the **Team** view (in the Vibez sidebar, or **Vibez: Open
+Team**) starts or joins a team without a terminal, and then shows who is
+working on what, the files each person's agents hold (click one to open it),
+messages with a composer, handoffs with **Take over**, the team's notes, and
+what just happened. It updates every few seconds. Editors mark other
+people's work where you would run into it: the page editor, logic editor
+and site canvas show a bar naming who holds that file, claimed elements on
+a page are outlined, and graph nodes traced to a held file get a `held by`
+ring. An agent's claims are released when its session ends.
+
 Agents started from the Agents strip are told to use these when the project
 has a `vibez.team.json`. Row-level security keeps every table to the team's
 members; the anon key alone reads nothing.

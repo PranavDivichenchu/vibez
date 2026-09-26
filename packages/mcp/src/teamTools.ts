@@ -25,6 +25,8 @@ const NOT_SET_UP = 'This project has no team yet. A person sets one up in a term
   + '  npm run team -- join <code> --as <their name>';
 
 export interface TeamHooks {
+  /** The agent's session is over: let go of everything it held, so nobody is warned about work that stopped. */
+  finish(): Promise<void>;
   /** Before a write: warnings about other agents' claims on these files. After: the files are claimed. */
   around(paths: string[], related?: string[]): Promise<{ warnings: string[]; claim: () => Promise<void> }>;
 }
@@ -253,6 +255,11 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
   }, run(async (t) => `done; released ${await t.done()} claim(s).`));
 
   return {
+    async finish() {
+      if (beat) clearInterval(beat);
+      beat = undefined;
+      if (team?.agent) await team.done().catch(() => undefined);
+    },
     async around(paths, related = []) {
       const t = session();
       if (!t) return { warnings: [], claim: async () => undefined };

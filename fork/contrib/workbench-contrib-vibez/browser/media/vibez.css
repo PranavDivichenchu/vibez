@@ -279,3 +279,7 @@
 .vibez-tile-detail { font-size: 11.5px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vibez-tile-go { flex: none; opacity: 0; color: var(--vscode-descriptionForeground); transition: opacity .12s; }
 .vibez-tile:hover .vibez-tile-go { opacity: 1; }
+
+/* Another person's agent holds the file this editor shows (vibezTeamBanner.ts). */
+.vibez-team-banner{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;background:var(--vscode-inputValidation-warningBackground,rgba(205,150,40,.15));color:var(--vscode-foreground);border-bottom:1px solid var(--vscode-inputValidation-warningBorder,rgba(205,150,40,.5));flex:none}
+.vibez-team-banner span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

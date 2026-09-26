@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createVibezServer } from '../src/server.ts';
+import { closeVibezServer, createVibezServer } from '../src/server.ts';
 import { createTeam, joinTeam, PROJECT_FILE } from '../../team/src/config.ts';
 
 /**
@@ -52,6 +52,7 @@ const project = (): string => {
   const dir = temp('vibez-team-project-');
   cpSync(fileURLToPath(new URL('../../../examples/navigation', import.meta.url)), join(dir, 'site'), { recursive: true });
   mkdirSync(join(dir, 'logic'));
+  cpSync(fileURLToPath(new URL('../../../examples/shop/pages', import.meta.url)), join(dir, 'pages'), { recursive: true });
   return dir;
 };
 
@@ -62,15 +63,22 @@ const project = (): string => {
  */
 const agent = async (root: string, home: string) => {
   const [a, b] = InMemoryTransport.createLinkedPair();
-  await createVibezServer(root).connect(a);
+  const server = createVibezServer(root);
+  await server.connect(a);
   const client = new Client({ name: 'claude-code', version: '0' });
   await client.connect(b);
   clients.push(client);
-  return async (name: string, args: Record<string, unknown> = {}) => {
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
     process.env['VIBEZ_TEAM_HOME'] = home;
     const result = await client.callTool({ name, arguments: args }) as { content: { text: string }[]; isError?: boolean };
     return { text: result.content.map((x) => x.text).join('\n'), error: result.isError === true };
   };
+  /** The agent's session ends, the way a client closing the server ends it. */
+  call.close = async () => {
+    process.env['VIBEZ_TEAM_HOME'] = home;
+    await closeVibezServer(server);
+  };
+  return call;
 };
 
 test('without a team, the team tools say how to set one up and edits work as before', async () => {
@@ -115,6 +123,12 @@ test('two people\'s agents see each other, are warned before colliding, and pass
   assert.match(edited.text, /^Heads up, another agent is working here \(the edit went ahead\):\n {2}overlapping: Pranav's agent is already on the same file, site\/index\.html, working on "redo the home page hero"/);
   assert.match(edited.text, /Changed site\/index\.html/);
 
+  // A page edit claims only the elements it touches, so the rest of the page stays open.
+  const page = await ashmith('ui_edit', { path: 'pages/dashboard.ui', ops: [{ op: 'set', id: 'subtitle', props: { text: 'Annual plans now' } }] });
+  assert.equal(page.error, false, page.text);
+  const chip = await pranav('team_check', { paths: ['pages/dashboard.ui#plan-chip'] });
+  assert.match(chip.text, /^adjacent: Ashmith's agent is close by: same page \(pages\/dashboard\.ui\), different element \(subtitle\)/);
+
   // An edit nowhere near anyone's work says nothing extra.
   const logic = await ashmith('vi_edit', { path: 'logic/menu.vi', ops: [{ op: 'declare', what: 'value', name: 'Specials', type: 'List', fields: { name: 'String' }, sample: [{ name: 'Rye' }] }] });
   assert.equal(logic.error, false, logic.text);
@@ -122,7 +136,7 @@ test('two people\'s agents see each other, are warned before colliding, and pass
 
   const status = await pranav('team_status');
   assert.match(status.text, /^team: (Pranav, Ashmith|Ashmith, Pranav)/);
-  assert.match(status.text, /Ashmith · claude-code · active · no task yet\n {4}holds (site\/index\.html, logic\/menu\.vi|logic\/menu\.vi, site\/index\.html)/);
+  assert.match(status.text, /Ashmith · claude-code · active · no task yet\n {4}holds site\/index\.html, pages\/dashboard\.ui#subtitle, logic\/menu\.vi/);
   assert.match(status.text, /you \(this or another of your agents\) · claude-code · active · redo the home page hero\n {4}holds site\/index\.html/);
   assert.match(status.text, /Ashmith claimed site\/index\.html — editing/);
 
@@ -152,6 +166,7 @@ test('two people\'s agents see each other, are warned before colliding, and pass
   assert.ok(id, waiting.text);
   assert.match(waiting.text, /files: site\/index\.html/);
   const taken = await ashmith('team_accept', { id });
+  assert.match(taken.text, /^taken over: redo the home page hero/, 'a handoff carries the task it was started with');
   assert.match(taken.text, /now holding: site\/index\.html/);
   assert.match(taken.text, /next:\n {2}1\. swap the hero image\n {2}2\. check it on a phone/);
   const again = await ashmith('team_accept', { id });
@@ -159,9 +174,16 @@ test('two people\'s agents see each other, are warned before colliding, and pass
   const after = await ashmith('team_status');
   assert.match(after.text, /Pranav handed off to you — Hero copy is done\./);
   assert.match(after.text, /you took over from Pranav/);
-  assert.match(after.text, /holds (site\/index\.html, logic\/menu\.vi|logic\/menu\.vi, site\/index\.html)\n/, 'a file already held is not claimed twice');
+  assert.match(after.text, /holds site\/index\.html, pages\/dashboard\.ui#subtitle, logic\/menu\.vi\n/, 'a file already held is not claimed twice');
 
-  // Done releases everything this agent holds (site/index.html once, logic/menu.vi).
+  // Done releases everything this agent holds (site/index.html once, the subtitle, logic/menu.vi).
   const done = await ashmith('team_done');
-  assert.equal(done.text, 'done; released 2 claim(s).');
+  assert.equal(done.text, 'done; released 3 claim(s).');
+
+  // When an agent's session ends, what it held is let go, so nobody is warned about work that stopped.
+  const brief = await agent(ashmithDir, ashmithHome);
+  await brief('team_start', { task: 'rename the menu', paths: ['site/menu.html'] });
+  assert.match((await pranav('team_check', { paths: ['site/menu.html'] })).text, /^overlapping/);
+  await brief.close();
+  assert.match((await pranav('team_check', { paths: ['site/menu.html'] })).text, /^clear/);
 });
