@@ -46,7 +46,7 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 
 	const input = dom.append(panel, dom.$<HTMLInputElement>('input.vz-vi-search-input'));
 	input.type = 'text';
-	input.placeholder = opts.hint ?? localize('vibez.vi.search.placeholder', "Search for a block, variable or action…");
+	input.placeholder = opts.hint ?? localize('vibez.vi.search.placeholder', "What do you want to do?");
 	const list = dom.append(panel, dom.$('.vz-vi-search-list'));
 	let source = opts.items;
 

@@ -61,6 +61,36 @@ export interface IVibezReplayResult {
 	reason?: string;
 }
 
+export interface IVibezRunStatus {
+	running: boolean;
+	/** The entry file currently running, so a second "Run" on the same file is a no-op rather than a restart. */
+	entry?: string;
+	port?: number;
+	url?: string;
+}
+
+export interface IVibezRunLog {
+	/** Monotonic within the IDE process, so the editor can append only new output. */
+	seq: number;
+	stream: 'stdout' | 'stderr' | 'system';
+	text: string;
+}
+
+export interface IVibezTestRequest {
+	module: string;
+	kind: 'value' | 'action' | 'function';
+	name: string;
+	args: unknown[];
+}
+
+export interface IVibezTestResult {
+	ok: boolean;
+	value?: unknown;
+	logs: string[];
+	durationMs: number;
+	error?: string;
+}
+
 export interface IVibezCaptureService {
 	readonly _serviceBrand: undefined;
 	start(workspacePath: string): Promise<IVibezCaptureStatus>;
@@ -76,4 +106,13 @@ export interface IVibezCaptureService {
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan>;
 	/** Work out what starting every lookup in `symbol`'s loop at once would change. */
 	planBatch(symbol: string, count: number): Promise<IVibezGesturePlan>;
+	/** Spawns `entry` as a plain Node process — the compiled `.vibez/build/server.js` — killing whatever this window last ran first. A second call with the same entry is a no-op. */
+	runServer(entry: string): Promise<IVibezRunStatus>;
+	stopServer(): Promise<IVibezRunStatus>;
+	runStatus(): Promise<IVibezRunStatus>;
+	/** Recent output from the generated logic server started by Run Logic. */
+	logicLogs(): Promise<IVibezRunLog[]>;
+	clearLogicLogs(): Promise<void>;
+	/** Runs one compiled value, action, or reusable function in an isolated short-lived process. */
+	testVi(request: IVibezTestRequest): Promise<IVibezTestResult>;
 }

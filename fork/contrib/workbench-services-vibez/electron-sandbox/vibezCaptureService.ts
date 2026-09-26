@@ -6,7 +6,7 @@
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../../../../platform/vibez/common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezTestRequest, IVibezTestResult } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**
  * The renderer's handle on the receiver running in the main process.
@@ -55,6 +55,30 @@ class VibezCaptureService implements IVibezCaptureService {
 
 	planBatch(symbol: string, count: number): Promise<IVibezGesturePlan> {
 		return this.proxy.planBatch(symbol, count);
+	}
+
+	runServer(entry: string): Promise<IVibezRunStatus> {
+		return this.proxy.runServer(entry);
+	}
+
+	stopServer(): Promise<IVibezRunStatus> {
+		return this.proxy.stopServer();
+	}
+
+	runStatus(): Promise<IVibezRunStatus> {
+		return this.proxy.runStatus();
+	}
+
+	logicLogs(): Promise<IVibezRunLog[]> {
+		return this.proxy.logicLogs();
+	}
+
+	clearLogicLogs(): Promise<void> {
+		return this.proxy.clearLogicLogs();
+	}
+
+	testVi(request: IVibezTestRequest): Promise<IVibezTestResult> {
+		return this.proxy.testVi(request);
 	}
 }
 

@@ -1,96 +1,75 @@
 # Vibez
 
-**B**ezier **V**isual **I**nterface. An IDE where your codebase is a node graph
-built from what actually ran.
+Vibez is a Code – OSS fork for building apps through readable visual logic.
+The `.vi` editor is the coding surface; the `.ui` editor connects page elements
+to that logic. Files remain the source of truth, so external edits appear in the
+editor and work alongside the workbench's chat tools.
 
-A fork of VS Code. Open a folder, get a map.
+## Coding workflow
 
-```
-  GET /dashboard   14 runs · measured · 2.42 s
+The Logic panel groups declarations by purpose:
 
-  ›█ getUserStats       data       2.08 s slow        86% of flow   12×  173 ms  lib/db/queries.ts:88
-        ⚠ 12 identical queries  —  Every pass of this loop waits for the one before it.
-     listCustomers      data        96 ms instant      4% of flow    1×   96 ms  lib/db/queries.ts:70
-  ›  DashboardPage      render      87 ms instant      4% of flow    1×   87 ms  app/dashboard/page.tsx:42
-     getBilling         data        81 ms instant      3% of flow    1×   81 ms  lib/db/queries.ts:140
-     StatsGrid          render      60 ms instant      3% of flow    1×   60 ms  components/StatsGrid.tsx:8
-  ›  GET /dashboard     entry       15 ms instant      1% of flow    1×   15 ms
+- **Page Data** supplies values a page displays. Its graph starts at Start and returns a typed result; preview samples belong to the page designer.
+- **Page Actions** performs work triggered by a page, with named inputs and an optional result.
+- **Functions** holds reusable logic called by other graphs. Functions are testable but are not HTTP endpoints.
+- **Variables** stores file-wide state shared by those graphs, with a type, initial value and read/write access.
 
-  critical path: GET /dashboard → DashboardPage → getUserStats
-```
+Select an item to edit its graph and Details. White wires control execution;
+colored wires supply data. Compile checks and generates code. Run starts the
+local logic server. The Run dropdown tests an individual item with typed inputs;
+results and Print to Console output appear in the Console panel.
 
-## Why
+Drag empty canvas or use a middle-button drag to pan. Scroll pans; Ctrl/Cmd-scroll
+zooms. Use the zoom controls or **F** to fit the actual node positions. Shift-drag
+selects a rectangle; Shift/Ctrl/Cmd-click toggles nodes. Selected nodes move
+together, and the context menu offers cleanup and deletion. Logic and Details
+can collapse to make room for the graph and chat.
 
-Static dependency graphs of real codebases are hairballs nobody opens twice.
-Vibez builds its graph from OpenTelemetry traces instead, so only code that
-really ran appears, and every node carries a measured duration.
+## Development
 
-It is a profiler you can point at, not a code viewer.
-
-## Status
-
-Phase 2 of 5. The graph is built from a genuinely instrumented app and renders
-as a node editor. Not shipping yet. See [plan.md](plan.md).
-
-## Try it
-
-Needs Node 22.18+. Node runs the TypeScript, so there is no build step, and
-nothing outside the example app has a runtime dependency.
+Use Node **22.18+** and install dependencies with `npm install`.
 
 ```bash
-npm run trace      # runs the example app, records 14 traces, prints the graph
-npm run view       # bundles graph + layout, writes a standalone preview.html
-npm test           # 38 tests
+npm test
 npm run typecheck
+npm run fork:setup        # prepare the pinned Code – OSS checkout
+npm run fork:build        # apply branding and sync source into the checkout
+(cd ~/.vibez/vscode && npm run compile)
+npm run fork:run -- /path/to/project
 ```
 
-`npm run trace` starts the OTLP receiver, spawns `examples/shop`, discards three
-warmup runs, measures fourteen, and writes `.vibez/graph.json`. Then `npm run view`
-produces `packages/vibez-core/webview/preview.html`, a self-contained page you can
-open in any browser to see the canvas.
+`fork:build` syncs source; the upstream `compile` step produces the runnable IDE.
+The checkout defaults to `~/.vibez/vscode`; set `VIBEZ_FORK_DIR` to override it.
+See [fork/README.md](fork/README.md) for the overlay structure.
 
-## Layout
+## Project map
 
-| Package | What |
+| Location | Responsibility |
 |---|---|
-| `packages/core` | IR, semantic keys, span reducer, detectors, diff |
-| `packages/capture` | OTLP receiver, SQLite store, graph endpoint |
-| `tools/preview` | standalone graph preview, for looking at a flow without the IDE |
-| `examples/shop` | a real instrumented app with a planted N+1 |
-| `fork/` | the Code – OSS overlay: branding only, 42 lines against upstream |
-| `vscode/` | the Code – OSS fork *(phase 3)* |
+| `packages/vi` | Logic documents, declarations, graph operations, node catalog, validation and JavaScript generation |
+| `packages/ui` | Page documents, layouts, themes, logic bindings and HTML generation |
+| `packages/mcp` | MCP page/declaration editing, inspection and isolated logic tests |
+| `fork/contrib` | Native workbench editors, execution service and console |
+| `packages/core` | Shared graph types, layout and recorded-flow analysis |
+| `packages/capture` | OpenTelemetry capture and trace storage |
+| `packages/codemod` | Checked transformations of traced source code |
+| `scripts` | Build, synchronization, launch and development harnesses |
+| `examples/shop` | Editable demonstration project, separate from test fixtures |
 
-## The fork
+Recorded-flow analysis remains in the codebase, but it is separate from authored
+`.vi` logic. `plan.md` and `plan-v2.md` are historical/future design proposals,
+not a description of shipped behavior.
 
-The Code – OSS checkout lives at `~/.vibez/vscode`, outside the repo, because
-node-gyp does not quote paths and a space anywhere above it breaks every native
-module build. `fork/` holds an overlay that is merged into it. The graph is a workbench contribution compiled into the
-product at `src/vs/workbench/contrib/vibez/` — not an extension — so `.flow`
-opens as a graph on first launch with no extensions installed at all.
+## Runtime scope
 
-Divergence is measured in **modified upstream files**, not lines, because that
-is what actually conflicts on a merge. Currently **2**.
+The generated server is a **local development runtime**, bound to `127.0.0.1`.
+It implements the [page/logic contract](docs/ui-vi-contract.md). State is in memory
+and resets with the process. Build artifacts live in `.vibez/build`; do not edit them.
 
-```bash
-npm run fork:setup    # clone Code - OSS at the pinned tag
-npm run fork:build    # bundle the extension, apply the overlay
-npm run fork:diff     # measure divergence against the 2000-line budget
-npm run fork:run      # launch it
-```
+Some saved node kinds are still placeholders: data-source operations, effects,
+authorization/validation guards, and higher-order collection operations. Search
+labels these “Not runnable yet,” and reachable placeholders fail compilation.
+Existing graphs retain their nodes and receive actionable errors. Breakpoints
+and live pin watches are not implemented and are not offered as working controls.
 
-See [fork/README.md](fork/README.md) for why the budget exists.
-
-## Design notes worth knowing
-
-- **Semantic keys never contain a file path.** Moving a function must not move
-  its node, or every rebuild reshuffles the canvas.
-- **Self time subtracts the union of child intervals, not their sum.** Parallel
-  children would otherwise be double counted.
-- **Metrics aggregate per run, not per call.** Twelve 173 ms queries are one
-  2.08 s problem, not twelve fast ones.
-- **Heat is a share of the flow, not a rank.** A fast app has no red nodes.
-- **Nanosecond timestamps stay bigint until a trace is rebased.** Epoch nanos
-  are ~1.75e18, past what a double holds exactly.
-- **Layout is ours, not ELK's.** Fixed column widths, ports on fixed sides, and
-  wires that always leave and arrive horizontally are most of what makes a node
-  editor look tidy, and they are cheaper to own than a megabyte of WASM.
+See [coding-readiness.md](docs/coding-readiness.md) for validation and release limits.

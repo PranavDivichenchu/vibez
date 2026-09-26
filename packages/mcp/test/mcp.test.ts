@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, cpSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,13 +10,15 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { createVibezServer } from '../src/server.ts';
 import { parseDoc } from '../../ui/src/index.ts';
 import { buildGraph, dashboardRuns } from '../../core/src/index.ts';
+import { addEdge, addNode, blankDoc, graphFor, makeNode, serialize as serializeVi, takenIds } from '../../vi/src/index.ts';
 
 let root: string;
 let client: Client;
 
 before(async () => {
   root = mkdtempSync(join(tmpdir(), 'vibez-mcp-'));
-  cpSync(fileURLToPath(new URL('../../../examples/shop/pages', import.meta.url)), join(root, 'pages'), { recursive: true });
+  mkdirSync(join(root, 'pages'));
+  for (const name of ['dashboard.ui', 'dashboard.vi']) writeFileSync(join(root, 'pages', name), readFileSync(new URL(`./fixtures/pages/${name}.json`, import.meta.url)));
   mkdirSync(join(root, '.vibez', 'flows'), { recursive: true });
   writeFileSync(join(root, '.vibez', 'flows', 'default.flow'), JSON.stringify(buildGraph(dashboardRuns(4), { mode: 'measured' })));
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -39,7 +41,7 @@ const page = (path: string) => readFileSync(join(root, path), 'utf8');
 test('the tools an agent sees', async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    'flow_read', 'ui_build', 'ui_create', 'ui_edit', 'ui_options', 'ui_read', 'vi_declare', 'vi_read', 'vibez_overview', 'vibez_reference',
+    'flow_read', 'ui_build', 'ui_create', 'ui_edit', 'ui_options', 'ui_read', 'vi_declare', 'vi_read', 'vi_run', 'vibez_overview', 'vibez_reference',
   ]);
   const edit = tools.find((t) => t.name === 'ui_edit')!;
   assert.ok(JSON.stringify(edit.inputSchema).includes('"add"'), 'the op union reaches the client as JSON schema');
@@ -141,6 +143,31 @@ test('building compiles to .vibez/build', async () => {
   const { text } = await call('ui_build', { path: 'pages/dashboard.ui' });
   assert.match(text, /Compiled pages\/dashboard\.ui to \.vibez\/build\/dashboard\.html/);
   assert.match(readFileSync(join(root, '.vibez/build/dashboard.html'), 'utf8'), /^<!doctype html>/);
+});
+
+test('vi_run compiles and runs a value or action for real, with no page involved', async () => {
+  // A tiny action graph, built directly the way the graph editor would:
+  // entry(a, b: Number) -> Add -> return.
+  const doc = { ...blankDoc(), exports: { values: [], actions: [{ name: 'add', inputs: [{ name: 'a', type: 'Number' as const }, { name: 'b', type: 'Number' as const }], returns: 'Number' as const }] } };
+  const { graph: scaffolded } = graphFor(doc, 'add');
+  const entry = scaffolded.nodes.find((n) => n.kind === 'entry')!;
+  const ret = scaffolded.nodes.find((n) => n.kind === 'return')!;
+  const taken = takenIds(scaffolded);
+  const plus = makeNode('compute', { kind: 'compute', op: '+' }, taken);
+  let graph = addNode(scaffolded, plus);
+  graph = addEdge(graph, entry.id, 'in:a', plus.id, 'a');
+  graph = addEdge(graph, entry.id, 'in:b', plus.id, 'b');
+  graph = addEdge(graph, plus.id, 'result', ret.id, 'value');
+  writeFileSync(join(root, 'pages', 'math.vi'), serializeVi({ ...doc, logic: { add: graph } }));
+
+  const { text, error } = await call('vi_run', { path: 'pages/math.vi', export: 'add', args: { a: 2, b: 3 } });
+  assert.equal(error, false, text);
+  assert.match(text, /add -> 5/);
+  assert.equal(existsSync(join(root, '.vibez/build/math.vi.js')), false, 'individual tests do not overwrite the running build');
+
+  const missing = await call('vi_run', { path: 'pages/math.vi', export: 'nope' });
+  assert.equal(missing.error, true);
+  assert.match(missing.text, /has no value or action called nope/);
 });
 
 test('a recorded flow reads as steps with what was noticed', async () => {

@@ -37,7 +37,7 @@ export interface ViExports {
 }
 
 /** Every kind of block the graph editor can place. */
-export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'boundary' | 'group' | 'call';
+export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'boundary' | 'group' | 'debug' | 'call';
 
 /** One block per operator, the Unreal way, rather than a single "Compute" node with a free-text expression. */
 export type MathOp = '+' | '-' | '*' | '/' | '%' | 'pow' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | 'xor';
@@ -55,8 +55,8 @@ export type ComputeOp = MathOp
 
 export interface AuthoredDataPin { name: string; type?: ViType }
 
-/** The four colors a block's category shows as, in both its node header and the search dropdown. Left off: the palette's neutral gray, held back for "uncategorized." */
-export type Category = 'flow' | 'value' | 'data' | 'event';
+/** What a block's header and the search dropdown's dot color it by. `debugging` is the palette's neutral gray — it was held back from the other four on purpose, for exactly this: comments and other organization aids, and the blocks that only exist to help you find a problem. */
+export type Category = 'flow' | 'value' | 'data' | 'event' | 'debugging';
 
 /** What each block needs, beyond its ports, to generate code. Read via `configOf`. */
 export type AuthoredConfig =
@@ -72,6 +72,7 @@ export type AuthoredConfig =
 	| { kind: 'external'; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; mode?: 'request' | 'decode' }
 	| { kind: 'boundary'; op: 'throw' | 'authorize' | 'requireRole' | 'validate' | 'safeCast'; value?: string; type?: ViType }
 	| { kind: 'group'; mode: 'reroute' | 'namedReroute' | 'comment' | 'region' | 'helper' | 'bookmark'; name?: string; text?: string }
+	| { kind: 'debug'; op: 'log' | 'throw'; level?: 'log' | 'warn' | 'error' }
 	| { kind: 'call'; file: string; name: string };
 
 export function configOf(node: GNode): AuthoredConfig | undefined {
@@ -99,7 +100,7 @@ export function categoryOf(kind: AuthoredKind): Category {
 		case 'literal': case 'variable': case 'compute': return 'value';
 		case 'data': case 'effect': case 'external': return 'data';
 		case 'entry': case 'call': return 'event';
-		case 'group': return 'value';
+		case 'group': case 'debug': return 'debugging';
   }
 }
 
@@ -111,6 +112,21 @@ export function categoryOf(kind: AuthoredKind): Category {
  */
 export type AuthoredGraph = Graph;
 
+/**
+ * A variable, declared once — the way Unreal's own "My Blueprint" panel
+ * works, rather than however many `Get`/`Set` nodes happen to retype the same
+ * name and hope they agree. Every graph in the file can read it; only a
+ * `mutable` one ever offers a `Set`.
+ */
+export interface ViVariable {
+  name: string;
+  type: ViType;
+  mutable: boolean;
+  /** Initial file-level value. Mutable variables keep their value while the generated logic server is running. */
+  initial?: unknown;
+  about?: string;
+}
+
 export interface ViDoc {
   /** `'vi/0'` (exports only, the format before the graph editor existed) or `'vi/1'` (exports + logic). */
   vibez: string;
@@ -118,7 +134,11 @@ export interface ViDoc {
   exports: ViExports;
   /** One authored graph per exported action or value, keyed by export name. */
   logic: Record<string, AuthoredGraph>;
-  /** Reusable private subgraphs a `call` block can target instead of an export. */
+  /** Declared once; every graph's `Get`/`Set Variable` search entries come from this list, not from retyping a name. */
+  variables?: ViVariable[];
+  /** Reusable graph logic, callable across `.vi` files but never mounted as a page-facing HTTP route. */
+  functions?: ViAction[];
+  /** One authored graph per reusable function, keyed by name — the internal counterpart to page-facing `logic`. */
   helpers?: Record<string, AuthoredGraph>;
 }
 

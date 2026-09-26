@@ -4,11 +4,17 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { posix, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import {
   TEMPLATES, THEMES, brokenLinks, compile, find, slotOf, valueChoices, actionChoices, pageInputs, serialize,
   type UiDoc, type ViAction, type ViValue,
 } from '../../ui/src/index.ts';
 import type { Graph } from '../../core/src/index.ts';
+import { compileFile, parseDoc as parseViDoc } from '../../vi/src/index.ts';
 import { Workspace, VibezError, titleFrom } from './workspace.ts';
 import { outlinePage, summarizePage, outlineExports, formatValue, formatAction } from './notation.ts';
 import { applyOps, type Op } from './edit.ts';
@@ -28,6 +34,9 @@ import { outlineFlow } from './flows.ts';
  */
 
 const VALUE_TYPES = ['String', 'Number', 'Boolean', 'Url', 'Date', 'Object', 'List'] as const;
+
+/** Where a `.vi` file's compiled module lands — flat by basename, the same convention the editor's own build output and `.ui`'s `.vibez/build/<name>.html` already use. */
+const buildPathFor = (relativeVi: string): string => posix.join('.vibez', 'build', `${basename(relativeVi, '.vi')}.vi.js`);
 
 type Reply = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const say = (text: string): Reply => ({ content: [{ type: 'text', text }] });
@@ -335,6 +344,65 @@ export function createVibezServer(root: string): McpServer {
       '',
       outlineExports(path, { values: nextValues, actions: nextActions }, Object.keys(raw)),
     ].join('\n'));
+  }));
+
+  server.registerTool('vi_run', {
+    title: 'Test .vi logic',
+    description: 'Compiles a .vi file for real and runs one value, action or function directly — no page, no browser, no server to start. '
+      + 'The fastest way to check logic while building it. Refuses with the exact reason if the block isn\'t connected properly yet.',
+    inputSchema: {
+      path: z.string().describe('Path of the .vi file, like pages/dashboard.vi.'),
+      export: z.string().describe('The value, action or function name to test.'),
+      args: z.record(z.string(), z.unknown()).optional().describe('Named inputs, for an action that takes them.'),
+    },
+  }, ({ path, export: exportName, args }) => guard(async () => {
+    if (!path.endsWith('.vi')) throw new VibezError(`${path} must end in .vi.`);
+    const parsed = parseViDoc(await ws.read(path));
+    if (!parsed.ok) throw new VibezError(`${path}: ${parsed.reason}`);
+    const doc = parsed.doc;
+    const value = doc.exports.values.find((v) => v.name === exportName);
+    const action = [...doc.exports.actions, ...(doc.functions ?? [])].find((a) => a.name === exportName);
+    if (!value && !action) {
+      throw new VibezError(`${path} has no value or action called ${exportName}. It offers: ${[...doc.exports.values, ...doc.exports.actions].map((e) => e.name).join(', ') || 'nothing yet'}.`);
+    }
+
+    // Compile every dependency against the same snapshot and run in a fresh
+    // process. This prevents stale ESM imports and keeps console.log off MCP stdio.
+    const sources = [{ path, doc }];
+    for (const other of (await ws.find(['.vi'])).filter(p => p !== path)) {
+      const parsed = parseViDoc(await ws.read(other));
+      if (!parsed.ok) throw new VibezError(`${other}: ${parsed.reason}`);
+      sources.push({ path: other, doc: parsed.doc });
+    }
+    const names = sources.map(source => basename(source.path));
+    if (new Set(names).size !== names.length) throw new VibezError('Logic files must have unique filenames in the shared build folder.');
+    const build = `.vibez/build/test-${randomUUID()}`;
+    try {
+      await ws.write(`${build}/package.json`, '{"type":"module","private":true}');
+      let warnings: string[] = [];
+      for (const source of sources) {
+        const siblings = new Map(sources.filter(other => other !== source).map(other => [posix.relative(posix.dirname(source.path), other.path), [...other.doc.exports.actions, ...(other.doc.functions ?? [])]]));
+        const result = compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? []);
+        if (source.path === path) {
+          const issues = result.issues.filter(issue => issue.exportName === exportName);
+          const errors = issues.filter(issue => issue.severity === 'error');
+          if (errors.length) throw new VibezError(`${exportName} isn't ready to run:\n${errors.map(error => error.message).join('\n')}`);
+          warnings = issues.filter(issue => issue.severity === 'warning').map(issue => issue.message);
+        }
+        await ws.write(`${build}/${basename(source.path, '.vi')}.vi.js`, result.code);
+      }
+      const target = pathToFileURL(ws.path(`${build}/${basename(path, '.vi')}.vi.js`)).href;
+      const kind = value ? 'values' : doc.exports.actions.some(a => a.name === exportName) ? 'actions' : 'functions';
+      const callArgs = (action?.inputs ?? []).map(input => (args ?? {})[input.name]);
+      const runner = `const mod = await import(${JSON.stringify(target)}); const fn = mod.__vibezTest[${JSON.stringify(kind)}][${JSON.stringify(exportName)}]; const result = await fn(...${JSON.stringify(callArgs)}); console.log(${JSON.stringify(exportName + ' -> ')} + (JSON.stringify(result, null, 2) ?? 'undefined'));`;
+      const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', runner], { timeout: 10_000, maxBuffer: 1024 * 1024 });
+      return say([stdout.trim(), stderr.trim(), ...warnings.map(warning => `Warning: ${warning}`)].filter(Boolean).join('\n'));
+    } catch (error) {
+      if (error instanceof VibezError) throw error;
+      return refuse(`${exportName} could not finish: ${(error as Error).message}`);
+    } finally {
+      await rm(ws.path(build), { recursive: true, force: true });
+    }
   }));
 
   // ---------------------------------------------------------- flows

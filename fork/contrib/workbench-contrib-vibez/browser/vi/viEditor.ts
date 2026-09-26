@@ -17,7 +17,7 @@ import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
-import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
+import { IVibezCaptureService, IVibezTestResult } from '../../../../../platform/vibez/common/vibezCapture.js';
 import { IWorkspaceContextService } from '../../../../../platform/workspace/common/workspace.js';
 import { EditorPane } from '../../../../browser/parts/editor/editorPane.js';
 import { DEFAULT_EDITOR_ASSOCIATION, IEditorOpenContext } from '../../../../common/editor.js';
@@ -29,17 +29,20 @@ import {
 	AuthoredConfig, AuthoredGraph, AuthoredKind, ViAction, ViDoc, ViType, configOf,
 } from '../../../../../platform/vibez/common/vibezViTypes.js';
 import {
-	addEdge, addNode, findNode, fits, graphFor, makeNode, parseDoc, pruneEdges,
-	removeEdge, removeNodePreservingFlow, serialize, setGraph, takenIds, updateConfig, type PortContext,
+	addEdge, addNode, declareFunction, declareVariable, findNode, fits, functionGraphFor, graphFor, makeNode, parseDoc, pruneEdges,
+	removeEdge, removeFunction, removeNodePreservingFlow, removeVariable, renameCallableReferences, renameFunction, renameVariable, serialize, setFunctionGraph, setGraph, takenIds, updateAction, updateConfig, updateValue, type PortContext,
 } from '../../../../../platform/vibez/common/vibezViOps.js';
-import { variablesInScope, type ScopedVariable } from '../../../../../platform/vibez/common/vibezViScope.js';
 import { searchIndex, reachesFrom, type SearchItem } from '../../../../../platform/vibez/common/vibezViCatalog.js';
+import { compileFile, compileServer, type ServerFile } from '../../../../../platform/vibez/common/vibezViCompile.js';
 import { VibezViEditorInput } from './viEditorInput.js';
 import { openNodeSearch } from './viNodeSearch.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DRAG_THRESHOLD = 4;
 const SAVE_DELAY = 250;
+
+type DeclarationKind = 'value' | 'action' | 'function' | 'variable';
+type DeclarationValue = { name: string; type?: ViType; sample?: unknown; initial?: unknown; about?: string; inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean };
 
 function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
 	const node = document.createElementNS(SVG_NS, tag);
@@ -61,7 +64,58 @@ const ICONS: Record<string, string> = {
 	effect: 'M13 2 4 14h7l-1 8 9-12h-7z',
 	external: 'M18 10a6 6 0 0 0-11.3-2A4.5 4.5 0 1 0 6.5 19h11a4 4 0 0 0 .5-9',
 	call: 'M14 3h7v7M21 3l-9 9M8 6H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3',
+	debug: 'M8 6a4 4 0 0 1 8 0M6 10h12M7 10a5 7 0 0 0 10 0M4 7l3 2M20 7l-3 2M4 16l3-2M20 16l-3-2M9 21l1-4M15 21l-1-4',
 };
+
+// Lucide's simple, two-pixel stroke language keeps declaration kinds legible
+// at the small sizes used throughout the editor. Reuse these paths everywhere
+// a declaration kind appears so the same concept never changes symbols.
+const LOGIC_ICON_PATHS: Record<DeclarationKind, readonly string[]> = {
+	value: [
+		'M3 5a9 3 0 0 0 18 0a9 3 0 0 0-18 0',
+		'M3 5v14a9 3 0 0 0 18 0V5',
+		'M3 12a9 3 0 0 0 18 0',
+	],
+	action: ['M13 2 4 14h7l-1 8 9-12h-7z'],
+	function: [
+		'M3 3h6v6H3z',
+		'M15 15h6v6h-6z',
+		'M7 9v4a4 4 0 0 0 4 4h4',
+	],
+	variable: [
+		'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
+		'm3.3 7 8.7 5 8.7-5',
+		'M12 22V12',
+	],
+};
+
+const PLUS_ICON_PATHS = ['M5 12h14', 'M12 5v14'] as const;
+const TERMINAL_ICON_PATHS = ['m4 17 6-6-6-6', 'M12 19h8'] as const;
+const CLOSE_ICON_PATHS = ['M18 6 6 18', 'm6 6 12 12'] as const;
+const CHEVRON_ICON_PATHS = ['m6 9 6 6 6-6'] as const;
+const ZOOM_IN_ICON_PATHS = ['M21 21l-4.35-4.35', 'M11 8v6', 'M8 11h6', 'M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0'] as const;
+const ZOOM_OUT_ICON_PATHS = ['M21 21l-4.35-4.35', 'M8 11h6', 'M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0'] as const;
+const FIT_ICON_PATHS = ['M8 3H5a2 2 0 0 0-2 2v3', 'M16 3h3a2 2 0 0 1 2 2v3', 'M8 21H5a2 2 0 0 1-2-2v-3', 'M16 21h3a2 2 0 0 0 2-2v-3'] as const;
+const PANEL_LEFT_ICON_PATHS = ['M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', 'M9 3v18'] as const;
+const PANEL_RIGHT_ICON_PATHS = ['M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', 'M15 3v18'] as const;
+
+function lucideIcon(paths: readonly string[], className = '', size = 16): SVGElement {
+	const icon = svg('svg', {
+		class: `vz-vi-lucide ${className}`.trim(),
+		width: size,
+		height: size,
+		viewBox: '0 0 24 24',
+		fill: 'none',
+		stroke: 'currentColor',
+		'stroke-width': 2,
+		'stroke-linecap': 'round',
+		'stroke-linejoin': 'round',
+		'aria-hidden': 'true',
+		focusable: 'false',
+	});
+	for (const path of paths) { icon.appendChild(svg('path', { d: path })); }
+	return icon;
+}
 
 interface Pos { x: number; y: number }
 interface NodeView { node: GNode; card: HTMLElement; marks: { el: HTMLElement | SVGElement; x: number; y: number }[]; edges: string[] }
@@ -73,7 +127,7 @@ interface NodeView { node: GNode; card: HTMLElement; marks: { el: HTMLElement | 
  * Placing a node is always the same move: double-click empty canvas for the
  * full catalog, or drag off a socket and let go for the same list, narrowed
  * to what fits there — variables already in scope included, filtered by
- * whether they can even be reassigned (see `@vibez/vi`'s `scope.ts`). The
+ * whether their declarations allow writing. The
  * file is the truth: an agent's edit through a future MCP tool lands here the
  * same way a `.ui` page's does, as an undoable step.
  */
@@ -82,8 +136,23 @@ export class VibezViEditor extends EditorPane {
 	static readonly ID = 'workbench.editor.vibez.vi';
 
 	private root!: HTMLElement;
-	private tabs!: HTMLElement;
+	private blueprint!: HTMLElement;
+	/** Legacy alias used only by unreachable pre-panel rendering helpers. */
+	private details!: HTMLElement;
+	private main!: HTMLElement;
+	private center!: HTMLElement;
+	private toolbar!: HTMLElement;
+	private runButton: HTMLButtonElement | undefined;
+	private consoleButton: HTMLButtonElement | undefined;
 	private canvas!: HTMLElement;
+	private consolePanel!: HTMLElement;
+	private consoleOutput!: HTMLElement;
+	private consoleEmpty!: HTMLElement;
+	private consoleStatus!: HTMLElement;
+	private consoleCollapse!: HTMLButtonElement;
+	private graphHeader!: HTMLElement;
+	private cameraZoom!: HTMLElement;
+	private selectionStatus!: HTMLElement;
 	private world!: HTMLElement;
 	private wireLayer!: SVGElement;
 	private problem!: HTMLElement;
@@ -91,22 +160,37 @@ export class VibezViEditor extends EditorPane {
 	private readonly rendered = this._register(new DisposableStore());
 	private readonly searchScope = this._register(new DisposableStore());
 	private readonly inputScope = this._register(new DisposableStore());
-	private readonly tabsScope = this._register(new DisposableStore());
+	private readonly detailsScope = this._register(new DisposableStore());
+	private readonly blueprintScope = this._register(new DisposableStore());
 	private readonly menuScope = this._register(new DisposableStore());
+	private readonly runScope = this._register(new DisposableStore());
 
 	private resource: URI | undefined;
 	private doc: ViDoc | undefined;
 	private exportName: string | undefined;
+	/** Set instead of `exportName` while viewing a reusable function's graph — the two are mutually exclusive. */
+	private functionName: string | undefined;
+	private selectedDeclaration: { kind: DeclarationKind; name: string } | undefined;
+	private testOpen = false;
+	private testRunning = false;
+	private testResult: IVibezTestResult | undefined;
+	private readonly testInputs = new Map<string, Record<string, string | boolean>>();
+	private consolePollTimer: ReturnType<typeof setTimeout> | undefined;
+	private consoleRefreshing = false;
+	private consoleWasRunning = false;
+	private consoleLastSequence = 0;
 	private past: ViDoc[] = [];
 	private future: ViDoc[] = [];
 	private lastCoalesce: { key: string; at: number } | undefined;
 	private selected: SemanticKey | undefined;
-	private readonly watchedPorts = new Set<string>();
-	private readonly breakpoints = new Set<SemanticKey>();
+	private readonly selectedNodes = new Set<SemanticKey>();
 
 	private lastWritten: string | undefined;
+	private saveError: unknown;
+	private saveQueue: Promise<void> = Promise.resolve();
+	private pendingWritten: string | undefined;
 	private saveTimer: ReturnType<typeof setTimeout> | undefined;
-	private siblings: { relative: string; exports: { values: { name: string }[]; actions: ViAction[] } }[] = [];
+	private siblings: { uri: URI; relative: string; exports: { values: { name: string }[]; actions: ViAction[] }; functions: ViAction[] }[] = [];
 
 	private graphLayout: Layout | undefined;
 	private points = new Map<string, PortPoint>();
@@ -136,7 +220,7 @@ export class VibezViEditor extends EditorPane {
 		@IFileService private readonly fileService: IFileService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService,
+		@IVibezCaptureService private readonly captureService: IVibezCaptureService,
 	) {
 		super(VibezViEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -145,23 +229,89 @@ export class VibezViEditor extends EditorPane {
 
 	protected createEditor(parent: HTMLElement): void {
 		this.root = dom.append(parent, dom.$('.vz-vi', { tabindex: '0' }));
-		this.tabs = dom.append(this.root, dom.$('.vz-vi-tabs'));
-		this.canvas = dom.append(this.root, dom.$('.vz-vi-canvas'));
+		const header = dom.append(this.root, dom.$('.vz-vi-header'));
+		this.graphHeader = dom.append(header, dom.$('.vz-vi-graph-header'));
+		this.toolbar = dom.append(header, dom.$('.vz-vi-toolbar', { role: 'toolbar', 'aria-label': 'Logic actions' }));
+		this.main = dom.append(this.root, dom.$('.vz-vi-main'));
+		this.blueprint = dom.append(this.main, dom.$('.vz-vi-blueprint'));
+		this.center = dom.append(this.main, dom.$('.vz-vi-center'));
+		this.canvas = dom.append(this.center, dom.$('.vz-vi-canvas'));
+		this.createConsolePanel();
+		this.details = dom.append(this.main, dom.$('.vz-vi-details'));
+		this.createCanvasControls();
 		this.world = dom.append(this.canvas, dom.$('.vz-vi-world'));
 		this.problem = dom.append(this.root, dom.$('.vz-vi-problem'));
 		this.installCamera();
 		this.installCanvasSearch();
 		this.installKeys();
+		this.renderToolbar();
+		const resize = new ResizeObserver(() => this.layout());
+		resize.observe(this.root);
+		resize.observe(this.canvas);
+		this._register({ dispose: () => resize.disconnect() });
+	}
+
+	private createCanvasControls(): void {
+		const controls = dom.append(this.center, dom.$('.vz-vi-canvas-controls', { role: 'toolbar', 'aria-label': 'Graph navigation' }));
+		const button = (paths: readonly string[], title: string, run: () => void) => {
+			const control = dom.append(controls, dom.$<HTMLButtonElement>('button.vz-vi-canvas-control', { type: 'button', title, 'aria-label': title }));
+			control.appendChild(lucideIcon(paths));
+			this._register(dom.addDisposableListener(control, dom.EventType.CLICK, run));
+			return control;
+		};
+		button(PANEL_LEFT_ICON_PATHS, localize('vibez.vi.toggleLogic', "Show or hide Logic panel"), () => this.togglePanel('logic'));
+		button(ZOOM_OUT_ICON_PATHS, localize('vibez.vi.zoomOut', "Zoom out"), () => this.zoomBy(0.85));
+		this.cameraZoom = dom.append(controls, dom.$('.vz-vi-camera-zoom'));
+		button(ZOOM_IN_ICON_PATHS, localize('vibez.vi.zoomIn', "Zoom in"), () => this.zoomBy(1.15));
+		button(FIT_ICON_PATHS, localize('vibez.vi.fitGraph', "Fit graph to view"), () => this.fit());
+		button(PANEL_RIGHT_ICON_PATHS, localize('vibez.vi.toggleDetails', "Show or hide Details panel"), () => this.togglePanel('details'));
+		this.selectionStatus = dom.append(controls, dom.$('.vz-vi-selection-status'));
+		this.cameraZoom.textContent = '100%';
+	}
+
+	private createConsolePanel(): void {
+		this.consolePanel = dom.append(this.center, dom.$('.vz-vi-console'));
+		const header = dom.append(this.consolePanel, dom.$('.vz-vi-console-header'));
+		const title = dom.append(header, dom.$('.vz-vi-console-title'));
+		title.appendChild(lucideIcon(TERMINAL_ICON_PATHS));
+		dom.append(title, dom.$('strong')).textContent = localize('vibez.vi.console', "Console");
+		this.consoleStatus = dom.append(title, dom.$('span.vz-vi-console-status'));
+		const actions = dom.append(header, dom.$('.vz-vi-console-actions'));
+		const clear = dom.append(actions, dom.$<HTMLButtonElement>('button', { type: 'button', title: localize('vibez.vi.clearConsole', "Clear console") }));
+		clear.textContent = localize('vibez.vi.clear', "Clear");
+		this.consoleCollapse = dom.append(actions, dom.$<HTMLButtonElement>('button.vz-vi-console-icon', { type: 'button', title: localize('vibez.vi.collapseConsole', "Collapse console"), 'aria-label': localize('vibez.vi.collapseConsole', "Collapse console") }));
+		this.consoleCollapse.appendChild(lucideIcon(CHEVRON_ICON_PATHS));
+		const close = dom.append(actions, dom.$<HTMLButtonElement>('button.vz-vi-console-icon', { type: 'button', title: localize('vibez.vi.closeConsole', "Close console"), 'aria-label': localize('vibez.vi.closeConsole', "Close console") }));
+		close.appendChild(lucideIcon(CLOSE_ICON_PATHS));
+		const body = dom.append(this.consolePanel, dom.$('.vz-vi-console-body'));
+		this.consoleEmpty = dom.append(body, dom.$('.vz-vi-console-empty'));
+		this.consoleEmpty.textContent = localize('vibez.vi.consoleEmpty', "Nothing yet. Run Logic or test an item — Print to Console nodes, request logs and errors show up here.");
+		this.consoleOutput = dom.append(body, dom.$('.vz-vi-console-output'));
+		this._register(dom.addDisposableListener(clear, dom.EventType.CLICK, () => void this.clearConsole()));
+		this._register(dom.addDisposableListener(this.consoleCollapse, dom.EventType.CLICK, () => this.toggleConsoleCollapsed()));
+		this._register(dom.addDisposableListener(close, dom.EventType.CLICK, () => this.setConsoleVisible(false)));
+		this._register({ dispose: () => {
+			if (this.consolePollTimer) { clearTimeout(this.consolePollTimer); }
+			this.consolePollTimer = undefined;
+		} });
 	}
 
 	override async setInput(input: VibezViEditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
+		await this.flushSave();
+		if (this.saveError) throw this.saveError;
+		if (this.posSaveTimer) { clearTimeout(this.posSaveTimer); this.posSaveTimer = undefined; await this.savePositions(); }
 		await super.setInput(input, options, context, token);
 		this.inputScope.clear();
 		this.resource = input.resource;
 		this.past = [];
 		this.future = [];
 		this.selected = undefined;
+		this.selectedNodes.clear();
 		this.doc = undefined;
+		this.lastWritten = undefined;
+		this.pendingWritten = undefined;
+		this.exportName = undefined;
+		this.functionName = undefined;
 
 		const text = await this.read(input.resource);
 		if (token.isCancellationRequested) {
@@ -188,12 +338,21 @@ export class VibezViEditor extends EditorPane {
 	}
 
 	override clearInput(): void {
-		this.flushSave();
+		void this.flushSave();
+		if (this.posSaveTimer) { clearTimeout(this.posSaveTimer); this.posSaveTimer = undefined; void this.savePositions(); }
 		this.inputScope.clear();
 		super.clearInput();
 	}
 
+	private togglePanel(panel: 'logic' | 'details'): void {
+		const automatic = this.root.classList.contains(panel === 'logic' ? 'narrow' : 'compact');
+		this.root.classList.toggle(`${panel}-${automatic ? 'expanded' : 'collapsed'}`);
+	}
+
 	override layout(): void {
+		if (!this.root) return;
+		this.root.classList.toggle('compact', this.root.clientWidth < 900);
+		this.root.classList.toggle('narrow', this.root.clientWidth < 620);
 		if (!this.touched) {
 			this.fit();
 		}
@@ -224,9 +383,13 @@ export class VibezViEditor extends EditorPane {
 		}
 		this.doc = parsed.doc;
 		this.lastWritten = text;
-		this.renderTabs();
+		this.refreshPanels();
 		const names = [...this.doc.exports.values.map(v => v.name), ...this.doc.exports.actions.map(a => a.name)];
-		this.openExport(openExport ?? this.exportName ?? names[0]);
+		const preferred = openExport ?? this.currentName();
+		if (preferred && this.doc.functions?.some(fn => fn.name === preferred)) this.openFunction(preferred);
+		else if (names.length) this.openExport(names.includes(preferred ?? '') ? preferred : names[0]);
+		else if (this.doc.functions?.length) this.openFunction(this.doc.functions[0].name);
+		else this.openExport(undefined);
 	}
 
 	private showProblem(reason: string): void {
@@ -252,28 +415,297 @@ export class VibezViEditor extends EditorPane {
 		this.saveTimer = setTimeout(() => this.flushSave(), SAVE_DELAY);
 	}
 
-	private flushSave(): void {
-		if (this.saveTimer) {
-			clearTimeout(this.saveTimer);
-			this.saveTimer = undefined;
+	private flushSave(): Promise<void> {
+		if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = undefined; }
+		if (!this.resource || !this.doc) return this.saveQueue;
+		const resource = this.resource;
+		const text = serialize(this.doc);
+		if (text === (this.pendingWritten ?? this.lastWritten)) return this.saveQueue;
+		this.pendingWritten = text;
+		this.saveQueue = this.saveQueue.then(async () => {
+			await this.fileService.writeFile(resource, VSBuffer.fromString(text));
+			this.saveError = undefined;
+			if (this.resource?.toString() === resource.toString()) this.lastWritten = text;
+		}).catch(error => {
+			this.saveError = error;
+			this.say(`Could not save ${posix.basename(resource.path)}: ${String(error)}. Your edits remain in the editor; try saving again.`);
+		}).finally(() => { if (this.pendingWritten === text) this.pendingWritten = undefined; });
+		return this.saveQueue;
+	}
+
+	/** Where this file's compiled logic, and the shared server, land — flat by basename, the same convention `.ui`'s own build output already uses. */
+	private buildFolder(): URI | undefined {
+		if (!this.resource) {
+			return undefined;
 		}
+		const folder = this.contextService.getWorkspaceFolder(this.resource)?.uri ?? dirname(this.resource);
+		return joinPath(folder, '.vibez', 'build');
+	}
+
+	/**
+	 * Compiles this file's exports to a real module, and regenerates the
+	 * shared server that mounts every known `.vi` file's `/vibez/<file>/<export>`
+	 * addresses — the other half of `docs/ui-vi-contract.md`, so a compiled
+	 * `.ui` page stops showing samples the moment this is running. Errors are
+	 * reported as a toast rather than blocking the save: the graph itself
+	 * always saves, compiling is a best-effort side effect of that.
+	 */
+	private async compileAndWrite(resource: URI, doc: ViDoc, reportAllErrors = true): Promise<boolean> {
+		const build = this.buildFolder();
+		if (!build) {
+			return false;
+		}
+		try {
+			await this.flushSave();
+			if (this.saveError) throw this.saveError;
+			const sources: { uri: URI; doc: ViDoc }[] = [{ uri: resource, doc }];
+			for (const sibling of this.siblings) {
+				const text = await this.read(sibling.uri);
+				const parsed = text === undefined ? undefined : parseDoc(text);
+				if (!parsed?.ok) throw new Error(`Cannot compile ${sibling.relative}: ${parsed && !parsed.ok ? parsed.reason : 'file is unreadable'}`);
+				sources.push({ uri: sibling.uri, doc: parsed.doc });
+			}
+			const names = sources.map(source => posix.basename(source.uri.path));
+			if (new Set(names).size !== names.length) throw new Error('Two logic files have the same filename. Give them unique filenames before compiling to the shared build folder.');
+			const results = sources.map(source => {
+				const siblings = new Map(sources.filter(other => other !== source).map(other => [posix.relative(dirname(source.uri).path, other.uri.path), [...other.doc.exports.actions, ...(other.doc.functions ?? [])]]));
+				return { source, result: compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${posix.basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? []) };
+			});
+			// Explicit module metadata makes generated JS work in CommonJS workspaces too.
+			await this.fileService.writeFile(joinPath(build, 'package.json'), VSBuffer.fromString('{"type":"module","private":true}'));
+			for (const { source, result } of results) await this.fileService.writeFile(joinPath(build, `${posix.basename(source.uri.path, '.vi')}.vi.js`), VSBuffer.fromString(result.code));
+			const files: ServerFile[] = sources.map(source => ({ relative: source.uri === resource ? posix.basename(resource.path) : posix.relative(dirname(resource).path, source.uri.path), exports: source.doc.exports, moduleSpecifier: `./${posix.basename(source.uri.path, '.vi')}.vi.js` }));
+			await this.fileService.writeFile(joinPath(build, 'server.js'), VSBuffer.fromString(compileServer(files)));
+			const errors = results.flatMap(({ source, result }) => result.issues.filter(issue => issue.severity === 'error').map(issue => `${posix.basename(source.uri.path)} · ${issue.exportName}: ${issue.message}`));
+			if (errors.length && reportAllErrors) this.say(`Could not compile ${errors.length} issue${errors.length === 1 ? '' : 's'}: ${errors.slice(0, 3).join(' · ')}`);
+			return errors.length === 0;
+		} catch (error) {
+			this.say(`Build failed: ${String((error as Error).message ?? error)}`);
+			// A failed write must never run yesterday's module, including in Test.
+			throw error;
+		}
+	}
+
+	// ------------------------------------------------------------ toolbar: compile & run
+
+	/** Top-right, always visible: "Compile" only ever runs when pressed — not after every edit — and "Run" starts the real generated server so a linked `.ui` page stops showing samples. */
+	private renderToolbar(): void {
+		dom.clearNode(this.toolbar);
+		const compile = dom.append(this.toolbar, dom.$<HTMLButtonElement>('button.vz-vi-toolbtn.compile', { type: 'button', title: localize('vibez.vi.compileHint', "Compile this file — checks every block and writes the real, runnable output") }));
+		compile.textContent = localize('vibez.vi.compile', "Compile");
+		this._register(dom.addDisposableListener(compile, dom.EventType.CLICK, () => void this.onCompileClicked()));
+
+		const split = dom.append(this.toolbar, dom.$('.vz-vi-run-split'));
+		const run = dom.append(split, dom.$<HTMLButtonElement>('button.vz-vi-toolbtn.run', { type: 'button' }));
+		run.textContent = localize('vibez.vi.run', "▶ Run Logic");
+		this._register(dom.addDisposableListener(run, dom.EventType.CLICK, () => void this.onRunClicked()));
+		const menu = dom.append(split, dom.$<HTMLButtonElement>('button.vz-vi-toolbtn.run-menu', { type: 'button', title: localize('vibez.vi.runOptions', "Run and test options"), 'aria-label': localize('vibez.vi.runOptions', "Run and test options"), 'aria-haspopup': 'menu' }));
+		menu.textContent = '▾';
+		this._register(dom.addDisposableListener(menu, dom.EventType.CLICK, event => { event.stopPropagation(); this.openRunMenu(menu); }));
+		this.runButton = run;
+		const consoleButton = dom.append(this.toolbar, dom.$<HTMLButtonElement>('button.vz-vi-toolbtn.console', { type: 'button', title: localize('vibez.vi.consoleHint', "Show logic server output") }));
+		consoleButton.append(lucideIcon(TERMINAL_ICON_PATHS), dom.$('span', {}, localize('vibez.vi.console', "Console")));
+		this._register(dom.addDisposableListener(consoleButton, dom.EventType.CLICK, () => this.setConsoleVisible(!this.consolePanel.classList.contains('show'))));
+		this.consoleButton = consoleButton;
+		void this.refreshRunButton();
+	}
+
+	private setConsoleVisible(visible: boolean): void {
+		this.consolePanel.classList.toggle('show', visible);
+		this.consoleButton?.classList.toggle('active', visible);
+		if (visible) {
+			this.scheduleConsoleRefresh(0);
+		} else if (this.consolePollTimer) {
+			clearTimeout(this.consolePollTimer);
+			this.consolePollTimer = undefined;
+		}
+	}
+
+	private toggleConsoleCollapsed(): void {
+		const collapsed = this.consolePanel.classList.toggle('collapsed');
+		this.consoleCollapse.classList.toggle('collapsed', collapsed);
+		this.consoleCollapse.title = collapsed ? localize('vibez.vi.expandConsole', "Expand console") : localize('vibez.vi.collapseConsole', "Collapse console");
+		this.consoleCollapse.setAttribute('aria-label', this.consoleCollapse.title);
+	}
+
+	private clearConsoleView(): void {
+		dom.clearNode(this.consoleOutput);
+		this.consoleLastSequence = 0;
+		this.consoleEmpty.classList.remove('hidden');
+	}
+
+	private async clearConsole(): Promise<void> {
+		await this.captureService.clearLogicLogs();
+		this.clearConsoleView();
+	}
+
+	private scheduleConsoleRefresh(delay = 350): void {
+		if (this.consolePollTimer) { clearTimeout(this.consolePollTimer); }
+		this.consolePollTimer = setTimeout(() => {
+			this.consolePollTimer = undefined;
+			void this.refreshConsole();
+		}, delay);
+	}
+
+	private async refreshConsole(): Promise<void> {
+		if (this.consoleRefreshing || !this.consolePanel.classList.contains('show')) { return; }
+		this.consoleRefreshing = true;
+		try {
+			const [logs, status] = await Promise.all([this.captureService.logicLogs(), this.captureService.runStatus()]);
+			const body = this.consoleOutput.parentElement;
+			const follow = !body || body.scrollTop + body.clientHeight >= body.scrollHeight - 20;
+			for (const log of logs) {
+				if (log.seq <= this.consoleLastSequence) { continue; }
+				const entry = dom.append(this.consoleOutput, dom.$(`div.vz-vi-console-line.${log.stream}`));
+				entry.textContent = log.text.replace(/\r?\n$/, '');
+				this.consoleLastSequence = log.seq;
+			}
+			this.consoleEmpty.classList.toggle('hidden', this.consoleLastSequence > 0);
+			this.consoleStatus.textContent = status.running ? localize('vibez.vi.consoleRunning', "Running") : localize('vibez.vi.consoleStopped', "Stopped");
+			this.consoleStatus.classList.toggle('running', status.running);
+			if (follow && body) { body.scrollTop = body.scrollHeight; }
+			const keepPolling = status.running || this.consoleWasRunning;
+			this.consoleWasRunning = status.running;
+			if (keepPolling) { this.scheduleConsoleRefresh(); }
+		} finally {
+			this.consoleRefreshing = false;
+		}
+	}
+
+	private openRunMenu(anchor: HTMLElement): void {
+		this.runScope.clear();
+		this.toolbar.querySelector('.vz-vi-run-dropdown')?.remove();
+		const panel = dom.append(this.toolbar, dom.$('.vz-vi-run-dropdown'));
+		const item = (label: string, hint: string, action: () => void, disabled = false) => {
+			const button = dom.append(panel, dom.$<HTMLButtonElement>('button.vz-vi-run-option', { type: 'button', title: hint }));
+			button.textContent = label; button.disabled = disabled;
+			this.runScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => { panel.remove(); action(); }));
+		};
+		item(localize('vibez.vi.runLogic', "Run logic server"), localize('vibez.vi.runLogicHint', "Compile and start every page-facing value and action"), () => void this.onRunClicked());
+		const selected = this.declaration();
+		const canTest = !!selected && selected.kind !== 'variable';
+		item(selected ? `Test selected ${selected.kind}: ${selected.value.name}` : 'Test selected item', canTest ? 'Open typed inputs and run only this item' : 'Select a value, action, or function to test it', () => this.openTestSelected(), !canTest);
+		if (selected?.kind === 'variable') item('Variables run inside logic', 'Test a value, action, or function that reads this stored value', () => undefined, true);
+		const close = (event: PointerEvent) => { if (!(event.target as HTMLElement | null)?.closest?.('.vz-vi-run-split, .vz-vi-run-dropdown')) { panel.remove(); this.runScope.clear(); } };
+		this.runScope.add(dom.addDisposableListener(dom.getWindow(anchor), dom.EventType.POINTER_DOWN, close, true));
+	}
+
+	private async onCompileClicked(): Promise<void> {
 		if (!this.resource || !this.doc) {
 			return;
 		}
-		const text = serialize(this.doc);
-		if (text === this.lastWritten) {
+		this.flushSave();
+		let ok = false;
+		try { ok = await this.compileAndWrite(this.resource, this.doc); } catch { return; }
+		if (ok) {
+			this.say(localize('vibez.vi.compiledOk', "Compiled — every block checks out."));
+		}
+	}
+
+	private async onRunClicked(): Promise<void> {
+		if (!this.resource || !this.doc) {
 			return;
 		}
-		this.lastWritten = text;
-		void this.fileService.writeFile(this.resource, VSBuffer.fromString(text));
+		const status = await this.captureService.runStatus();
+		if (status.running) {
+			await this.captureService.stopServer();
+			await this.refreshRunButton();
+			this.setConsoleVisible(true);
+			this.scheduleConsoleRefresh(0);
+			this.say(localize('vibez.vi.stopped', "Stopped the running server."));
+			return;
+		}
+		try { if (!await this.compileAndWrite(this.resource, this.doc)) return; } catch { return; }
+		const build = this.buildFolder();
+		if (!build) {
+			return;
+		}
+		await this.clearConsole();
+		this.setConsoleVisible(true);
+		const entry = joinPath(build, 'server.js').fsPath;
+		const result = await this.captureService.runServer(entry);
+		await this.refreshRunButton();
+		this.scheduleConsoleRefresh(0);
+		if (result.running && result.url) {
+			this.say(localize('vibez.vi.running', "Logic is running at {0}. Use the dropdown to test one item.", result.url));
+		} else {
+			this.say(localize('vibez.vi.runFailed', "Couldn't start the server — check that it compiled without errors."));
+		}
+	}
+
+	private async refreshRunButton(): Promise<void> {
+		if (!this.runButton) {
+			return;
+		}
+		const status = await this.captureService.runStatus();
+		this.runButton.classList.toggle('active', status.running);
+		this.runButton.textContent = status.running ? localize('vibez.vi.stop', "■ Stop Logic") : localize('vibez.vi.run', "▶ Run Logic");
+		this.runButton.title = status.running && status.url
+			? localize('vibez.vi.runningHint', "Running at {0} — click to stop", status.url)
+			: localize('vibez.vi.runHint', "Compile and start the values and actions used by your page");
+	}
+
+	private openTestSelected(): void {
+		const selected = this.declaration();
+		if (!selected || selected.kind === 'variable') { return; }
+		this.testOpen = true;
+		this.testResult = undefined;
+		this.refreshPanels();
+		queueMicrotask(() => this.details.querySelector<HTMLInputElement | HTMLTextAreaElement>('.vz-vi-test-input')?.focus());
+	}
+
+	private testValue(raw: string | boolean, type: ViType): unknown {
+		if (type === 'Boolean') return typeof raw === 'boolean' ? raw : raw === 'true';
+		if (type === 'Number') {
+			const value = Number(raw);
+			if (!String(raw).trim() || !Number.isFinite(value)) throw new Error(`“${raw}” is not a valid number.`);
+			return value;
+		}
+		if (type === 'Object' || type === 'List') {
+			const value = JSON.parse(String(raw || (type === 'List' ? '[]' : '{}')));
+			if (type === 'List' ? !Array.isArray(value) : value === null || Array.isArray(value) || typeof value !== 'object') throw new Error(`Enter a JSON ${type.toLowerCase()}.`);
+			return value;
+		}
+		return String(raw);
+	}
+
+	private async testSelected(): Promise<void> {
+		const selected = this.declaration();
+		if (!selected || selected.kind === 'variable' || !this.resource || !this.doc || this.testRunning) { return; }
+		const resource = this.resource;
+		const identity = `${selected.kind}:${selected.value.name}`;
+		let result: IVibezTestResult | undefined;
+		this.testRunning = true; this.testResult = undefined; this.refreshPanels();
+		try {
+			this.flushSave();
+			// The compiler emits a runnable refusal stub for each broken graph. Keep
+			// testing this selection even when an unrelated graph in the file has an
+			// error; if this target itself is broken, its own stub explains why.
+			await this.compileAndWrite(this.resource, this.doc, false);
+			const values = this.testInputs.get(`${selected.kind}:${selected.value.name}`) ?? {};
+			const args = (selected.value.inputs ?? []).map(input => this.testValue(values[input.name] ?? (input.type === 'Boolean' ? false : ''), input.type));
+			const build = this.buildFolder();
+			if (!build) throw new Error('No build folder is available for this file.');
+			const module = joinPath(build, `${posix.basename(resource.path, '.vi')}.vi.js`).fsPath;
+			result = await this.captureService.testVi({ module, kind: selected.kind, name: selected.value.name, args });
+		} catch (error) {
+			result = { ok: false, logs: [], durationMs: 0, error: String((error as Error).message ?? error) };
+		} finally {
+			const current = this.declaration();
+			if (this.resource === resource && current && `${current.kind}:${current.value.name}` === identity) this.testResult = result;
+			this.testRunning = false; this.refreshPanels();
+			this.setConsoleVisible(true);
+			this.scheduleConsoleRefresh(0);
+		}
 	}
 
 	private async onExternalChange(): Promise<void> {
 		if (!this.resource) {
 			return;
 		}
-		const text = await this.read(this.resource);
-		if (text === undefined || text === this.lastWritten) {
+		const resource = this.resource;
+		const text = await this.read(resource);
+		if (this.resource !== resource || this.pendingWritten !== undefined || this.saveTimer || text === undefined || text === this.lastWritten) {
 			return;
 		}
 		const parsed = parseDoc(text);
@@ -284,8 +716,8 @@ export class VibezViEditor extends EditorPane {
 		this.past.push(this.doc);
 		this.future = [];
 		this.doc = parsed.doc;
-		this.renderTabs();
-		this.openExport(this.exportName);
+		this.refreshPanels();
+		this.reopenCurrent();
 		this.say(localize('vibez.vi.changedOutside', "The file changed outside the editor. ⌘Z undoes it."));
 	}
 
@@ -322,7 +754,12 @@ export class VibezViEditor extends EditorPane {
 		const siblings = await Promise.all(files.map(async uri => {
 			const text = await this.read(uri);
 			const parsed = text !== undefined ? parseDoc(text) : undefined;
-			return { relative: this.relative(uri), exports: parsed?.ok ? parsed.doc.exports : { values: [], actions: [] } };
+			return {
+				uri,
+				relative: this.relative(uri),
+				exports: parsed?.ok ? parsed.doc.exports : { values: [], actions: [] },
+				functions: parsed?.ok ? (parsed.doc.functions ?? []) : [],
+			};
 		}));
 		this.siblings = siblings;
 	}
@@ -375,8 +812,18 @@ export class VibezViEditor extends EditorPane {
 		await this.fileService.writeFile(target, VSBuffer.fromString(JSON.stringify(this.allPositions, null, 2))).then(undefined, () => undefined);
 	}
 
+	/** Whichever export or function the canvas is currently showing — the two are mutually exclusive, see `functionName`. */
+	private currentName(): string | undefined {
+		return this.functionName ?? this.exportName;
+	}
+
+	private isViewingFunction(): boolean {
+		return this.functionName !== undefined;
+	}
+
 	private posMap(): Record<string, Pos> {
-		return (this.allPositions[this.exportName ?? ''] ??= {});
+		const key = `${this.isViewingFunction() ? 'fn' : 'ex'}:${this.currentName() ?? ''}`;
+		return (this.allPositions[key] ??= {});
 	}
 
 	/** Screen coordinates, as from a click or a drop, translated into this graph's own (panned, zoomed) space. */
@@ -393,14 +840,385 @@ export class VibezViEditor extends EditorPane {
 		}
 		const map = this.posMap();
 		let pos = map[id];
-		if (!pos) {
+		if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
 			pos = { x: box.x, y: box.y };
 			map[id] = pos;
 		}
 		return { dx: pos.x - box.x, dy: pos.y - box.y };
 	}
 
-	// ------------------------------------------------------------ exports (tabs)
+	// ------------------------------------------------------------ declarations and Details
+
+	private uniqueName(base: string): string {
+		const used = new Set([
+			...(this.doc?.exports.values.map(item => item.name) ?? []),
+			...(this.doc?.exports.actions.map(item => item.name) ?? []),
+			...(this.doc?.functions?.map(item => item.name) ?? []),
+			...(this.doc?.variables?.map(item => item.name) ?? []),
+		]);
+		if (!used.has(base)) { return base; }
+		let index = 2;
+		while (used.has(`${base}${index}`)) { index++; }
+		return `${base}${index}`;
+	}
+
+	private createDeclaration(kind: 'value' | 'action' | 'function' | 'variable'): void {
+		if (!this.doc) { return; }
+		const base = kind === 'value' ? 'NewValue' : kind === 'action' ? 'NewAction' : kind === 'function' ? 'NewFunction' : 'NewVariable';
+		const name = this.uniqueName(base);
+		if (kind === 'value') {
+			this.commit({ ...this.doc, exports: { ...this.doc.exports, values: [...this.doc.exports.values, { name, type: 'String', sample: '', about: 'Data this page can display.' }] } });
+		} else if (kind === 'action') {
+			this.commit({ ...this.doc, exports: { ...this.doc.exports, actions: [...this.doc.exports.actions, { name, inputs: [], about: 'Work the page can trigger.' }] } });
+		} else if (kind === 'function') {
+			this.commit(declareFunction(this.doc, { name, inputs: [], about: 'Reusable logic called by other graphs.' }));
+		} else {
+			this.commit(declareVariable(this.doc, { name, type: 'String', mutable: true, initial: '', about: 'Stored data shared by graphs in this file.' }));
+		}
+		this.selectedDeclaration = { kind, name };
+		if (kind === 'function') { this.openFunction(name); }
+		else if (kind !== 'variable') { this.openExport(name); }
+		else { this.refreshPanels(); }
+		queueMicrotask(() => {
+			const input = this.details.querySelector<HTMLInputElement>('.vz-vi-details-name');
+			input?.focus(); input?.select();
+		});
+	}
+
+	private renderBlueprintPanel(): void {
+		if (!this.doc) { return; }
+		const title = dom.append(this.blueprint, dom.$('div.vz-vi-panel-title.vz-vi-logic-title'));
+		dom.append(title, dom.$('strong')).textContent = localize('vibez.vi.logic', "Logic");
+		dom.append(title, dom.$('span')).textContent = this.resource ? posix.basename(this.resource.path) : '';
+		const group = (label: string, description: string) => {
+			const wrapper = dom.append(this.blueprint, dom.$('.vz-vi-blueprint-group'));
+			const heading = dom.append(wrapper, dom.$('.vz-vi-blueprint-group-heading'));
+			dom.append(heading, dom.$('strong')).textContent = label;
+			dom.append(heading, dom.$('span')).textContent = description;
+			return wrapper;
+		};
+		const page = group(localize('vibez.vi.page', "Page"), localize('vibez.vi.pageHint', "What your page can display and trigger"));
+		const reusable = group(localize('vibez.vi.reusable', "Reusable Logic"), localize('vibez.vi.reusableHint', "Building blocks used by other graphs"));
+		const stored = group(localize('vibez.vi.stored', "Stored Data"), localize('vibez.vi.storedHint', "Values shared while this logic is running"));
+		const section = (root: HTMLElement, label: string, description: string, kind: DeclarationKind, rows: DeclarationValue[]) => {
+			const group = dom.append(root, dom.$('details.vz-vi-blueprint-section', { open: 'true' }));
+			const summary = dom.append(group, dom.$('summary.vz-vi-blueprint-heading'));
+			const sectionIcon = dom.append(summary, dom.$(`span.vz-vi-section-icon.${kind}`));
+			sectionIcon.appendChild(lucideIcon(LOGIC_ICON_PATHS[kind]));
+			const headingText = dom.append(summary, dom.$('.vz-vi-blueprint-heading-text'));
+			dom.append(headingText, dom.$('strong')).textContent = label;
+			dom.append(headingText, dom.$('span')).textContent = description;
+			const add = dom.append(summary, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-add', { type: 'button', title: `Add ${kind}`, 'aria-label': `Add ${kind}` }));
+			add.appendChild(lucideIcon(PLUS_ICON_PATHS));
+			this.blueprintScope.add(dom.addDisposableListener(add, dom.EventType.CLICK, event => { event.preventDefault(); event.stopPropagation(); this.createDeclaration(kind); }));
+			const list = dom.append(group, dom.$('.vz-vi-blueprint-list'));
+			for (const row of rows) {
+				const button = dom.append(list, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-row', { type: 'button' }));
+				button.classList.toggle('active', this.selectedDeclaration?.kind === kind && this.selectedDeclaration.name === row.name);
+				const declarationIcon = dom.append(button, dom.$(`span.vz-vi-decl-icon.${kind}`));
+				declarationIcon.appendChild(lucideIcon(LOGIC_ICON_PATHS[kind]));
+				const copy = dom.append(button, dom.$('.vz-vi-decl-copy'));
+				dom.append(copy, dom.$('span.name')).textContent = row.name;
+				const signature = kind === 'value' ? row.type
+					: kind === 'variable' ? `${row.type}${row.mutable === false ? ' · Read-only' : ' · Read & Write'}`
+						: `(${(row.inputs ?? []).map(input => `${input.name}: ${input.type}`).join(', ')}) → ${row.returns ?? 'None'}`;
+				if (signature) { dom.append(copy, dom.$('span.type')).textContent = signature; }
+				if (row.about) button.title = row.about;
+				this.blueprintScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => {
+					if (this.selectedDeclaration?.kind !== kind || this.selectedDeclaration.name !== row.name) { this.testOpen = false; this.testResult = undefined; }
+					this.selectedDeclaration = { kind, name: row.name };
+					if (kind === 'function') { this.openFunction(row.name); }
+					else if (kind !== 'variable') { this.openExport(row.name); }
+					else { this.refreshPanels(); }
+				}));
+			}
+		};
+		section(page, localize('vibez.vi.values', "Page Data"), localize('vibez.vi.valuesHint', "Values the page can display"), 'value', this.doc.exports.values);
+		section(page, localize('vibez.vi.actions', "Page Actions"), localize('vibez.vi.actionsHint', "Work the page can trigger"), 'action', this.doc.exports.actions);
+		section(reusable, localize('vibez.vi.functions', "Functions"), localize('vibez.vi.functionsHint', "Logic called by other graphs"), 'function', this.doc.functions ?? []);
+		section(stored, localize('vibez.vi.variables', "Variables"), localize('vibez.vi.variablesHint', "Named data shared by this file"), 'variable', this.doc.variables ?? []);
+	}
+
+	private declaration(): { kind: DeclarationKind; value: DeclarationValue } | undefined {
+		if (!this.doc || !this.selectedDeclaration) { return undefined; }
+		const { kind, name } = this.selectedDeclaration;
+		const value = kind === 'value' ? this.doc.exports.values.find(item => item.name === name)
+			: kind === 'action' ? this.doc.exports.actions.find(item => item.name === name)
+				: kind === 'function' ? this.doc.functions?.find(item => item.name === name)
+					: this.doc.variables?.find(item => item.name === name);
+		return value ? { kind, value } : undefined;
+	}
+
+	private renderDetailsPanel(): void {
+		dom.append(this.details, dom.$('div.vz-vi-panel-title')).textContent = localize('vibez.vi.details', "Details");
+		const selected = this.declaration();
+		if (!selected) {
+			dom.append(this.details, dom.$('div.vz-vi-details-empty')).textContent = localize('vibez.vi.detailsEmpty', "Select a value, action, function, or variable.");
+			return;
+		}
+		const { kind, value } = selected;
+		const live = (): DeclarationValue => this.declaration()?.value ?? value;
+		const roles: Record<DeclarationKind, { label: string; explanation: string }> = {
+			value: { label: 'Page Data', explanation: 'Supplies information that your page can display.' },
+			action: { label: 'Page Action', explanation: 'Runs work when your page triggers it.' },
+			function: { label: 'Reusable Function', explanation: 'Reusable logic called by other graphs, never directly by a page.' },
+			variable: { label: 'Stored Variable', explanation: 'Keeps a named value that every graph in this file can read.' },
+		};
+		const role = dom.append(this.details, dom.$(`.vz-vi-role-card.${kind}`));
+		const roleHeading = dom.append(role, dom.$('.vz-vi-role-heading'));
+		roleHeading.appendChild(lucideIcon(LOGIC_ICON_PATHS[kind]));
+		dom.append(roleHeading, dom.$('strong')).textContent = roles[kind].label;
+		dom.append(role, dom.$('span')).textContent = roles[kind].explanation;
+		const field = (label: string, help?: string) => {
+			const row = dom.append(this.details, dom.$('.vz-vi-detail-field'));
+			dom.append(row, dom.$('label')).textContent = label;
+			if (help) dom.append(row, dom.$('span.vz-vi-field-help')).textContent = help;
+			return row;
+		};
+		const nameRow = field(localize('vibez.vi.name', "Name"));
+		const name = dom.append(nameRow, dom.$<HTMLInputElement>('input.vz-vi-detail-input.vz-vi-details-name'));
+		name.value = value.name;
+		this.detailsScope.add(dom.addDisposableListener(name, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => { if (event.key === 'Enter') { name.blur(); } }));
+		this.detailsScope.add(dom.addDisposableListener(name, dom.EventType.BLUR, () => this.renameSelected(name.value.trim())));
+		const aboutRow = field(localize('vibez.vi.description', "Description"), localize('vibez.vi.descriptionHelp', "Explain what this does in one sentence."));
+		const about = dom.append(aboutRow, dom.$<HTMLTextAreaElement>('textarea.vz-vi-detail-input.vz-vi-about'));
+		about.value = value.about ?? '';
+		this.detailsScope.add(dom.addDisposableListener(about, dom.EventType.BLUR, () => this.updateSelected({ ...live(), about: about.value.trim() })));
+
+		const typeSelect = (current: ViType, apply: (type: ViType) => void) => {
+			const select = dom.$<HTMLSelectElement>('select.vz-vi-detail-input.vz-vi-type-select');
+			for (const type of this.VI_TYPES) { const option = dom.append(select, dom.$<HTMLOptionElement>('option')); option.value = type; option.textContent = type; }
+			select.value = current;
+			select.style.borderColor = `var(--${current === 'Url' || current === 'Date' ? 'String' : current})`;
+			this.detailsScope.add(dom.addDisposableListener(select, dom.EventType.CHANGE, () => apply(select.value as ViType)));
+			return select;
+		};
+		if (kind === 'value' || kind === 'variable') {
+			const row = field(localize('vibez.vi.type', "Type"));
+			row.appendChild(typeSelect(value.type ?? 'String', type => this.updateSelected({ ...live(), type })));
+		}
+		if (kind === 'value') {
+			const row = field(localize('vibez.vi.sample', "Preview sample"), localize('vibez.vi.sampleHelp', "Shown by the page editor before your logic is running."));
+			const sample = dom.append(row, dom.$<HTMLTextAreaElement>('textarea.vz-vi-detail-input'));
+			sample.value = typeof value.sample === 'string' ? value.sample : JSON.stringify(value.sample ?? '', null, 2);
+			this.detailsScope.add(dom.addDisposableListener(sample, dom.EventType.BLUR, () => { let next: unknown = sample.value; try { next = JSON.parse(sample.value); } catch { /* text sample */ } this.updateSelected({ ...live(), sample: next }); }));
+		}
+		if (kind === 'variable') {
+			const initialRow = field(localize('vibez.vi.initial', "Initial value"), localize('vibez.vi.initialHelp', "The value used when the logic server starts."));
+			const initial = dom.append(initialRow, dom.$<HTMLTextAreaElement>('textarea.vz-vi-detail-input.vz-vi-initial'));
+			initial.value = typeof value.initial === 'string' ? value.initial : JSON.stringify(value.initial ?? '', null, 2);
+			this.detailsScope.add(dom.addDisposableListener(initial, dom.EventType.BLUR, () => {
+				let next: unknown = initial.value;
+				try { next = this.testValue(initial.value, value.type ?? 'String'); } catch (error) { this.say(String((error as Error).message)); return; }
+				this.updateSelected({ ...live(), initial: next });
+			}));
+			const row = field(localize('vibez.vi.access', "Access"));
+			const toggle = dom.append(row, dom.$('.vz-vi-access-toggle'));
+			for (const option of [{ label: 'Read & Write', mutable: true }, { label: 'Read-only', mutable: false }]) {
+				const button = dom.append(toggle, dom.$<HTMLButtonElement>('button', { type: 'button' })); button.textContent = option.label; button.classList.toggle('active', value.mutable === option.mutable);
+				this.detailsScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => this.updateSelected({ ...live(), mutable: option.mutable }, undefined, true)));
+			}
+		}
+		if (kind === 'action' || kind === 'function') {
+			dom.append(this.details, dom.$('div.vz-vi-detail-label')).textContent = localize('vibez.vi.inputs', "Inputs");
+			const inputs = value.inputs ?? [];
+			inputs.forEach((input, index) => {
+				const row = dom.append(this.details, dom.$('.vz-vi-parameter-row'));
+				const paramName = dom.append(row, dom.$<HTMLInputElement>('input.vz-vi-detail-input')); paramName.value = input.name;
+				this.detailsScope.add(dom.addDisposableListener(paramName, dom.EventType.BLUR, () => this.updateParameter(index, { ...input, name: paramName.value.trim() || `param${index + 1}` })));
+				row.appendChild(typeSelect(input.type, type => this.updateParameter(index, { ...input, type })));
+				const remove = dom.append(row, dom.$<HTMLButtonElement>('button.vz-vi-parameter-remove', { type: 'button', title: localize('vibez.vi.removeParameter', "Remove parameter") })); remove.textContent = '×';
+				this.detailsScope.add(dom.addDisposableListener(remove, dom.EventType.CLICK, () => this.updateSelected({ ...live(), inputs: (live().inputs ?? []).filter((_item, at) => at !== index) }, undefined, true)));
+			});
+			const add = dom.append(this.details, dom.$<HTMLButtonElement>('button.vz-vi-add-parameter', { type: 'button' })); add.textContent = localize('vibez.vi.addParameter', "+ Add Parameter");
+			this.detailsScope.add(dom.addDisposableListener(add, dom.EventType.CLICK, () => {
+				const current = live().inputs ?? []; let index = current.length + 1; const used = new Set(current.map(input => input.name)); while (used.has(`param${index}`)) { index++; }
+				this.updateSelected({ ...live(), inputs: [...current, { name: `param${index}`, type: 'String' }] }, undefined, true);
+				queueMicrotask(() => this.details.querySelector<HTMLInputElement>('.vz-vi-parameter-row:last-of-type input')?.select());
+			}));
+			const returns = field(localize('vibez.vi.returns', "Returns"));
+			const select = dom.append(returns, dom.$<HTMLSelectElement>('select.vz-vi-detail-input'));
+			for (const optionValue of ['', ...this.VI_TYPES]) { const option = dom.append(select, dom.$<HTMLOptionElement>('option')); option.value = optionValue; option.textContent = optionValue || 'None'; }
+			select.value = value.returns ?? '';
+			this.detailsScope.add(dom.addDisposableListener(select, dom.EventType.CHANGE, () => { const { returns: _old, ...rest } = live(); this.updateSelected(select.value ? { ...rest, returns: select.value as ViType } : rest); }));
+		}
+		if (kind !== 'variable') this.renderTestPanel(selected);
+		const danger = dom.append(this.details, dom.$('details.vz-vi-danger'));
+		dom.append(danger, dom.$('summary')).textContent = localize('vibez.vi.dangerZone', "Danger zone");
+		const warning = dom.append(danger, dom.$('.vz-vi-delete-warning'));
+		const remove = dom.append(danger, dom.$<HTMLButtonElement>('button.vz-vi-delete-declaration', { type: 'button' })); remove.textContent = localize('vibez.vi.deleteDeclaration', `Delete ${roles[kind].label}`);
+		let armed = false;
+		this.detailsScope.add(dom.addDisposableListener(remove, dom.EventType.CLICK, () => {
+			if (!armed) {
+				armed = true;
+				const references = this.declarationReferenceCount(kind, value.name);
+				const outsideFile = kind === 'action' ? ' Pages and other files may also call it by name.'
+					: kind === 'function' ? ' Other files may also call it by name.' : '';
+				warning.textContent = references
+					? localize('vibez.vi.deleteReferenced', `Used by ${references} node${references === 1 ? '' : 's'} in this file. Deleting it will leave those nodes unresolved.${outsideFile}`)
+					: (kind === 'value' || kind === 'action')
+						? localize('vibez.vi.deletePageExport', "The page may use this by name. Deleting it can break that page connection.")
+						: kind === 'function'
+							? localize('vibez.vi.deleteFunctionWarning', "Other files may call this function by name. Deleting it can leave those calls unresolved.")
+							: localize('vibez.vi.deleteDeclarationWarning', "This permanently removes the declaration and its graph.");
+				warning.classList.add('show');
+				remove.textContent = localize('vibez.vi.deleteAnyway', "Delete anyway");
+				return;
+			}
+			this.deleteSelectedDeclaration();
+		}));
+	}
+
+	private renderTestPanel(selected: { kind: DeclarationKind; value: DeclarationValue }): void {
+		const section = dom.append(this.details, dom.$('section.vz-vi-test'));
+		const heading = dom.append(section, dom.$('.vz-vi-test-heading'));
+		dom.append(heading, dom.$('strong')).textContent = localize('vibez.vi.test', "Test");
+		dom.append(heading, dom.$('span')).textContent = selected.kind === 'value' ? 'Evaluate this page value by itself.' : `Run only this ${selected.kind} with sample inputs.`;
+		if (!this.testOpen) {
+			const open = dom.append(section, dom.$<HTMLButtonElement>('button.vz-vi-test-open', { type: 'button' }));
+			open.textContent = `Test ${selected.value.name}`;
+			this.detailsScope.add(dom.addDisposableListener(open, dom.EventType.CLICK, () => this.openTestSelected()));
+			return;
+		}
+		const key = `${selected.kind}:${selected.value.name}`;
+		const values = this.testInputs.get(key) ?? {};
+		this.testInputs.set(key, values);
+		for (const input of selected.value.inputs ?? []) {
+			const row = dom.append(section, dom.$('.vz-vi-test-field'));
+			const label = dom.append(row, dom.$('label'));
+			dom.append(label, dom.$('span')).textContent = input.name;
+			dom.append(label, dom.$('small')).textContent = input.type;
+			if (input.type === 'Boolean') {
+				const control = dom.append(row, dom.$<HTMLInputElement>('input.vz-vi-test-input')); control.type = 'checkbox'; control.checked = values[input.name] === true;
+				this.detailsScope.add(dom.addDisposableListener(control, dom.EventType.CHANGE, () => values[input.name] = control.checked));
+			} else if (input.type === 'Object' || input.type === 'List') {
+				const control = dom.append(row, dom.$<HTMLTextAreaElement>('textarea.vz-vi-detail-input.vz-vi-test-input')); control.value = String(values[input.name] ?? (input.type === 'List' ? '[]' : '{}'));
+				this.detailsScope.add(dom.addDisposableListener(control, dom.EventType.INPUT, () => values[input.name] = control.value));
+			} else {
+				const control = dom.append(row, dom.$<HTMLInputElement>('input.vz-vi-detail-input.vz-vi-test-input')); control.type = input.type === 'Number' ? 'number' : input.type === 'Date' ? 'date' : input.type === 'Url' ? 'url' : 'text'; control.value = String(values[input.name] ?? '');
+				this.detailsScope.add(dom.addDisposableListener(control, dom.EventType.INPUT, () => values[input.name] = control.value));
+			}
+		}
+		const run = dom.append(section, dom.$<HTMLButtonElement>('button.vz-vi-test-run', { type: 'button' }));
+		run.textContent = this.testRunning ? 'Running…' : `▶ Run ${selected.value.name}`; run.disabled = this.testRunning;
+		this.detailsScope.add(dom.addDisposableListener(run, dom.EventType.CLICK, () => void this.testSelected()));
+		if (this.testResult) {
+			const result = dom.append(section, dom.$(`.vz-vi-test-result.${this.testResult.ok ? 'success' : 'error'}`));
+			dom.append(result, dom.$('strong')).textContent = this.testResult.ok ? `Completed in ${Math.round(this.testResult.durationMs)} ms` : 'Test failed';
+			const output = this.testResult.ok ? JSON.stringify(this.testResult.value, null, 2) : this.testResult.error;
+			dom.append(result, dom.$('pre')).textContent = output ?? 'No value returned.';
+			if (this.testResult.logs.length) {
+				dom.append(result, dom.$('span')).textContent = 'Console';
+				dom.append(result, dom.$('pre')).textContent = this.testResult.logs.join('\n');
+			}
+		}
+	}
+
+	private renameSelected(nextName: string): void {
+		const selected = this.declaration();
+		if (!selected || !nextName || nextName === selected.value.name) { return; }
+		if (!/^[A-Za-z_]\w*$/.test(nextName)) { this.say(localize('vibez.vi.nameInvalid', "Letters, numbers and _ only, starting with a letter.")); this.refreshPanels(); return; }
+		const used = new Set([
+			...this.doc!.exports.values.map(item => item.name), ...this.doc!.exports.actions.map(item => item.name),
+			...(this.doc!.functions?.map(item => item.name) ?? []), ...(this.doc!.variables?.map(item => item.name) ?? []),
+		]);
+		used.delete(selected.value.name);
+		if (used.has(nextName)) { this.say(localize('vibez.vi.nameTaken', "That name is already in use.")); this.refreshPanels(); return; }
+		this.updateSelected({ ...selected.value, name: nextName }, selected.value.name);
+	}
+
+	private updateParameter(index: number, parameter: { name: string; type: ViType }): void {
+		const selected = this.declaration(); if (!selected) { return; }
+		const inputs = [...(selected.value.inputs ?? [])];
+		if (inputs.some((input, at) => at !== index && input.name === parameter.name)) {
+			this.say(localize('vibez.vi.duplicateInput', "Input names must be unique."));
+			this.refreshPanels();
+			return;
+		}
+		inputs[index] = parameter; this.updateSelected({ ...selected.value, inputs });
+	}
+
+	private declarationReferenceCount(kind: DeclarationKind, name: string): number {
+		if (!this.doc || kind === 'value') { return 0; }
+		let count = 0;
+		const graphs = [...Object.values(this.doc.logic), ...Object.values(this.doc.helpers ?? {})];
+		for (const graph of graphs) {
+			for (const node of graph.nodes) {
+				const config = configOf(node);
+				if (kind === 'variable' && config?.kind === 'variable' && config.name === name) count++;
+				if ((kind === 'action' || kind === 'function') && config?.kind === 'call' && !config.file && config.name === name) count++;
+			}
+		}
+		return count;
+	}
+
+	private updateSelected(next: DeclarationValue, oldName?: string, rebuildDetails = false): void {
+		const selected = this.declaration(); if (!selected || !this.doc) { return; }
+		const previous = oldName ?? selected.value.name;
+		let doc = this.doc;
+		const described = next.about !== undefined ? { about: next.about } : {};
+		if (selected.kind === 'value') doc = updateValue(doc, previous, { name: next.name, type: next.type ?? 'String', ...(next.sample !== undefined ? { sample: next.sample } : {}), ...described });
+		else if (selected.kind === 'action') doc = updateAction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
+		else if (selected.kind === 'function') doc = renameFunction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
+		else doc = renameVariable(doc, previous, { name: next.name, type: next.type ?? 'String', mutable: next.mutable ?? true, ...(next.initial !== undefined ? { initial: next.initial } : {}), ...described });
+		this.commit(doc);
+		this.selectedDeclaration = { kind: selected.kind, name: next.name };
+		if (this.exportName === previous) this.exportName = next.name;
+		if (this.functionName === previous) this.functionName = next.name;
+		if (selected.kind === 'action' || selected.kind === 'function') void this.propagateCallableRename(previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
+		this.refreshBlueprint();
+		this.renderGraphHeader();
+		if (rebuildDetails) { this.refreshDetails(); }
+		this.refreshGraph();
+	}
+
+	private async propagateCallableRename(oldName: string, action: ViAction): Promise<void> {
+		if (!this.resource) { return; }
+		for (const sibling of this.siblings) {
+			const text = await this.read(sibling.uri); const parsed = text === undefined ? undefined : parseDoc(text);
+			if (!parsed?.ok) { continue; }
+			const file = posix.relative(posix.dirname(sibling.uri.path), this.resource.path);
+			const next = renameCallableReferences(parsed.doc, file, oldName, action);
+			if (serialize(next) !== serialize(parsed.doc)) await this.fileService.writeFile(sibling.uri, VSBuffer.fromString(serialize(next)));
+		}
+	}
+
+	private deleteSelectedDeclaration(): void {
+		const selected = this.declaration(); if (!selected || !this.doc) { return; }
+		const name = selected.value.name; let doc = this.doc;
+		if (selected.kind === 'variable') doc = removeVariable(doc, name);
+		else if (selected.kind === 'function') doc = removeFunction(doc, name);
+		else { const logic = { ...doc.logic }; delete logic[name]; doc = { ...doc, exports: selected.kind === 'value' ? { ...doc.exports, values: doc.exports.values.filter(item => item.name !== name) } : { ...doc.exports, actions: doc.exports.actions.filter(item => item.name !== name) }, logic }; }
+		this.commit(doc); this.selectedDeclaration = undefined;
+		const fallback = doc.exports.values[0]?.name ?? doc.exports.actions[0]?.name ?? doc.functions?.[0]?.name;
+		if (doc.functions?.some(item => item.name === fallback)) this.openFunction(fallback); else this.openExport(fallback);
+		this.refreshPanels();
+	}
+
+	private renderGraphHeader(): void {
+		dom.clearNode(this.graphHeader);
+		if (!this.doc) { return; }
+		const name = this.currentName();
+		if (!name) {
+			dom.append(this.graphHeader, dom.$('strong')).textContent = 'Choose something from Logic';
+			dom.append(this.graphHeader, dom.$('span')).textContent = 'Page Data, Page Actions, and Functions each have a graph.';
+			return;
+		}
+		const fn = this.functionName ? this.doc.functions?.find(item => item.name === name) : undefined;
+		const action = !fn ? this.doc.exports.actions.find(item => item.name === name) : undefined;
+		const value = !fn && !action ? this.doc.exports.values.find(item => item.name === name) : undefined;
+		const declarationKind: DeclarationKind = fn ? 'function' : action ? 'action' : 'value';
+		const kind = fn ? 'Reusable Function' : action ? 'Page Action' : 'Page Data';
+		const title = dom.append(this.graphHeader, dom.$('.vz-vi-graph-title'));
+		title.appendChild(lucideIcon(LOGIC_ICON_PATHS[declarationKind], `vz-vi-graph-kind-icon ${declarationKind}`));
+		dom.append(title, dom.$('span')).textContent = kind;
+		dom.append(title, dom.$('strong')).textContent = name;
+		const signature = value ? `${value.type} · Available to the page`
+			: `(${(fn ?? action)?.inputs.map(input => `${input.name}: ${input.type}`).join(', ') ?? ''}) → ${(fn ?? action)?.returns ?? 'None'}`;
+		dom.append(this.graphHeader, dom.$('span.vz-vi-graph-signature')).textContent = signature;
+		const about = (fn ?? action ?? value)?.about;
+		if (about) dom.append(this.graphHeader, dom.$('span.vz-vi-graph-about')).textContent = about;
+	}
 
 	/**
 	 * Grouped under an explicit "VALUES" / "ACTIONS" label rather than a
@@ -408,74 +1226,54 @@ export class VibezViEditor extends EditorPane {
 	 * exports should be readable by someone who has never opened this editor
 	 * before.
 	 */
-	private renderTabs(): void {
-		this.tabsScope.clear();
-		dom.clearNode(this.tabs);
-		if (!this.doc) {
-			return;
-		}
-		const section = (label: string, hint: string, names: string[], kind: 'value' | 'action') => {
-			const group = dom.append(this.tabs, dom.$('.vz-vi-tab-section'));
-			const heading = dom.append(group, dom.$('.vz-vi-tab-heading'));
-			dom.append(heading, dom.$('span.vz-vi-tab-label')).textContent = label;
-			const info = dom.append(heading, dom.$('span.vz-vi-tab-info', {
-				tabindex: '0',
-				role: 'img',
-				title: hint,
-				'aria-label': `${label}: ${hint}`,
-				'data-tooltip': hint,
-			}));
-			info.textContent = 'i';
-			const row = dom.append(group, dom.$('.vz-vi-tab-row'));
-			for (const name of names) {
-				const tab = dom.append(row, dom.$<HTMLButtonElement>(`button.vz-vi-tab.${kind}`, {
-					type: 'button',
-					'data-export': name,
-					'aria-pressed': String(name === this.exportName),
-				}));
-				tab.textContent = name;
-				tab.classList.toggle('active', name === this.exportName);
-				this.tabsScope.add(dom.addDisposableListener(tab, dom.EventType.CLICK, () => this.openExport(name)));
-			}
-			const plus = dom.append(row, dom.$<HTMLButtonElement>('button.vz-vi-tab-add', {
-				type: 'button',
-				title: kind === 'value' ? localize('vibez.vi.addValue', "Add value") : localize('vibez.vi.addAction', "Add action"),
-				'aria-label': kind === 'value' ? localize('vibez.vi.addValue', "Add value") : localize('vibez.vi.addAction', "Add action"),
-			}));
-			plus.textContent = '+';
-			this.tabsScope.add(dom.addDisposableListener(plus, dom.EventType.CLICK, () => void this.addExport(kind)));
-		};
-		section(localize('vibez.vi.values', "Values"), localize('vibez.vi.valuesHint', "Things a page can show"), this.doc.exports.values.map(v => v.name), 'value');
-		section(localize('vibez.vi.actions', "Actions"), localize('vibez.vi.actionsHint', "Things a page can run"), this.doc.exports.actions.map(a => a.name), 'action');
+	private refreshBlueprint(): void {
+		const scroll = this.blueprint.scrollTop;
+		const open = [...this.blueprint.querySelectorAll<HTMLDetailsElement>('details.vz-vi-blueprint-section')].map(item => item.open);
+		this.blueprintScope.clear();
+		dom.clearNode(this.blueprint);
+		if (!this.doc) { return; }
+		this.renderBlueprintPanel();
+		this.blueprint.querySelectorAll<HTMLDetailsElement>('details.vz-vi-blueprint-section').forEach((item, index) => { if (open[index] === false) { item.open = false; } });
+		this.blueprint.scrollTop = scroll;
 	}
 
-	private async addExport(kind: 'value' | 'action'): Promise<void> {
-		if (!this.doc) {
-			return;
-		}
-		const name = await this.quickInputService.input({
-			prompt: kind === 'value' ? localize('vibez.vi.valueNamePrompt', "Name the new value") : localize('vibez.vi.actionNamePrompt', "Name the new action"),
-			validateInput: async v => /^[A-Za-z_]\w*$/.test(v) ? undefined : localize('vibez.vi.nameInvalid', "Letters, numbers and _ only, starting with a letter."),
-		});
-		if (!name?.trim()) {
-			return;
-		}
-		const doc = kind === 'action'
-			? { ...this.doc, exports: { ...this.doc.exports, actions: [...this.doc.exports.actions, { name, inputs: [] }] } }
-			: { ...this.doc, exports: { ...this.doc.exports, values: [...this.doc.exports.values, { name, type: 'String' as const, sample: '' }] } };
-		this.commit(doc);
-		this.renderTabs();
-		this.openExport(name);
+	private refreshDetails(): void {
+		const scroll = this.details.scrollTop;
+		this.detailsScope.clear();
+		dom.clearNode(this.details);
+		if (!this.doc) { return; }
+		this.renderDetailsPanel();
+		this.details.scrollTop = scroll;
 	}
+
+	/** Re-derives the open graph from the doc without touching selection, zoom or pan — for edits made from the Details panel. */
+	private refreshGraph(): void {
+		const name = this.currentName();
+		if (!this.doc || !name) { return; }
+		const { graph } = this.isViewingFunction() ? { graph: functionGraphFor(this.doc, name).graph } : graphFor(this.doc, name);
+		this.graphLayout = layoutGraph(graph);
+		this.renderAll();
+	}
+
+	private refreshPanels(): void {
+		this.refreshBlueprint();
+		this.refreshDetails();
+		this.renderGraphHeader();
+
+	}
+
+	private readonly VI_TYPES = ['String', 'Number', 'Boolean', 'Url', 'Date', 'Object', 'List'] as const;
 
 	private openExport(name: string | undefined): void {
+		const nextKind = this.doc && name ? (this.doc.exports.values.some(item => item.name === name) ? 'value' : 'action') : undefined;
+		if (nextKind && (this.selectedDeclaration?.kind !== nextKind || this.selectedDeclaration.name !== name)) { this.testOpen = false; this.testResult = undefined; }
 		this.exportName = name;
-		this.selected = undefined;
-		for (const tab of this.tabs.querySelectorAll<HTMLButtonElement>('.vz-vi-tab')) {
-			const active = tab.dataset.export === name;
-			tab.classList.toggle('active', active);
-			tab.setAttribute('aria-pressed', String(active));
+		this.functionName = undefined;
+		this.select(undefined);
+		if (this.doc && name) {
+			this.selectedDeclaration = { kind: nextKind!, name };
 		}
+		this.refreshPanels();
 		if (!this.doc || !name) {
 			dom.clearNode(this.world);
 			this.graphLayout = undefined;
@@ -493,12 +1291,47 @@ export class VibezViEditor extends EditorPane {
 		this.fit();
 	}
 
+	/** The function-graph counterpart to `openExport` — same lifecycle, but reads/writes `doc.helpers` and scaffolds from the function's own declared signature. */
+	private openFunction(name: string | undefined): void {
+		if (name && (this.selectedDeclaration?.kind !== 'function' || this.selectedDeclaration.name !== name)) { this.testOpen = false; this.testResult = undefined; }
+		this.functionName = name;
+		this.exportName = undefined;
+		this.select(undefined);
+		if (name) { this.selectedDeclaration = { kind: 'function', name }; }
+		this.refreshPanels();
+		if (!this.doc || !name) {
+			dom.clearNode(this.world);
+			this.graphLayout = undefined;
+			return;
+		}
+		const { graph, doc } = functionGraphFor(this.doc, name);
+		if (doc !== this.doc) {
+			this.doc = doc;
+			this.scheduleSave();
+		}
+		this.graphLayout = layoutGraph(graph);
+		this.renderAll();
+		this.touched = false;
+		this.fit();
+	}
+
 	private get graph(): AuthoredGraph | undefined {
-		return this.exportName !== undefined ? this.doc?.logic[this.exportName] : undefined;
+		const name = this.currentName();
+		if (name === undefined || !this.doc) {
+			return undefined;
+		}
+		return this.isViewingFunction() ? this.doc.helpers?.[name] : this.doc.logic[name];
 	}
 
 	private portContext(): PortContext {
-		if (!this.doc || this.exportName === undefined) {
+		if (!this.doc) {
+			return {};
+		}
+		if (this.isViewingFunction()) {
+			const fn = this.doc.functions?.find(f => f.name === this.functionName);
+			return fn ? { pure: false, inputs: fn.inputs, ...(fn.returns !== undefined ? { returns: fn.returns } : {}) } : {};
+		}
+		if (this.exportName === undefined) {
 			return {};
 		}
 		const action = this.doc.exports.actions.find(a => a.name === this.exportName);
@@ -506,7 +1339,7 @@ export class VibezViEditor extends EditorPane {
 			return { pure: false, inputs: action.inputs, ...(action.returns !== undefined ? { returns: action.returns } : {}) };
 		}
 		const value = this.doc.exports.values.find(v => v.name === this.exportName);
-		return value?.type !== undefined ? { pure: true, returns: value.type } : { pure: true };
+		return value?.type !== undefined ? { pure: false, inputs: [], returns: value.type } : { pure: false, inputs: [] };
 	}
 
 	// ------------------------------------------------------------ changing
@@ -530,12 +1363,24 @@ export class VibezViEditor extends EditorPane {
 	}
 
 	private commitGraph(graph: AuthoredGraph, coalesce?: string): void {
-		if (!this.doc || this.exportName === undefined) {
+		const name = this.currentName();
+		if (!this.doc || name === undefined) {
 			return;
 		}
-		this.commit(setGraph(this.doc, this.exportName, graph), coalesce);
+		this.commit(this.isViewingFunction() ? setFunctionGraph(this.doc, name, graph) : setGraph(this.doc, name, graph), coalesce);
 		this.graphLayout = layoutGraph(graph);
 		this.renderAll();
+	}
+
+	/** Reopens whichever of an export or a function was active — same graph, freshly re-derived from `this.doc`, after an undo/redo swaps it out from under the canvas. */
+	private reopenCurrent(): void {
+		const name = this.currentName();
+		if (this.doc?.functions?.some(fn => fn.name === name)) this.openFunction(name);
+		else {
+			const names = [...(this.doc?.exports.values ?? []), ...(this.doc?.exports.actions ?? [])].map(item => item.name);
+			if (!names.length && this.doc?.functions?.length) this.openFunction(this.doc.functions[0].name);
+			else this.openExport(names.includes(name ?? '') ? name : names[0]);
+		}
 	}
 
 	private undo(): void {
@@ -546,8 +1391,8 @@ export class VibezViEditor extends EditorPane {
 		this.future.push(this.doc!);
 		this.doc = previous;
 		this.lastCoalesce = undefined;
-		this.renderTabs();
-		this.openExport(this.exportName);
+		this.refreshPanels();
+		this.reopenCurrent();
 		this.scheduleSave();
 	}
 
@@ -559,28 +1404,73 @@ export class VibezViEditor extends EditorPane {
 		this.past.push(this.doc!);
 		this.doc = next;
 		this.lastCoalesce = undefined;
-		this.renderTabs();
-		this.openExport(this.exportName);
+		this.refreshPanels();
+		this.reopenCurrent();
 		this.scheduleSave();
 	}
 
-	private select(id: SemanticKey | undefined): void {
-		this.selected = id;
-		this.views.forEach((view, viewId) => view.card.classList.toggle('selected', viewId === id));
+	private select(id: SemanticKey | undefined, additive = false): void {
+		if (id === undefined) {
+			this.selectedNodes.clear();
+			this.selected = undefined;
+		} else if (additive) {
+			if (this.selectedNodes.has(id)) {
+				this.selectedNodes.delete(id);
+				this.selected = this.selectedNodes.values().next().value;
+			} else {
+				this.selectedNodes.add(id);
+				this.selected = id;
+			}
+		} else {
+			this.selectedNodes.clear();
+			this.selectedNodes.add(id);
+			this.selected = id;
+		}
+		this.views.forEach((view, viewId) => view.card.classList.toggle('selected', this.selectedNodes.has(viewId)));
+		this.updateSelectionStatus();
+	}
+
+	private updateSelectionStatus(): void {
+		if (!this.selectionStatus) { return; }
+		const count = this.selectedNodes.size;
+		this.selectionStatus.textContent = count > 1 ? localize('vibez.vi.nodesSelected', `${count} nodes selected`) : '';
 	}
 
 	private removeSelected(): void {
 		const graph = this.graph;
-		if (!graph || !this.selected) {
+		if (!graph || !this.selectedNodes.size) {
 			return;
 		}
-		const node = findNode(graph, this.selected);
-		const config = node && configOf(node);
-		if (!node || node.kind === 'entry' || (node.kind === 'return' && config?.kind === 'return' && !config.early)) {
-			return; // structural: every graph keeps exactly one start and one end
+		let next = graph;
+		for (const id of this.selectedNodes) {
+			const node = findNode(next, id);
+			const config = node && configOf(node);
+			if (!node || node.kind === 'entry' || (node.kind === 'return' && config?.kind === 'return' && !config.early)) {
+				continue; // structural: every graph keeps exactly one start and one end
+			}
+			next = removeNodePreservingFlow(next, id);
 		}
-		this.commitGraph(removeNodePreservingFlow(graph, this.selected));
+		if (next !== graph) this.commitGraph(next);
 		this.select(undefined);
+	}
+
+	private selectAllNodes(): void {
+		this.selectedNodes.clear();
+		for (const node of this.graph?.nodes ?? []) this.selectedNodes.add(node.id);
+		this.selected = this.selectedNodes.values().next().value;
+		this.views.forEach((view, id) => view.card.classList.toggle('selected', this.selectedNodes.has(id)));
+		this.updateSelectionStatus();
+	}
+
+	private cleanUpLayout(selectionOnly = false): void {
+		if (!this.graphLayout) { return; }
+		const ids = selectionOnly && this.selectedNodes.size ? this.selectedNodes : new Set(this.graphLayout.nodes.map(node => node.id));
+		for (const box of this.graphLayout.nodes) {
+			if (ids.has(box.id)) this.posMap()[box.id] = { x: box.x, y: box.y };
+		}
+		this.renderAll();
+		this.schedulePositionSave();
+		if (!selectionOnly) this.fit();
 	}
 
 	/** A fresh, unconnected copy — Unreal's own Ctrl+W doesn't carry wires over either, since which ones would even make sense is never obvious. */
@@ -617,33 +1507,30 @@ export class VibezViEditor extends EditorPane {
 	 */
 	private patchConfigQuiet(nodeId: SemanticKey, config: AuthoredConfig): void {
 		const graph = this.graph;
-		if (!graph || !this.doc || this.exportName === undefined) {
+		const name = this.currentName();
+		if (!graph || !this.doc || name === undefined) {
 			return;
 		}
 		const next = pruneEdges(updateConfig(graph, nodeId, config, this.portContext()));
-		this.doc = setGraph(this.doc, this.exportName, next);
+		this.doc = this.isViewingFunction() ? setFunctionGraph(this.doc, name, next) : setGraph(this.doc, name, next);
 		this.graphLayout = layoutGraph(next);
 		this.scheduleSave();
 	}
 
 	// ------------------------------------------------------------ search index
 
-	/** Variables a block placed here could read (or, if mutable, write). No anchor: use the graph's end, a reasonable "everything that ran by now" default. */
-	private scopeAt(nodeId: SemanticKey | undefined): ScopedVariable[] {
-		const graph = this.graph;
-		if (!graph) {
-			return [];
-		}
-		const at = nodeId ?? graph.nodes.find(n => n.kind === 'return')?.id ?? graph.nodes.find(n => n.kind === 'entry')?.id;
-		return at ? variablesInScope(graph, at) : [];
-	}
-
-	private searchItems(anchor: SemanticKey | undefined): SearchItem[] {
+	/** Every action or function this graph's `call` blocks could target, excluding whichever one is currently open (a `call` to yourself needs its own design, not an accident of the search list). */
+	private searchItems(_anchor: SemanticKey | undefined): SearchItem[] {
+		const here = this.currentName();
 		const actions: { file: string; action: ViAction }[] = [
-			...(this.doc?.exports.actions.filter(a => a.name !== this.exportName).map(a => ({ file: '', action: a })) ?? []),
+			...(this.doc?.exports.actions.filter(a => a.name !== here).map(a => ({ file: '', action: a })) ?? []),
 			...this.siblings.flatMap(s => s.exports.actions.map(a => ({ file: s.relative, action: a }))),
 		];
-		return searchIndex({ ctx: this.portContext(), scope: this.scopeAt(anchor), actions });
+		const functions: { file: string; action: ViAction }[] = [
+			...(this.doc?.functions?.filter(f => f.name !== here).map(f => ({ file: '', action: f })) ?? []),
+			...this.siblings.flatMap(s => s.functions.map(f => ({ file: s.relative, action: f }))),
+		];
+		return searchIndex({ ctx: this.portContext(), variables: this.doc?.variables ?? [], actions, functions });
 	}
 
 	// ------------------------------------------------------------ drawing
@@ -712,8 +1599,7 @@ export class VibezViEditor extends EditorPane {
 			}
 			const offset = this.deltaFor(node.id);
 			const card = dom.append(this.world, dom.$(`.vz-vi-node.kind-${node.kind}`));
-			card.classList.toggle('selected', node.id === this.selected);
-			card.classList.toggle('breakpoint', this.breakpoints.has(node.id));
+			card.classList.toggle('selected', this.selectedNodes.has(node.id));
 			card.style.left = `${box.x + offset.dx}px`;
 			card.style.top = `${box.y + offset.dy}px`;
 			card.style.width = `${box.w}px`;
@@ -723,17 +1609,19 @@ export class VibezViEditor extends EditorPane {
 			this.rendered.add(dom.addDisposableListener(card, dom.EventType.CONTEXT_MENU, (event: MouseEvent) => {
 				event.preventDefault();
 				event.stopPropagation();
-				this.select(node.id);
+				if (!this.selectedNodes.has(node.id)) this.select(node.id);
 				const nodeConfig = configOf(node);
 				const removable = node.kind !== 'entry' && !(node.kind === 'return' && nodeConfig?.kind === 'return' && !nodeConfig.early);
+				const removableCount = [...this.selectedNodes].filter(id => {
+					const selectedNode = findNode(graph, id); const selectedConfig = selectedNode && configOf(selectedNode);
+					return selectedNode && selectedNode.kind !== 'entry' && !(selectedNode.kind === 'return' && selectedConfig?.kind === 'return' && !selectedConfig.early);
+				}).length;
 				this.openContextMenu(event, [
 					{ label: localize('vibez.vi.addNode', "Add node…"), run: () => this.openAddSearch(event.clientX, event.clientY, node.id) },
-					{ label: this.breakpoints.has(node.id) ? localize('vibez.vi.removeBreakpoint', "Remove breakpoint") : localize('vibez.vi.addBreakpoint', "Add breakpoint"), run: () => {
-						if (this.breakpoints.has(node.id)) { this.breakpoints.delete(node.id); } else { this.breakpoints.add(node.id); }
-						this.renderAll();
-					} },
+					{ label: this.selectedNodes.size > 1 ? localize('vibez.vi.cleanSelectedNodes', "Clean up selected nodes") : localize('vibez.vi.cleanNode', "Clean up node"), run: () => this.cleanUpLayout(true) },
+
 					...(removable ? [{ label: localize('vibez.vi.duplicateNode', "Duplicate node"), run: () => this.duplicateNode(node.id) }] : []),
-					...(removable ? [{ label: localize('vibez.vi.removeNode', "Remove node"), run: () => this.removeSelected(), danger: true }] : []),
+					...(removableCount ? [{ label: removableCount > 1 ? localize('vibez.vi.removeNodes', `Remove ${removableCount} nodes`) : localize('vibez.vi.removeNode', "Remove node"), run: () => this.removeSelected(), danger: true }] : []),
 				]);
 			}));
 		}
@@ -795,7 +1683,7 @@ export class VibezViEditor extends EditorPane {
 		}
 		const nodeConfig = configOf(node);
 		if (node.kind !== 'entry' && !(node.kind === 'return' && nodeConfig?.kind === 'return' && !nodeConfig.early)) {
-			const remove = dom.append(head, dom.$<HTMLButtonElement>('button.vz-vi-remove', { type: 'button', title: localize('vibez.vi.remove', "Remove") }));
+			const remove = dom.append(head, dom.$<HTMLButtonElement>('button.vz-vi-remove', { type: 'button', title: localize('vibez.vi.remove', "Remove"), 'aria-label': localize('vibez.vi.removeNamed', "Remove {0}", node.label) }));
 			remove.textContent = '×';
 			this.rendered.add(dom.addDisposableListener(remove, dom.EventType.CLICK, (e: MouseEvent) => {
 				e.stopPropagation();
@@ -940,6 +1828,11 @@ export class VibezViEditor extends EditorPane {
 					text(config.text ?? '', 'comment', v => patch('group', { text: v }));
 				}
 				break;
+			case 'debug':
+				if (config.op === 'log') {
+					select(config.level ?? 'log', ['log', 'warn', 'error'], v => patch('debug', { level: v as typeof config.level }));
+				}
+				break;
 			case 'entry': case 'return':
 				break;
 		}
@@ -975,9 +1868,7 @@ export class VibezViEditor extends EditorPane {
 		(mark as HTMLElement).style.left = `${baseX + offset.dx}px`;
 		(mark as HTMLElement).style.top = `${baseY + offset.dy}px`;
 		if (port) {
-			const watchKey = `${point.node}|${port.id}|${isIn ? 'in' : 'out'}`;
-			mark.classList.toggle('watched', this.watchedPorts.has(watchKey));
-			if (this.watchedPorts.has(watchKey)) { (mark as HTMLElement).title = localize('vibez.vi.watched', "Watched value"); }
+
 			this.world.appendChild(mark);
 			this.installConnect(mark as HTMLElement, point.node, port, isIn ? 'in' : 'out');
 			this.rendered.add(dom.addDisposableListener(mark as HTMLElement, dom.EventType.CONTEXT_MENU, (event: MouseEvent) => {
@@ -995,10 +1886,7 @@ export class VibezViEditor extends EditorPane {
 					} });
 				}
 				if (port.kind === 'data') {
-					items.push({ label: this.watchedPorts.has(watchKey) ? localize('vibez.vi.unwatch', "Stop watching value") : localize('vibez.vi.watch', "Watch value"), run: () => {
-						if (this.watchedPorts.has(watchKey)) { this.watchedPorts.delete(watchKey); } else { this.watchedPorts.add(watchKey); }
-						this.renderAll();
-					} });
+
 					items.push({ label: localize('vibez.vi.promoteVariable', "Promote to variable"), run: () => this.promotePortToVariable(point.node, port, isIn ? 'in' : 'out') });
 				}
 				this.openContextMenu(event, items);
@@ -1009,9 +1897,10 @@ export class VibezViEditor extends EditorPane {
 
 	private promotePortToVariable(nodeId: SemanticKey, port: Port, side: 'in' | 'out'): void {
 		const graph = this.graph;
-		if (!graph || port.kind !== 'data') { return; }
+		if (!graph || !this.doc || port.kind !== 'data') { return; }
 		const type = (port.type && port.type !== 'Unknown' ? port.type : 'String') as ViType;
-		const config: AuthoredConfig = { kind: 'variable', name: port.name || 'value', type, mode: side === 'in' ? 'get' : 'set', mutable: side === 'out' };
+		const name = this.uniqueName(port.name || 'NewVariable');
+		const config: AuthoredConfig = { kind: 'variable', name, type, mode: side === 'in' ? 'get' : 'set', mutable: true };
 		const variable = makeNode('variable', config, takenIds(graph), this.portContext());
 		const at = this.posMap()[nodeId] ?? { x: 0, y: 0 };
 		this.posMap()[variable.id] = { x: at.x + (side === 'in' ? -180 : 180), y: at.y + 36 };
@@ -1019,7 +1908,11 @@ export class VibezViEditor extends EditorPane {
 		next = side === 'in'
 			? addEdge(next, variable.id, 'value', nodeId, port.id)
 			: addEdge(next, nodeId, port.id, variable.id, 'value');
-		this.commitGraph(next);
+		const declared = declareVariable(this.doc, { name, type, mutable: true });
+		this.commit(this.isViewingFunction() ? setFunctionGraph(declared, this.currentName()!, next) : setGraph(declared, this.currentName()!, next));
+		this.graphLayout = layoutGraph(next);
+		this.refreshPanels();
+		this.renderAll();
 		this.select(variable.id);
 		this.schedulePositionSave();
 	}
@@ -1032,8 +1925,14 @@ export class VibezViEditor extends EditorPane {
 				return;
 			}
 			down.stopPropagation();
-			this.deltaFor(node.id); // seeds posMap()[node.id] if this is the first time it's been touched
-			const start = { ...this.posMap()[node.id]! };
+			const additive = down.metaKey || down.ctrlKey || down.shiftKey;
+			if (!this.selectedNodes.has(node.id) && !additive) this.select(node.id);
+			const moving = this.selectedNodes.has(node.id) ? [...this.selectedNodes] : [node.id];
+			const starts = new Map<SemanticKey, Pos>();
+			for (const id of moving) {
+				this.deltaFor(id);
+				starts.set(id, { ...this.posMap()[id]! });
+			}
 			let dragging = false;
 
 			const move = (event: PointerEvent) => {
@@ -1043,15 +1942,18 @@ export class VibezViEditor extends EditorPane {
 					}
 					dragging = true;
 				}
-				this.posMap()[node.id] = { x: start.x + (event.clientX - down.clientX) / this.scale, y: start.y + (event.clientY - down.clientY) / this.scale };
-				this.reposition(node.id);
+				for (const id of moving) {
+					const start = starts.get(id)!;
+					this.posMap()[id] = { x: start.x + (event.clientX - down.clientX) / this.scale, y: start.y + (event.clientY - down.clientY) / this.scale };
+				}
+				for (const id of moving) this.reposition(id);
 			};
 			const end = (event: PointerEvent) => {
 				moveListener.dispose();
 				upListener.dispose();
 				cancelListener.dispose();
 				if (!dragging) {
-					this.select(node.id);
+					this.select(node.id, additive);
 					return;
 				}
 				this.schedulePositionSave();
@@ -1195,6 +2097,9 @@ export class VibezViEditor extends EditorPane {
 			const at = { x: event.clientX, y: event.clientY };
 			this.openContextMenu(event, [
 				{ label: localize('vibez.vi.addNode', "Add node…"), run: () => this.openAddSearch(at.x, at.y, this.selected) },
+				{ label: localize('vibez.vi.cleanUpLayout', "Clean up layout"), run: () => this.cleanUpLayout(false) },
+				...(this.selectedNodes.size ? [{ label: localize('vibez.vi.cleanSelectedNodes', "Clean up selected nodes"), run: () => this.cleanUpLayout(true) }] : []),
+				{ label: localize('vibez.vi.selectAllNodes', "Select all nodes"), run: () => this.selectAllNodes() },
 			]);
 		}));
 	}
@@ -1230,13 +2135,13 @@ export class VibezViEditor extends EditorPane {
 			return;
 		}
 		const rect = this.root.getBoundingClientRect();
-		const menu = dom.append(this.root, dom.$('.vz-vi-menu'));
-		menu.style.left = `${Math.min(event.clientX - rect.left, rect.width - 200)}px`;
-		menu.style.top = `${Math.min(event.clientY - rect.top, rect.height - items.length * 30 - 8)}px`;
+		const menu = dom.append(this.root, dom.$('.vz-vi-menu', { role: 'menu' }));
+		menu.style.left = `${Math.max(4, Math.min(event.clientX - rect.left, rect.width - 200))}px`;
+		menu.style.top = `${Math.max(4, Math.min(event.clientY - rect.top, rect.height - items.length * 30 - 8))}px`;
 		this.menuScope.add({ dispose: () => menu.remove() });
 
 		for (const item of items) {
-			const button = dom.append(menu, dom.$<HTMLButtonElement>(`button.vz-vi-menu-item${item.danger ? '.danger' : ''}`, { type: 'button' }));
+			const button = dom.append(menu, dom.$<HTMLButtonElement>(`button.vz-vi-menu-item${item.danger ? '.danger' : ''}`, { type: 'button', role: 'menuitem' }));
 			button.textContent = item.label;
 			this.menuScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => {
 				this.menuScope.clear();
@@ -1244,6 +2149,13 @@ export class VibezViEditor extends EditorPane {
 			}));
 		}
 
+		const entries = [...menu.querySelectorAll<HTMLButtonElement>('button')];
+		entries[0]?.focus();
+		this.menuScope.add(dom.addDisposableListener(menu, dom.EventType.KEY_DOWN, (e: KeyboardEvent) => {
+			const at = entries.indexOf(dom.getActiveElement() as HTMLButtonElement);
+			if (e.key === 'ArrowDown') { e.preventDefault(); entries[(at + 1) % entries.length]?.focus(); }
+			else if (e.key === 'ArrowUp') { e.preventDefault(); entries[(at - 1 + entries.length) % entries.length]?.focus(); }
+		}));
 		const win = dom.getWindow(this.root);
 		this.menuScope.add(dom.addDisposableListener(win, dom.EventType.POINTER_DOWN, (e: PointerEvent) => {
 			if (!(e.target as HTMLElement | null)?.closest?.('.vz-vi-menu')) {
@@ -1259,22 +2171,42 @@ export class VibezViEditor extends EditorPane {
 
 	private installCamera(): void {
 		let dragging = false;
+		let selecting = false;
+		let selectionBox: HTMLElement | undefined;
+		let startX = 0, startY = 0;
+		let suppressClick = false;
 		let lastX = 0, lastY = 0;
-		const interactive = (target: EventTarget | null) => (target as HTMLElement | null)?.closest?.('.vz-vi-node, .vz-vi-port, .vz-vi-search, .vz-vi-menu') !== null;
+		const interactive = (target: EventTarget | null) => Boolean((target as HTMLElement | null)?.closest?.('.vz-vi-node, .vz-vi-port, .vz-vi-search, .vz-vi-menu, .vz-vi-canvas-controls, .vz-vi-graph-header'));
 
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.POINTER_DOWN, (event: PointerEvent) => {
-			if (interactive(event.target)) {
+			if (interactive(event.target) || (event.button !== 0 && event.button !== 1)) {
 				return;
 			}
-			dragging = true;
+			startX = lastX = event.clientX;
+			startY = lastY = event.clientY;
+			selecting = event.button === 0 && event.shiftKey;
+			dragging = !selecting;
 			this.touched = true;
-			lastX = event.clientX;
-			lastY = event.clientY;
-			this.canvas.classList.add('panning');
+			if (selecting) {
+				const rect = this.canvas.getBoundingClientRect();
+				selectionBox = dom.append(this.canvas, dom.$('.vz-vi-selection-box'));
+				selectionBox.style.left = `${startX - rect.left}px`;
+				selectionBox.style.top = `${startY - rect.top}px`;
+			} else {
+				this.canvas.classList.add('panning');
+			}
 			this.canvas.setPointerCapture(event.pointerId);
 		}));
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.POINTER_MOVE, (event: PointerEvent) => {
-			if (!dragging) {
+			if (!dragging && !selecting) {
+				return;
+			}
+			if (selecting && selectionBox) {
+				const rect = this.canvas.getBoundingClientRect();
+				selectionBox.style.left = `${Math.min(startX, event.clientX) - rect.left}px`;
+				selectionBox.style.top = `${Math.min(startY, event.clientY) - rect.top}px`;
+				selectionBox.style.width = `${Math.abs(event.clientX - startX)}px`;
+				selectionBox.style.height = `${Math.abs(event.clientY - startY)}px`;
 				return;
 			}
 			this.panX += event.clientX - lastX;
@@ -1283,11 +2215,29 @@ export class VibezViEditor extends EditorPane {
 			lastY = event.clientY;
 			this.applyCamera();
 		}));
-		const stop = () => { dragging = false; this.canvas.classList.remove('panning'); };
+		const stop = (event: PointerEvent) => {
+			if (selecting) {
+				const left = Math.min(startX, event.clientX), right = Math.max(startX, event.clientX);
+				const top = Math.min(startY, event.clientY), bottom = Math.max(startY, event.clientY);
+				for (const [id, view] of this.views) {
+					const rect = view.card.getBoundingClientRect();
+					if (rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom) this.selectedNodes.add(id);
+				}
+				this.selected = this.selectedNodes.values().next().value;
+				this.views.forEach((view, id) => view.card.classList.toggle('selected', this.selectedNodes.has(id)));
+				this.updateSelectionStatus();
+				selectionBox?.remove();
+				selectionBox = undefined;
+				suppressClick = true;
+			}
+			selecting = false;
+			dragging = false;
+			this.canvas.classList.remove('panning');
+		};
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.POINTER_UP, stop));
 		this._register(dom.addDisposableListener(this.canvas, 'pointercancel', stop));
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.MOUSE_WHEEL, (event: WheelEvent) => {
-			if ((event.target as HTMLElement | null)?.closest?.('.vz-vi-node')) {
+			if ((event.target as HTMLElement | null)?.closest?.('input, select, textarea, .vz-vi-search, .vz-vi-menu')) {
 				return;
 			}
 			event.preventDefault();
@@ -1306,6 +2256,7 @@ export class VibezViEditor extends EditorPane {
 			this.applyCamera();
 		}, { passive: false }));
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.CLICK, (event: MouseEvent) => {
+			if (suppressClick) { suppressClick = false; return; }
 			if (!interactive(event.target)) {
 				this.select(undefined);
 			}
@@ -1316,6 +2267,17 @@ export class VibezViEditor extends EditorPane {
 		this.world.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
 		this.canvas.style.backgroundPosition = `${this.panX}px ${this.panY}px`;
 		this.canvas.style.backgroundSize = `${26 * this.scale}px ${26 * this.scale}px`;
+		if (this.cameraZoom) this.cameraZoom.textContent = `${Math.round(this.scale * 100)}%`;
+	}
+
+	private zoomBy(factor: number): void {
+		const next = Math.min(2.5, Math.max(0.25, this.scale * factor));
+		const px = this.canvas.clientWidth / 2, py = this.canvas.clientHeight / 2;
+		this.panX = px - (px - this.panX) * (next / this.scale);
+		this.panY = py - (py - this.panY) * (next / this.scale);
+		this.scale = next;
+		this.touched = true;
+		this.applyCamera();
 	}
 
 	private fit(): void {
@@ -1324,10 +2286,15 @@ export class VibezViEditor extends EditorPane {
 		}
 		const width = this.canvas.clientWidth || 1200;
 		const height = this.canvas.clientHeight || 800;
-		const pad = 56;
-		this.scale = Math.min(1.1, (width - pad * 2) / this.graphLayout.width, (height - pad * 2) / this.graphLayout.height);
-		this.panX = (width - this.graphLayout.width * this.scale) / 2;
-		this.panY = (height - this.graphLayout.height * this.scale) / 2;
+		const pad = 40;
+		const boxes = this.graphLayout.nodes.map(box => { const offset = this.deltaFor(box.id); return { x: box.x + offset.dx, y: box.y + offset.dy, width: box.w, height: box.h }; });
+		if (!boxes.length) return;
+		const left = Math.min(...boxes.map(box => box.x)), top = Math.min(...boxes.map(box => box.y));
+		const spanX = Math.max(...boxes.map(box => box.x + box.width)) - left;
+		const spanY = Math.max(...boxes.map(box => box.y + box.height)) - top;
+		this.scale = Math.max(0.05, Math.min(1.1, Math.max(1, width - pad * 2) / Math.max(1, spanX), Math.max(1, height - pad * 2) / Math.max(1, spanY)));
+		this.panX = (width - spanX * this.scale) / 2 - left * this.scale;
+		this.panY = (height - spanY * this.scale) / 2 - top * this.scale;
 		this.applyCamera();
 	}
 
@@ -1336,7 +2303,7 @@ export class VibezViEditor extends EditorPane {
 	private installKeys(): void {
 		this._register(dom.addDisposableListener(this.root, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {
 			const target = event.target as HTMLElement;
-			if (target.closest('input, select, textarea')) {
+			if (target.closest('input, select, textarea, .vz-vi-blueprint, .vz-vi-details, .vz-vi-console, .vz-vi-menu, .vz-vi-search')) {
 				return;
 			}
 			const mod = event.metaKey || event.ctrlKey;
@@ -1359,6 +2326,26 @@ export class VibezViEditor extends EditorPane {
 				this.duplicateNode(this.selected);
 				return;
 			}
+			if (mod && event.key.toLowerCase() === 'a') {
+				event.preventDefault();
+				this.selectAllNodes();
+				return;
+			}
+			if (!mod && !event.altKey && event.key.toLowerCase() === 'f') {
+				event.preventDefault();
+				this.fit();
+				return;
+			}
+			if (event.key === '+' || event.key === '=') {
+				event.preventDefault();
+				this.zoomBy(1.15);
+				return;
+			}
+			if (event.key === '-') {
+				event.preventDefault();
+				this.zoomBy(0.85);
+				return;
+			}
 			if ((event.key === 'Delete' || event.key === 'Backspace') && this.selected) {
 				event.preventDefault();
 				this.removeSelected();
@@ -1370,8 +2357,9 @@ export class VibezViEditor extends EditorPane {
 
 	private say(message: string): void {
 		// A lightweight, disposable toast, so an external change doesn't pass silently.
-		const toast = dom.append(this.root, dom.$('.vz-vi-toast'));
+		this.root.querySelectorAll('.vz-vi-toast').forEach(old => old.remove());
+		const toast = dom.append(this.root, dom.$('.vz-vi-toast', { role: 'status', 'aria-live': 'polite' }));
 		toast.textContent = message;
-		setTimeout(() => toast.remove(), 4000);
+		setTimeout(() => toast.remove(), Math.min(9000, 3500 + message.length * 45));
 	}
 }

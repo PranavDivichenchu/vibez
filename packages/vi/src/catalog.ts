@@ -1,17 +1,16 @@
+import { UNSUPPORTED_OPS } from './runtime.ts';
 import type { GNode, PortType, SemanticKey } from '../../core/src/types.ts';
 import { makeNode, type PortContext } from './ops.ts';
-import type { ScopedVariable } from './scope.ts';
-import { categoryOf, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type MathOp, type ViAction, type ViType } from './types.ts';
+import { categoryOf, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type MathOp, type ViAction, type ViType, type ViVariable } from './types.ts';
 
 /**
  * Every block the search dropdown can offer, the Unreal/Blueprints way: type
  * a few letters, see it grouped by what it does, place it.
  *
  * A `CatalogEntry` is a fixed block. `SearchItem` is what the dropdown
- * actually shows, which also includes one entry per variable in scope at the
- * point it was opened (see `scope.ts`) and one per action another `.vi` file
- * in the project offers — neither of those exists until the graph around the
- * click does, so they can't be static.
+ * actually shows, which also includes one entry per variable declared in
+ * `doc.variables` and one per action or function another `.vi` file (or this
+ * one) offers — none of those exist until the document does, so they can't be static.
  */
 
 export interface CatalogEntry {
@@ -68,7 +67,11 @@ const boundary = (label: string, op: Extract<AuthoredConfig, { kind: 'boundary' 
   config: () => ({ kind: 'boundary', op, ...(type ? { type } : {}) }),
 });
 const organize = (label: string, mode: Extract<AuthoredConfig, { kind: 'group' }>['mode'], hint: string): CatalogEntry => ({
-  kind: 'group', group: 'Organization', label, hint, keywords: [label, mode, 'organize'], config: () => ({ kind: 'group', mode, name: label, text: '' }),
+  kind: 'group', group: 'Debugging', label, hint, keywords: [label, mode, 'organize'], config: () => ({ kind: 'group', mode, name: label, text: '' }),
+});
+const debug = (label: string, op: Extract<AuthoredConfig, { kind: 'debug' }>['op'], hint: string): CatalogEntry => ({
+  kind: 'debug', group: 'Debugging', label, hint, keywords: [label, op, 'debug', 'test'],
+  config: () => (op === 'throw' ? { kind: 'debug', op } : { kind: 'debug', op, level: 'log' }),
 });
 
 const numberPins = [pin('a', 'Number'), pin('b', 'Number')];
@@ -97,9 +100,10 @@ export const CATALOG: CatalogEntry[] = [
   loop('Continue Loop', 'continue', 'Skip to the next loop iteration'),
 
   // Values and variables
+  // Variables are declared once (the editor's Variables panel), never as a
+  // blank node from this catalog — searching still finds them, as "Get X" /
+  // "Set X" per declared variable; see `searchIndex`'s `variables` input.
   { kind: 'literal', label: 'Value', hint: 'A fixed string, number or boolean', group: 'Values', keywords: ['literal', 'constant', 'value', 'string', 'number', 'boolean', 'text'], config: () => ({ kind: 'literal', value: '', type: 'String' }) },
-  { kind: 'variable', label: 'Get Variable', hint: 'Read a value by name', group: 'Values', keywords: ['get', 'variable', 'read', 'reference'], config: () => ({ kind: 'variable', name: 'value', type: 'String', mode: 'get', mutable: false }) },
-  { kind: 'variable', label: 'Set Variable', hint: 'Store a value by name', group: 'Values', keywords: ['set', 'variable', 'write', 'store', 'assign'], config: () => ({ kind: 'variable', name: 'value', type: 'String', mode: 'set', mutable: true }) },
   pure('Values', 'Select', 'select', [pin('condition', 'Boolean'), pin('true value'), pin('false value')], [pin('result')], ['ternary', 'choose']),
   pure('Values', 'Is Null', 'isNull', [pin('value')], boolOut),
   pure('Values', 'Is Defined', 'isDefined', [pin('value')], boolOut),
@@ -240,6 +244,8 @@ export const CATALOG: CatalogEntry[] = [
   organize('Comment Region', 'region', 'Group and describe related nodes'),
   organize('Helper', 'helper', 'A reusable private subgraph'),
   organize('Bookmark', 'bookmark', 'Mark a graph location for quick navigation'),
+  debug('Print to Console', 'log', 'Print a value while testing, without changing what runs'),
+  debug('Throw Error', 'throw', 'Stop here with a message, to test error handling'),
 ];
 
 export type SearchKind = 'block' | 'get' | 'set' | 'call';
@@ -258,11 +264,13 @@ export interface SearchItem {
 }
 
 function catalogItem(entry: CatalogEntry, ctx: PortContext): SearchItem {
+  const config = entry.config();
+  const unavailable = config.kind === 'data' || config.kind === 'effect' || (config.kind === 'boundary' && config.op !== 'throw') || (config.kind === 'compute' && UNSUPPORTED_OPS.has(config.op));
   return {
     id: `block:${entry.kind}:${entry.label}`,
     kind: 'block',
     label: entry.label,
-    hint: entry.hint,
+    hint: unavailable ? `Not runnable yet · ${entry.hint}` : entry.hint,
     group: entry.group,
     category: categoryOf(entry.kind),
     keywords: entry.keywords,
@@ -270,27 +278,28 @@ function catalogItem(entry: CatalogEntry, ctx: PortContext): SearchItem {
   };
 }
 
-function variableItem(v: ScopedVariable, mode: 'get' | 'set'): SearchItem {
+/** One entry per variable *declared* in `doc.variables` — never a blank one from search. Declaring happens in its own place (see the editor's Variables panel), same as Unreal's My Blueprint; the dropdown only ever offers what already exists there. */
+function variableItem(v: ViVariable, mode: 'get' | 'set'): SearchItem {
   return {
     id: `${mode}:${v.name}`,
     kind: mode,
     label: `${mode === 'set' ? 'Set' : 'Get'} ${v.name}`,
-    hint: `${v.type} — declared by ${v.declaredAt}`,
-    group: 'In scope',
+    hint: v.type,
+    group: 'Variables',
     category: categoryOf('variable'),
     keywords: [v.name, mode, mode === 'set' ? 'assign' : 'read'],
     make: (taken) => makeNode('variable', { kind: 'variable', name: v.name, type: v.type, mode, mutable: v.mutable }, taken),
   };
 }
 
-function callItem(file: string, action: ViAction): SearchItem {
+function callItem(file: string, action: ViAction, group: 'Actions' | 'Functions'): SearchItem {
   const local = file === '';
   return {
     id: `call:${file}#${action.name}`,
     kind: 'call',
     label: local ? action.name : `${action.name} — ${file}`,
     hint: action.about ?? (action.inputs.length ? `Needs ${action.inputs.map((i) => i.name).join(', ')}` : 'No inputs'),
-    group: 'Actions',
+    group,
     category: categoryOf('call'),
     keywords: [action.name, file],
     make: (taken) => makeNode('call', { kind: 'call', file, name: action.name }, taken, { target: action }),
@@ -298,21 +307,25 @@ function callItem(file: string, action: ViAction): SearchItem {
 }
 
 export interface SearchIndexInput {
-  /** What a new "New variable" block, or a fresh entry, should look like given the export it's for. */
+  /** What a call into this export's own signature should look like — irrelevant to most entries, but a `call` block needs it when it targets something in this same file. */
   ctx: PortContext;
-  scope: ScopedVariable[];
+  /** Every variable declared in this file — see `ViDoc.variables`. Always fully in scope, everywhere, the same as a Blueprint variable is. */
+  variables: ViVariable[];
   /** Other actions this graph can call: `''` for one in the same file, a relative path otherwise. */
   actions: { file: string; action: ViAction }[];
+  /** Private functions this graph can call, the same way. */
+  functions: { file: string; action: ViAction }[];
 }
 
 /** Everything the search dropdown can show, unfiltered. Filtering by port and text happens in the caller/UI. */
 export function searchIndex(input: SearchIndexInput): SearchItem[] {
   const items: SearchItem[] = CATALOG.map((entry) => catalogItem(entry, input.ctx));
-  for (const v of input.scope) {
+  for (const v of input.variables) {
     items.push(variableItem(v, 'get'));
     if (v.mutable) items.push(variableItem(v, 'set'));
   }
-  for (const { file, action } of input.actions) items.push(callItem(file, action));
+  for (const { file, action } of input.actions) items.push(callItem(file, action, 'Actions'));
+  for (const { file, action } of input.functions) items.push(callItem(file, action, 'Functions'));
   return items;
 }
 

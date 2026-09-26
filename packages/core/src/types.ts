@@ -16,6 +16,7 @@ export type NodeKind =
   | 'loop'      // for-each over a List
   | 'literal'   // a constant
   | 'variable'  // get or set a named local
+  | 'debug'     // print to console, or throw, while testing
   | 'call';     // invoke another .vi export or a helper
 
 export type PortType =
