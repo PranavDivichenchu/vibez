@@ -24,6 +24,8 @@ export interface NodeSearchOptions {
 	x: number;
 	y: number;
 	items: SearchItem[];
+	/** Full catalog offered by an explicit toggle when this search is context-filtered. */
+	allItems?: SearchItem[];
 	hint?: string;
 	onPick: (item: SearchItem) => void;
 	onClose: () => void;
@@ -46,6 +48,7 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 	input.type = 'text';
 	input.placeholder = opts.hint ?? localize('vibez.vi.search.placeholder', "Search for a block, variable or action…");
 	const list = dom.append(panel, dom.$('.vz-vi-search-list'));
+	let source = opts.items;
 
 	let active = 0;
 	let shown: SearchItem[] = [];
@@ -53,7 +56,7 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 	const renderList = (): void => {
 		dom.clearNode(list);
 		const query = input.value;
-		shown = opts.items.filter((item) => matches(item, query));
+		shown = source.filter((item) => matches(item, query));
 		if (shown.length === 0) {
 			dom.append(list, dom.$('.vz-vi-search-empty')).textContent = localize('vibez.vi.search.none', "Nothing matches.");
 			return;
@@ -68,7 +71,10 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 			const row = dom.append(list, dom.$<HTMLButtonElement>('button.vz-vi-search-item'));
 			row.type = 'button';
 			row.classList.toggle('active', index === active);
-			dom.append(row, dom.$('span.label')).textContent = item.label;
+			const label = dom.append(row, dom.$('span.label'));
+			const dot = dom.append(label, dom.$('span.dot'));
+			dot.style.background = `var(--cat-${item.category})`;
+			label.appendChild(document.createTextNode(item.label));
 			if (item.hint) {
 				dom.append(row, dom.$('span.hint')).textContent = item.hint;
 			}
@@ -82,6 +88,21 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 			}));
 		});
 	};
+
+	if (opts.allItems && opts.allItems !== opts.items) {
+		const mode = dom.append(panel, dom.$<HTMLButtonElement>('button.vz-vi-search-mode'));
+		panel.insertBefore(mode, list);
+		mode.type = 'button';
+		mode.textContent = localize('vibez.vi.search.showAll', "Showing compatible · Show all");
+		scope.add(dom.addDisposableListener(mode, dom.EventType.CLICK, () => {
+			source = source === opts.items ? opts.allItems! : opts.items;
+			mode.textContent = source === opts.items
+				? localize('vibez.vi.search.showAll', "Showing compatible · Show all")
+				: localize('vibez.vi.search.showCompatible', "Showing all · Compatible only");
+			active = 0;
+			renderList();
+		}));
+	}
 
 	scope.add(dom.addDisposableListener(input, dom.EventType.INPUT, renderList));
 	scope.add(dom.addDisposableListener(input, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {

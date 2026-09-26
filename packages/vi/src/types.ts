@@ -37,24 +37,70 @@ export interface ViExports {
 }
 
 /** Every kind of block the graph editor can place. */
-export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'call';
+export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'boundary' | 'group' | 'call';
+
+/** One block per operator, the Unreal way, rather than a single "Compute" node with a free-text expression. */
+export type MathOp = '+' | '-' | '*' | '/' | '%' | 'pow' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | 'xor';
+
+/** Fixed pure operations. Their catalog entries carry the visible label and typed pin schema. */
+export type ComputeOp = MathOp
+  | 'not' | 'negate' | 'abs' | 'sqrt' | 'min' | 'max' | 'clamp' | 'floor' | 'ceil' | 'round' | 'random' | 'randomInt' | 'mapRange' | 'percentage'
+  | 'isNull' | 'isDefined' | 'isEmpty' | 'between' | 'approximatelyEqual' | 'select'
+  | 'formatText' | 'concat' | 'split' | 'join' | 'replace' | 'trim' | 'upper' | 'lower' | 'contains' | 'startsWith' | 'endsWith' | 'length' | 'substring' | 'regex'
+  | 'makeList' | 'listGet' | 'listSet' | 'first' | 'last' | 'listAdd' | 'listInsert' | 'listRemove' | 'removeIndex' | 'listContains' | 'findIndex' | 'listLength' | 'listClear' | 'slice' | 'reverse' | 'sort' | 'unique' | 'filter' | 'map' | 'reduce' | 'some' | 'every'
+  | 'makeObject' | 'breakObject' | 'getField' | 'setField' | 'hasField' | 'removeField' | 'mergeObjects' | 'objectKeys' | 'objectValues'
+  | 'mapAdd' | 'mapFind' | 'mapContains' | 'mapRemove' | 'mapLength' | 'parseJson' | 'stringifyJson'
+  | 'now' | 'parseDate' | 'formatDate' | 'addDuration' | 'dateDifference' | 'before' | 'after'
+  | 'toString' | 'toNumber' | 'toBoolean' | 'toDate' | 'toUrl' | 'cast';
+
+export interface AuthoredDataPin { name: string; type?: ViType }
+
+/** The four colors a block's category shows as, in both its node header and the search dropdown. Left off: the palette's neutral gray, held back for "uncategorized." */
+export type Category = 'flow' | 'value' | 'data' | 'event';
 
 /** What each block needs, beyond its ports, to generate code. Read via `configOf`. */
 export type AuthoredConfig =
-  | { kind: 'entry' }
-  | { kind: 'return' }
-  | { kind: 'branch'; condition: string }
-  | { kind: 'loop'; item: string; itemType: ViType }
-  | { kind: 'literal'; value: unknown; type: ViType }
-  | { kind: 'variable'; name: string; type: ViType; mode: 'get' | 'set'; mutable: boolean }
-  | { kind: 'compute'; expr: string }
-  | { kind: 'data'; query: string; returns: ViType }
-  | { kind: 'effect'; op: string }
-  | { kind: 'external'; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string }
-  | { kind: 'call'; file: string; name: string };
+	| { kind: 'entry' }
+	| { kind: 'return'; early?: boolean }
+	| { kind: 'branch'; condition?: string; mode?: 'if' | 'sequence' | 'switch' | 'valid' | 'success' | 'try'; cases?: string[]; valueType?: ViType }
+	| { kind: 'loop'; item: string; itemType: ViType; mode?: 'forEach' | 'for' | 'forWithBreak' | 'while' | 'break' | 'continue'; maxIterations?: number }
+	| { kind: 'literal'; value: unknown; type: ViType }
+	| { kind: 'variable'; name: string; type: ViType; mode: 'get' | 'set'; mutable: boolean }
+	| { kind: 'compute'; op: ComputeOp; label?: string; inputs?: AuthoredDataPin[]; outputs?: AuthoredDataPin[] }
+	| { kind: 'data'; query: string; returns: ViType; op?: 'query' | 'findOne' | 'findMany' | 'count' | 'aggregate' | 'cacheGet' | 'environment' | 'currentUser'; resource?: string }
+	| { kind: 'effect'; op: string; label?: string; inputs?: AuthoredDataPin[]; outputs?: AuthoredDataPin[]; resource?: string; durationMs?: number; attempts?: number }
+	| { kind: 'external'; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; mode?: 'request' | 'decode' }
+	| { kind: 'boundary'; op: 'throw' | 'authorize' | 'requireRole' | 'validate' | 'safeCast'; value?: string; type?: ViType }
+	| { kind: 'group'; mode: 'reroute' | 'namedReroute' | 'comment' | 'region' | 'helper' | 'bookmark'; name?: string; text?: string }
+	| { kind: 'call'; file: string; name: string };
 
 export function configOf(node: GNode): AuthoredConfig | undefined {
-  return node.config as AuthoredConfig | undefined;
+  const raw = node.config as (Record<string, unknown> & { kind?: string }) | undefined;
+  if (!raw?.kind) return undefined;
+  // vi/1 originally stored a free-form `expr` on Compute. Convert that old
+  // shape as it is read; the graph normalization pass then saves the fixed,
+  // explicit operator form back to disk.
+  if (raw.kind === 'compute' && typeof raw.op !== 'string') {
+    const expr = typeof raw.expr === 'string' ? raw.expr : '';
+    const op: MathOp = expr.includes('===') || expr.includes('==') ? '=='
+      : expr.includes('!==') || expr.includes('!=') ? '!='
+      : expr.includes('&&') ? '&&' : expr.includes('||') ? '||'
+      : expr.includes('*') ? '*' : expr.includes('/') ? '/'
+      : expr.includes('%') ? '%' : expr.includes('-') ? '-' : '+';
+    return { kind: 'compute', op };
+  }
+  return raw as unknown as AuthoredConfig;
+}
+
+/** The one place a block's category is decided — read by both the node header and the search dropdown's color dot, so they can never drift apart. */
+export function categoryOf(kind: AuthoredKind): Category {
+  switch (kind) {
+		case 'branch': case 'loop': case 'return': case 'boundary': return 'flow';
+		case 'literal': case 'variable': case 'compute': return 'value';
+		case 'data': case 'effect': case 'external': return 'data';
+		case 'entry': case 'call': return 'event';
+		case 'group': return 'value';
+  }
 }
 
 /**
