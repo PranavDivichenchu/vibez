@@ -38,8 +38,8 @@ button,input{font:inherit;color:inherit}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button.on{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);opacity:1}
 .btn{border:1px solid var(--line);background:transparent;border-radius:7px;padding:4px 10px;cursor:pointer}
-#addpage{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);border-color:transparent}
-#addpage:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
+.btn.primary{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);border-color:transparent}
+.btn.primary:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
 .btn:hover,.seg button:hover{opacity:1;background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.15))}
 .seg button.on:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
 #zoom{min-width:40px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -114,7 +114,7 @@ button,input{font:inherit;color:inherit}
 .edit .note{margin:0;color:var(--muted);font-size:12px}
 .edit .foot{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:var(--muted)}
 .edit .foot .btn{margin-left:auto;font-size:11.5px;padding:3px 8px}
-#addel.on{background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.2));border-color:var(--accent)}
+#addel.on{outline:1px solid var(--accent);outline-offset:2px}
 #lib{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:280px;z-index:6;display:flex;flex-direction:column;border-radius:12px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.4)}
 #lib[hidden]{display:none}
 #lib .libtop{display:flex;align-items:center;padding:12px 12px 8px 14px}
@@ -142,7 +142,7 @@ const BODY = String.raw`
   <div class="seg" id="modes"><button data-mode="inspect" title="Hover to see what things are; double-click to explain (I)">Inspect</button><button data-mode="browse" title="Use the site normally (I)">Browse</button></div>
   <div class="seg" id="drags" title="How dragging works in Inspect mode"><button data-drag="free" title="Drag anything anywhere: it stays exactly where you drop it">Move freely</button><button data-drag="layout" title="Drag to reorder: it slots in before or after other elements">Reorder</button></div>
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
-  <button class="btn" id="addel" title="Add text, buttons, pictures, forms and more">+ Element</button>
+  <button class="btn primary" id="addel" title="Add text, buttons, pictures, forms and more">+ Element</button>
   <button class="btn primary" id="addpage" title="Add a page from a template">+ Add page</button>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
