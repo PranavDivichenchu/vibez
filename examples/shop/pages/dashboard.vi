@@ -1919,6 +1919,11 @@
       ],
       "returns": "Number",
       "about": "Reusable logic called by other graphs."
+    },
+    {
+      "name": "NewFunction2",
+      "inputs": [],
+      "about": "Reusable logic called by other graphs."
     }
   ],
   "helpers": {
@@ -3558,6 +3563,135 @@
             "port": "in:1"
           },
           "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "NewFunction2": {
+      "flow": "NewFunction2",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-i6hb",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-icla",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-iip9",
+          "from": {
+            "node": "entry-i6hb",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-icla",
+            "port": "exec"
+          },
+          "wire": "exec",
           "metrics": {
             "count": 0,
             "gapMs": {

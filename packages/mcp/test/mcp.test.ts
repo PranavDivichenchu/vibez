@@ -41,7 +41,8 @@ const page = (path: string) => readFileSync(join(root, path), 'utf8');
 test('the tools an agent sees', async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
-    'flow_read', 'ui_build', 'ui_create', 'ui_edit', 'ui_options', 'ui_read', 'vi_declare', 'vi_read', 'vi_run', 'vibez_overview', 'vibez_reference',
+    'flow_read', 'site_add_page', 'site_delete_page', 'site_edit', 'site_library', 'site_map', 'site_read',
+    'ui_build', 'ui_create', 'ui_edit', 'ui_options', 'ui_read', 'vi_blocks', 'vi_declare', 'vi_edit', 'vi_read', 'vi_run', 'vibez_overview', 'vibez_reference',
   ]);
   const edit = tools.find((t) => t.name === 'ui_edit')!;
   assert.ok(JSON.stringify(edit.inputSchema).includes('"add"'), 'the op union reaches the client as JSON schema');
@@ -131,7 +132,8 @@ test('a link target is checked, and a go: prefix is understood', async () => {
 
 test('declaring an export makes it connectable; removing one reports the pages it breaks', async () => {
   const declared = await call('vi_declare', { path: 'pages/dashboard.vi', values: [{ name: 'teamSize', type: 'Number', sample: 8 }] });
-  assert.match(declared.text, /added value pages\/dashboard\.vi#teamSize: Number/);
+  assert.match(declared.text, /declared page data teamSize: Number/);
+  assert.match(declared.text, /pages\/dashboard\.vi#teamSize: Number · 2 blocks/);
   assert.ok(JSON.parse(page('pages/dashboard.vi')).about, 'the rest of the file is kept');
 
   const linked = await call('ui_edit', { path: 'pages/dashboard.ui', ops: [{ op: 'set', id: 'subtitle', props: { shows: 'dashboard.vi#teamSize' } }] });

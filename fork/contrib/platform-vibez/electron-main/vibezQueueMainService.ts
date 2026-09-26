@@ -382,7 +382,8 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 
 	private runAgent(lane: Lane, avoid: { file: string; heldBy: string }[]): void {
 		const request = this.requests.get(lane.id)!;
-		const prompt = lanePrompt(request.ask, { fence: lane.fence, nodes: request.nodes, avoid });
+		const mcp = this.vibezMcp(lane);
+		const prompt = lanePrompt(request.ask, { fence: lane.fence, nodes: request.nodes, avoid, vibezTools: mcp !== undefined });
 		const settingsDir = join(this.root, '.vibez', 'lanes');
 		mkdirSync(settingsDir, { recursive: true });
 		const settings = join(settingsDir, `${lane.id}.settings.json`);
@@ -406,6 +407,9 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 			// The shell could write around the fence, so agents do not get one.
 			'--disallowedTools', 'Bash',
 			'--settings', settings,
+			// The Vibez MCP server, rooted in this lane's copy. Its writes are
+			// fenced the same way: it checks this lane's fence before each one.
+			...(mcp ? ['--mcp-config', mcp, '--allowedTools', 'mcp__vibez'] : []),
 		], { cwd: lane.worktree, env: { ...process.env, VIBEZ_LANE: lane.id }, stdio: ['ignore', 'pipe', 'pipe'] });
 
 		const running: Running = { child, avoid };
@@ -451,6 +455,21 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 			this.running.delete(lane.id);
 			void this.agentEnded(lane.id, running, code, result, stderr);
 		});
+	}
+
+	/**
+	 * An MCP config giving the lane's agent the Vibez tools, when the Vibez
+	 * MCP server can be found: in this repository (working on Vibez itself or
+	 * its examples), or wherever VIBEZ_MCP_SERVER points.
+	 */
+	private vibezMcp(lane: Lane): string | undefined {
+		const server = [process.env['VIBEZ_MCP_SERVER'], join(this.root, 'packages', 'mcp', 'src', 'server.ts')].find((p): p is string => !!p && existsSync(p));
+		if (!server || !lane.worktree) {
+			return undefined;
+		}
+		const config = join(this.root, '.vibez', 'lanes', `${lane.id}.mcp.json`);
+		writeFileSync(config, JSON.stringify({ mcpServers: { vibez: { command: 'node', args: [server, '--root', lane.worktree] } } }, null, 2));
+		return config;
 	}
 
 	/** Called by an agent's hook before every write. */

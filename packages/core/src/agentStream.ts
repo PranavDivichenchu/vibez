@@ -95,6 +95,8 @@ export function lanePrompt(ask: string, context: {
   nodes: { label: string; file?: string; line?: number; ms?: number; facts?: string[] }[];
   flow?: string;
   avoid?: { file: string; heldBy: string }[];
+  /** The agent has the Vibez MCP server, so it can edit pages, logic and HTML the checked way. */
+  vibezTools?: boolean;
 }): string {
   const lines: string[] = [ask.trim(), ''];
   if (context.nodes.length) {
@@ -115,6 +117,9 @@ export function lanePrompt(ask: string, context: {
   }
   if (context.avoid?.length) {
     lines.push(`Do not edit ${context.avoid.map((a) => `${a.file} (held by ${a.heldBy})`).join(', ')}: another agent is working there. Find a way that does not need it.`);
+  }
+  if (context.vibezTools) {
+    lines.push('For .ui pages, .vi logic files and HTML pages, use the vibez tools (start with vibez_overview): they check every change the way the Vibez editors do.');
   }
   lines.push('Other agents are working in parallel in their own copies. Keep the change small and focused. Do not run the app, start servers or commit: Vibez measures and lands the patch itself.');
   lines.push('When you are done, reply with one line saying what you changed.');

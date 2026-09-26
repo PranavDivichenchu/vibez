@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep, posix, basename } from 'node:path';
 import { parseDoc, parseViExports, serialize, type Linked, type UiDoc, type ViExports } from '../../ui/src/index.ts';
 
@@ -49,8 +50,63 @@ export class Workspace {
 
   async write(relativePath: string, text: string): Promise<void> {
     const absolute = this.path(relativePath);
+    await this.checkFence(absolute);
     await mkdir(dirname(absolute), { recursive: true });
     await writeFile(absolute, text);
+  }
+
+  async remove(relativePath: string): Promise<void> {
+    const absolute = this.path(relativePath);
+    await this.checkFence(absolute);
+    await rm(absolute, { force: true });
+  }
+
+  // ------------------------------------------------------------ agent lanes
+
+  private fence: string | null | undefined;
+
+  /**
+   * Inside one of the Agents panel's lanes (Claude Code started with
+   * VIBEZ_LANE set, working in its own git worktree), every write is checked
+   * against that lane's fence first: the same check the lane's hook runs for
+   * Claude's own Edit and Write, which cannot see writes made by a tool like
+   * this one. Build output under .vibez/ is never source and is not checked.
+   */
+  private async checkFence(absolute: string): Promise<void> {
+    if (this.rel(absolute).startsWith('.vibez/')) return;
+    const url = this.fenceUrl();
+    if (!url) return;
+    let ok = false;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tool_name: 'vibez-mcp', tool_input: { file_path: absolute } }),
+        signal: AbortSignal.timeout(5000),
+      });
+      ok = response.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      throw new VibezError(`Vibez refused this write: ${this.rel(absolute)} is outside this agent's copy of the project, or another agent holds it. Leave that file alone and carry on without it.`);
+    }
+  }
+
+  private fenceUrl(): string | null {
+    if (this.fence !== undefined) return this.fence;
+    const lane = process.env['VIBEZ_LANE'];
+    this.fence = null;
+    if (!lane) return null;
+    // The lane's settings live in the main checkout, above the worktree.
+    for (let dir = this.root; dir !== dirname(dir); dir = dirname(dir)) {
+      const settings = join(dir, '.vibez', 'lanes', `${lane}.settings.json`);
+      if (!existsSync(settings)) continue;
+      const found = /http:\/\/127\.0\.0\.1:\d+\/fence\?lane=[^'"\s]+/.exec(readFileSync(settings, 'utf8'));
+      this.fence = found ? found[0] : null;
+      break;
+    }
+    return this.fence;
   }
 
   /** Every file with one of these extensions, skipping dependencies and build output. */

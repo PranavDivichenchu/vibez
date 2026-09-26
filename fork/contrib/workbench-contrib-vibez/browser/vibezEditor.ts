@@ -1347,13 +1347,33 @@ export class VibezEditor extends EditorPane {
 			return;
 		}
 		const anchor = node.anchor;
-		const resource = input.resource.with({
-			path: input.resource.path.replace(/\/\.vibez\/flows\/[^/]+$/, `/${anchor.file}`)
-		});
-		this.editorService.openEditor({
+		void this.resolveAnchor(input.resource, anchor.file).then(resource => this.editorService.openEditor({
 			resource,
 			options: { selection: { startLineNumber: Math.max(1, anchor.line), startColumn: 1 }, preserveFocus: true }
-		}, SIDE_GROUP).then(undefined, () => undefined);
+		}, SIDE_GROUP)).then(undefined, () => undefined);
+	}
+
+	/**
+	 * Where a node's source file is. Traces record paths relative to wherever
+	 * the app was started, usually the repository root, which may be above the
+	 * folder that is open: so look from the flow's project folder upward until
+	 * the file is there.
+	 */
+	private async resolveAnchor(flow: URI, file: string): Promise<URI> {
+		const project = flow.with({ path: flow.path.replace(/\/\.vibez\/flows\/[^/]+$/, '') });
+		let dir = project;
+		for (let i = 0; i < 6; i++) {
+			const candidate = URI.joinPath(dir, file);
+			if (await this.fileService.exists(candidate)) {
+				return candidate;
+			}
+			const parent = URI.joinPath(dir, '..');
+			if (parent.path === dir.path) {
+				break;
+			}
+			dir = parent;
+		}
+		return URI.joinPath(project, file);
 	}
 
 	// ---------------------------------------------------------------- camera

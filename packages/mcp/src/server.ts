@@ -14,12 +14,14 @@ import {
   type UiDoc, type ViAction, type ViValue,
 } from '../../ui/src/index.ts';
 import type { Graph } from '../../core/src/index.ts';
-import { compileFile, parseDoc as parseViDoc } from '../../vi/src/index.ts';
+import { compileFile, matches, parseDoc as parseViDoc, serialize as serializeVi, type ViDoc } from '../../vi/src/index.ts';
 import { Workspace, VibezError, titleFrom } from './workspace.ts';
-import { outlinePage, summarizePage, outlineExports, formatValue, formatAction } from './notation.ts';
+import { outlinePage, summarizePage, formatValue, formatAction } from './notation.ts';
 import { applyOps, type Op } from './edit.ts';
 import { reference } from './reference.ts';
 import { outlineFlow } from './flows.ts';
+import { applyLogicOps, blocksFor, compileIssues, contextFor, locate, outlineGraph, outlineLogic, VI_TYPES, type LogicOp, type Siblings } from './logic.ts';
+import { addPage, applySiteOps, deletePage, htmlFiles, library, outlineHtml, siteMap, type SiteOp } from './site.ts';
 
 /**
  * The Vibez MCP server: how an AI agent reads and edits a Vibez app in
@@ -69,6 +71,45 @@ const opSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('page'), props: z.record(z.string(), z.unknown()).describe('name, route and/or theme') }),
 ]);
 
+const viType = z.enum(VI_TYPES);
+const logicOpSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('declare'),
+    what: z.enum(['value', 'action', 'function', 'variable']).describe('value = page data; action = something a page runs; function = reusable logic; variable = shared state'),
+    name: z.string(),
+    type: viType.optional().describe('For a value or variable.'),
+    fields: z.record(z.string(), viType).optional().describe('For a List or Object value: the fields of one item.'),
+    sample: z.unknown().optional().describe('For a value: realistic example data the page shows before the logic runs.'),
+    inputs: z.array(z.object({ name: z.string(), type: viType })).optional().describe('For an action or function.'),
+    returns: viType.optional().describe('For an action or function.'),
+    mutable: z.boolean().optional().describe('For a variable: whether graphs may Set it. Defaults to true.'),
+    initial: z.unknown().optional().describe('For a variable: its starting value.'),
+    about: z.string().optional(),
+  }),
+  z.object({ op: z.literal('rename'), name: z.string(), to: z.string() }),
+  z.object({ op: z.literal('remove'), name: z.string() }),
+  z.object({
+    op: z.literal('add'),
+    graph: z.string().describe('The value, action or function to add the block to.'),
+    block: z.string().describe('The block\'s name as vi_blocks shows it, like "Divide (÷)", "If / Else", "Get CompanyName", "Print to Console".'),
+    as: z.string().optional().describe('A name for the new block, to use later in this batch as $name.'),
+    config: z.record(z.string(), z.unknown()).optional().describe('Settings, like { "value": 4, "type": "Number" } for a Value block.'),
+  }),
+  z.object({ op: z.literal('set'), graph: z.string(), id: z.string(), config: z.record(z.string(), z.unknown()) }),
+  z.object({ op: z.literal('connect'), graph: z.string(), from: z.string().describe('block.port of an output, like entry-1a.exec:out or $div.result'), to: z.string().describe('block.port of an input, like return-2b.value') }),
+  z.object({ op: z.literal('disconnect'), graph: z.string(), to: z.string().describe('block.port of the input to clear') }),
+  z.object({ op: z.literal('delete'), graph: z.string(), id: z.string(), keepFlow: z.boolean().optional().describe('Join what ran before and after it. Defaults to true.') }),
+]);
+
+const siteOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('text'), at: z.number().int(), text: z.string() }),
+  z.object({ op: z.literal('style'), at: z.number().int(), style: z.record(z.string(), z.string().nullable()).describe('CSS properties to set; null removes one.') }),
+  z.object({ op: z.literal('attr'), at: z.number().int(), name: z.string(), value: z.string().nullable() }),
+  z.object({ op: z.literal('remove'), at: z.number().int() }),
+  z.object({ op: z.literal('move'), at: z.number().int(), target: z.number().int(), where: z.enum(['before', 'after', 'inside']) }),
+  z.object({ op: z.literal('add'), element: z.string().describe('Element id from site_library, like "button" or "contact-form".'), target: z.number().int().optional(), where: z.enum(['before', 'after', 'inside']).optional() }),
+]);
+
 const valueSchema = z.object({
   name: z.string(),
   type: z.enum(VALUE_TYPES),
@@ -89,9 +130,10 @@ export function createVibezServer(root: string): McpServer {
   const server = new McpServer(
     { name: 'vibez', version: '0.1.0' },
     {
-      instructions: 'Vibez apps are .ui pages (visual layout) and .vi files (logic, exposing values and actions). '
-        + 'Call vibez_overview first, vibez_reference for the vocabulary, ui_read before editing a page, and ui_edit to change it. '
-        + 'Pages reference .vi exports as file.vi#name; declare missing data with vi_declare.',
+      instructions: 'Vibez apps are .ui pages (visual layout), .vi files (logic drawn as graphs, exposing values and actions to pages), '
+        + 'and plain HTML pages. Call vibez_overview first and vibez_reference for the vocabulary. '
+        + 'Pages: ui_read then ui_edit. Logic: vi_read, vi_blocks, then vi_edit, and vi_run to test. HTML: site_map, site_read, then site_edit. '
+        + 'Pages reference .vi exports as file.vi#name.',
     },
   );
 
@@ -116,7 +158,7 @@ export function createVibezServer(root: string): McpServer {
 
   server.registerTool('vibez_overview', {
     title: 'Overview of the Vibez project',
-    description: 'Lists every .ui page, every .vi file with what it offers, and every recorded flow. Start here.',
+    description: 'Lists every .ui page, every .vi logic file (what it offers and whether it is ready), every plain HTML page, and every recorded flow. Start here.',
     inputSchema: {},
     annotations: { readOnlyHint: true },
   }, () => guard(async () => {
@@ -134,13 +176,23 @@ export function createVibezServer(root: string): McpServer {
     lines.push('', `.vi files (${vis.length}):`);
     for (const vi of vis) {
       try {
-        const { exports } = await ws.readExports(vi);
-        lines.push(`  ${vi} · values ${exports.values.map((v) => v.name).join(', ') || 'none'} · actions ${exports.actions.map((a) => a.name).join(', ') || 'none'}`);
+        const doc = await readLogic(vi);
+        const problems = compileIssues(doc, await siblingsOf(vi)).filter((i) => i.severity === 'error').length;
+        const names = (list: { name: string }[] | undefined) => (list ?? []).map((d) => d.name).join(', ') || 'none';
+        lines.push(`  ${vi} · values ${names(doc.exports.values)} · actions ${names(doc.exports.actions)}`
+          + `${doc.functions?.length ? ` · functions ${names(doc.functions)}` : ''}${doc.variables?.length ? ` · variables ${names(doc.variables)}` : ''}`
+          + ` · ${problems ? `${problems} problem${problems > 1 ? 's' : ''}` : 'ready'}`);
       } catch (error) {
         lines.push(`  ${vi} · cannot be read: ${(error as Error).message}`);
       }
     }
-    const flows = (await ws.find(['.flow'])).filter((f) => f.startsWith('.vibez/'));
+    const html = await htmlFiles(ws);
+    if (html.length) {
+      lines.push('', `HTML pages (${html.length}), edited with site_read / site_edit:`);
+      for (const file of html.slice(0, 40)) lines.push(`  ${file}`);
+      if (html.length > 40) lines.push(`  …and ${html.length - 40} more`);
+    }
+    const flows = (await ws.find(['.flow'])).filter((f) => f.includes('.vibez/'));
     lines.push('', `recorded flows (${flows.length}):`);
     for (const flow of flows) {
       try {
@@ -150,7 +202,7 @@ export function createVibezServer(root: string): McpServer {
         lines.push(`  ${flow} · cannot be read`);
       }
     }
-    if (pages.length === 0 && vis.length === 0) lines.push('', 'Nothing yet. Make a page with ui_create.');
+    if (pages.length === 0 && vis.length === 0 && html.length === 0) lines.push('', 'Nothing yet. Make a page with ui_create or site_add_page, and logic with vi_edit.');
     return say(lines.join('\n'));
   }));
 
@@ -285,62 +337,25 @@ export function createVibezServer(root: string): McpServer {
 
   // ---------------------------------------------------------- .vi
 
-  server.registerTool('vi_read', {
-    title: 'Read what a .vi file offers',
-    description: 'The values and actions a .vi file exports, with types, fields and samples, written the way pages refer to them.',
-    inputSchema: { path: z.string() },
-    annotations: { readOnlyHint: true },
-  }, ({ path }) => guard(async () => {
-    const { exports, raw } = await ws.readExports(path);
-    return say(outlineExports(path, exports, Object.keys(raw)));
-  }));
+  /** Other .vi files' callable actions and functions, as a file at `path` names them. */
+  const siblingsOf = async (path: string): Promise<Siblings> => {
+    const out: Siblings = new Map();
+    for (const other of (await ws.find(['.vi'])).filter((p) => p !== path)) {
+      const parsed = parseViDoc(await ws.read(other));
+      if (parsed.ok) out.set(posix.relative(posix.dirname(path), other), { actions: parsed.doc.exports.actions, functions: parsed.doc.functions ?? [] });
+    }
+    return out;
+  };
 
-  server.registerTool('vi_declare', {
-    title: 'Declare .vi exports',
-    description: 'Adds or replaces values and actions in a .vi file\'s exports block (creating the file if needed) and removes ones by name. '
-      + 'Only the exports block is touched; the rest of the file belongs to the graph editor. Give every value a realistic sample.',
-    inputSchema: {
-      path: z.string().describe('Path of the .vi file, like pages/dashboard.vi.'),
-      values: z.array(valueSchema).optional(),
-      actions: z.array(actionSchema).optional(),
-      remove: z.array(z.string()).optional().describe('Names of values or actions to remove.'),
-    },
-  }, ({ path, values, actions, remove }) => guard(async () => {
-    if (!path.endsWith('.vi')) throw new VibezError(`${path} must end in .vi.`);
-    const existing = await ws.exists(path);
-    const raw: Record<string, unknown> = existing ? (await ws.readExports(path)).raw : { vibez: 'vi/0' };
-    const block = (raw['exports'] ?? {}) as { values?: ViValue[]; actions?: ViAction[] };
-    let nextValues = [...(block.values ?? [])];
-    let nextActions = [...(block.actions ?? [])];
-    const log: string[] = [];
-    for (const value of values ?? []) {
-      if (!/^[A-Za-z_]\w*$/.test(value.name)) throw new VibezError(`"${value.name}" is not a usable name: letters, numbers and _ only.`);
-      if ((value.type === 'List' || value.type === 'Object') && value.sample !== undefined
-        && (value.type === 'List') !== Array.isArray(value.sample)) {
-        throw new VibezError(`The sample for ${value.name} should be ${value.type === 'List' ? 'a list' : 'an object'}.`);
-      }
-      const at = nextValues.findIndex((v) => v.name === value.name);
-      log.push(`${at >= 0 ? 'replaced' : 'added'} value ${path}#${value.name}: ${value.type}`);
-      const clean = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as unknown as ViValue;
-      if (at >= 0) nextValues[at] = clean; else nextValues.push(clean);
-    }
-    for (const action of actions ?? []) {
-      if (!/^[A-Za-z_]\w*$/.test(action.name)) throw new VibezError(`"${action.name}" is not a usable name: letters, numbers and _ only.`);
-      const at = nextActions.findIndex((a) => a.name === action.name);
-      log.push(`${at >= 0 ? 'replaced' : 'added'} action ${path}#${action.name}(${action.inputs.map((i) => i.name).join(', ')})`);
-      const clean = Object.fromEntries(Object.entries(action).filter(([, v]) => v !== undefined)) as unknown as ViAction;
-      if (at >= 0) nextActions[at] = clean; else nextActions.push(clean);
-    }
-    for (const name of remove ?? []) {
-      const before = nextValues.length + nextActions.length;
-      nextValues = nextValues.filter((v) => v.name !== name);
-      nextActions = nextActions.filter((a) => a.name !== name);
-      log.push(before === nextValues.length + nextActions.length ? `${name} was not declared` : `removed ${path}#${name}`);
-    }
-    raw['exports'] = { ...block, values: nextValues, actions: nextActions };
-    await ws.write(path, `${JSON.stringify(raw, null, 2)}\n`);
+  const readLogic = async (path: string): Promise<ViDoc> => {
+    if (!path.endsWith('.vi')) throw new VibezError(`${path} is not a .vi file.`);
+    const parsed = parseViDoc(await ws.read(path));
+    if (!parsed.ok) throw new VibezError(`${path}: ${parsed.reason}`);
+    return parsed.doc;
+  };
 
-    // Say which pages now point at something that is gone.
+  /** Pages whose links to this file broke. */
+  const brokenPagesFor = async (): Promise<string[]> => {
     const broken: string[] = [];
     for (const page of await ws.find(['.ui'])) {
       try {
@@ -350,14 +365,180 @@ export function createVibezServer(root: string): McpServer {
         // Unreadable pages are reported by vibez_overview.
       }
     }
+    return broken;
+  };
+
+  server.registerTool('vi_read', {
+    title: 'Read a .vi logic file',
+    description: 'Without graph: every page value, page action, function and variable in the file, whether each is ready to run, and its problems. '
+      + 'With graph: that one graph block by block, with every port (id and type), what feeds each input, the run order and the problems.',
+    inputSchema: {
+      path: z.string().describe('Path of the .vi file.'),
+      graph: z.string().optional().describe('A value, action or function name to read in full.'),
+    },
+    annotations: { readOnlyHint: true },
+  }, ({ path, graph }) => guard(async () => {
+    const doc = await readLogic(path);
+    const siblings = await siblingsOf(path);
+    if (!graph) return say(outlineLogic(path, doc, siblings));
+    const located = locate(doc, graph);
+    const issues = compileIssues(located.doc, siblings).filter((i) => i.exportName === graph);
+    return say(outlineGraph(located, graph, issues));
+  }));
+
+  server.registerTool('vi_blocks', {
+    title: 'Find blocks for a graph',
+    description: 'The blocks that can be added to a graph, the same list the logic editor\'s search shows: flow, math, text, lists, objects, dates, '
+      + 'data, HTTP, this file\'s variables (Get/Set) and callable actions and functions. Each result shows its ports.',
+    inputSchema: {
+      path: z.string(),
+      graph: z.string().describe('The value, action or function the blocks are for.'),
+      search: z.string().optional().describe('Words to filter by, like "divide", "text", "list", "if".'),
+    },
+    annotations: { readOnlyHint: true },
+  }, ({ path, graph, search }) => guard(async () => {
+    const doc = await readLogic(path);
+    const located = locate(doc, graph);
+    const items = blocksFor(located.doc, contextFor(located.where, located.decl), await siblingsOf(path)).filter((b) => matches(b, search ?? ''));
+    if (!items.length) return say(`No blocks match "${search}".`);
+    const lines = [`${items.length} block${items.length > 1 ? 's' : ''}${search ? ` matching "${search}"` : ''} (use the name in quotes with vi_edit add):`];
+    let group = '';
+    for (const item of items.slice(0, 80)) {
+      if (item.group !== group) {
+        group = item.group;
+        lines.push(`  ${group}:`);
+      }
+      const probe = item.make(new Set());
+      const ports = (list: typeof probe.ports.in) => list.map((p) => `${p.name}${p.id !== p.name ? ` [${p.id}]` : ''}`).join(', ');
+      lines.push(`    "${item.label}" · ${item.hint} · in: ${ports(probe.ports.in) || '–'} · out: ${ports(probe.ports.out) || '–'}`);
+    }
+    if (items.length > 80) lines.push(`  …${items.length - 80} more; narrow the search.`);
+    return say(lines.join('\n'));
+  }));
+
+  server.registerTool('vi_edit', {
+    title: 'Edit .vi logic',
+    description: 'Applies a batch of logic operations, all or nothing: declare / rename / remove a value, action, function or variable; '
+      + 'add a block to a graph (by its search name, see vi_blocks), set its settings, connect two ports (block.port, by port id or name), '
+      + 'disconnect an input, delete a block. Name new blocks with "as" and use them later in the batch as $name. Returns what changed, each touched graph, and its problems.',
+    inputSchema: {
+      path: z.string().describe('Path of the .vi file; created if it does not exist.'),
+      ops: z.array(logicOpSchema).min(1),
+    },
+  }, ({ path, ops }) => guard(async () => {
+    if (!path.endsWith('.vi')) throw new VibezError(`${path} must end in .vi.`);
+    const existing = await ws.exists(path);
+    const doc = existing ? await readLogic(path) : { vibez: 'vi/1', exports: { values: [], actions: [] }, logic: {} } as ViDoc;
+    const siblings = await siblingsOf(path);
+    const result = applyLogicOps(doc, ops as LogicOp[], siblings);
+    await ws.write(path, serializeVi(result.doc));
+    const names = Object.entries(result.created);
+    const graphs = [...result.touched].filter((name) => [...result.doc.exports.values, ...result.doc.exports.actions, ...(result.doc.functions ?? [])].some((d) => d.name === name));
+    const issues = compileIssues(result.doc, siblings);
+    const broken = await brokenPagesFor();
     return say([
-      `${existing ? 'Updated' : 'Created'} ${path}:`,
-      ...log.map((l) => `  - ${l}`),
+      `${existing ? 'Changed' : 'Created'} ${path}:`,
+      ...result.log.map((line) => `  - ${line}`),
+      ...(names.length ? ['', `new blocks: ${names.map(([k, v]) => `${k} = ${v}`).join(', ')}`] : []),
       ...(broken.length ? ['', 'pages with broken links now:', ...broken.map((b) => `  ${b}`)] : []),
-      '',
-      outlineExports(path, { values: nextValues, actions: nextActions }, Object.keys(raw)),
+      ...graphs.flatMap((name) => ['', outlineGraph(locate(result.doc, name), name, issues.filter((i) => i.exportName === name))]),
     ].join('\n'));
   }));
+
+  server.registerTool('vi_declare', {
+    title: 'Declare .vi exports',
+    description: 'Adds or replaces page values and page actions (creating the file if needed, each with a starting Start → Return graph) and removes ones by name. '
+      + 'A shortcut for vi_edit declare/remove, for pages that need data before its logic exists. Give every value a realistic sample.',
+    inputSchema: {
+      path: z.string().describe('Path of the .vi file, like pages/dashboard.vi.'),
+      values: z.array(valueSchema).optional(),
+      actions: z.array(actionSchema).optional(),
+      remove: z.array(z.string()).optional().describe('Names of values or actions to remove.'),
+    },
+  }, ({ path, values, actions, remove }) => guard(async () => {
+    if (!path.endsWith('.vi')) throw new VibezError(`${path} must end in .vi.`);
+    const existing = await ws.exists(path);
+    const doc = existing ? await readLogic(path) : { vibez: 'vi/1', exports: { values: [], actions: [] }, logic: {} } as ViDoc;
+    const ops: LogicOp[] = [
+      ...(values ?? []).map((v): LogicOp => ({ op: 'declare', what: 'value', name: v.name, type: v.type, ...(v.fields ? { fields: v.fields } : {}), ...(v.sample !== undefined ? { sample: v.sample } : {}), ...(v.about ? { about: v.about } : {}) })),
+      ...(actions ?? []).map((a): LogicOp => ({ op: 'declare', what: 'action', name: a.name, inputs: a.inputs, ...(a.returns ? { returns: a.returns } : {}), ...(a.about ? { about: a.about } : {}) })),
+      ...(remove ?? []).map((name): LogicOp => ({ op: 'remove', name })),
+    ];
+    if (!ops.length) throw new VibezError('Nothing to declare or remove.');
+    const result = applyLogicOps(doc, ops, await siblingsOf(path));
+    await ws.write(path, serializeVi(result.doc));
+    const broken = await brokenPagesFor();
+    return say([
+      `${existing ? 'Updated' : 'Created'} ${path}:`,
+      ...result.log.map((l) => `  - ${l}`),
+      ...(broken.length ? ['', 'pages with broken links now:', ...broken.map((b) => `  ${b}`)] : []),
+      '',
+      outlineLogic(path, result.doc, await siblingsOf(path)),
+    ].join('\n'));
+  }));
+
+  // ---------------------------------------------------------- sites (plain HTML)
+
+  server.registerTool('site_map', {
+    title: 'Map the website',
+    description: 'Every HTML page in the project, the address it is served at, and every link on it: where each goes, and which go nowhere.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true },
+  }, () => guard(async () => say(await siteMap(ws))));
+
+  server.registerTool('site_read', {
+    title: 'Read an HTML page',
+    description: 'One HTML page as an outline of its visible elements: each line starts with @<offset>, which is how site_edit addresses that element, '
+      + 'then its tag, id and classes, its words, and its link, image and style attributes. Offsets change when the file changes; read again before editing.',
+    inputSchema: { path: z.string().describe('The .html file, like index.html or about.html.') },
+    annotations: { readOnlyHint: true },
+  }, ({ path }) => guard(async () => {
+    if (!/\.html?$/.test(path)) throw new VibezError(`${path} is not an HTML page.`);
+    return say(outlineHtml(path, await ws.read(path)));
+  }));
+
+  server.registerTool('site_edit', {
+    title: 'Edit an HTML page',
+    description: 'Applies edits to one HTML page, all or nothing, touching only the elements named: change an element\'s words (text), its look (style), '
+      + 'one attribute like href or src (attr), remove it, move it before/after/inside another, or add a ready-made element from site_library. '
+      + 'Offsets (@at) are from the latest site_read. A move must be sent on its own.',
+    inputSchema: {
+      path: z.string(),
+      ops: z.array(siteOpSchema).min(1),
+    },
+  }, ({ path, ops }) => guard(async () => {
+    if (!/\.html?$/.test(path)) throw new VibezError(`${path} is not an HTML page.`);
+    const result = applySiteOps(await ws.read(path), ops as SiteOp[]);
+    await ws.write(path, result.html);
+    return say([`Changed ${path}:`, ...result.log.map((l) => `  - ${l}`), '', outlineHtml(path, result.html)].join('\n'));
+  }));
+
+  server.registerTool('site_add_page', {
+    title: 'Add an HTML page',
+    description: 'Adds a page from a template (see site_library), wearing the site\'s own header, footer and styles copied from its home page, '
+      + 'and links it from every page\'s navigation unless told not to.',
+    inputSchema: {
+      name: z.string().describe('The page name, like "Pricing". The file name comes from it.'),
+      template: z.string().optional().describe('Template id; defaults to blank.'),
+      dir: z.string().optional().describe('Folder for the page, relative to the project; defaults to the top.'),
+      addToNav: z.boolean().optional().describe('Link it from the navigation of every page. Defaults to true.'),
+    },
+  }, ({ name, template, dir, addToNav }) => guard(async () => say(await addPage(ws, {
+    name, ...(template ? { template } : {}), ...(dir ? { dir } : {}), ...(addToNav !== undefined ? { addToNav } : {}),
+  }))));
+
+  server.registerTool('site_delete_page', {
+    title: 'Delete an HTML page',
+    description: 'Deletes a page and takes its links out of every page\'s navigation. A copy is kept in .vibez/trash. The home page cannot be deleted.',
+    inputSchema: { path: z.string() },
+  }, ({ path }) => guard(async () => say(await deletePage(ws, path))));
+
+  server.registerTool('site_library', {
+    title: 'Ready-made elements and page templates',
+    description: 'The elements site_edit can add (text, buttons, media, layout, forms, content, navigation) and the templates site_add_page can use.',
+    inputSchema: {},
+    annotations: { readOnlyHint: true },
+  }, () => guard(async () => say(library())));
 
   server.registerTool('vi_run', {
     title: 'Test .vi logic',
