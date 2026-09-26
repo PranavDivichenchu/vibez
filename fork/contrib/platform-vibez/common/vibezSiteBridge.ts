@@ -694,6 +694,18 @@ on(window, 'message', function(e){
     if (!FROM_DISK) { return; }
     post({ type: 'insertDrop', element: m.element, target: after ? Number(after.getAttribute('data-vz-at')) : null, targetTag: after ? after.tagName.toLowerCase() : null, where: 'after', accent: siteAccent() });
   }
+  if (m.type === 'libHover') {
+    if (m.x === null || !FROM_DISK) { libPlace = null; showPlace(null); return; }
+    if (m.y < 40) { scrollBy(0, -18); } else if (m.y > innerHeight - 40) { scrollBy(0, 18); }
+    libPlace = placeFor(m.x, m.y);
+    showPlace(libPlace);
+  }
+  if (m.type === 'libDrop') {
+    var lp = placeFor(m.x, m.y);
+    libPlace = null; showPlace(null);
+    if (!FROM_DISK) { return; }
+    post({ type: 'insertDrop', element: m.element, target: lp ? Number(lp.el.getAttribute('data-vz-at')) : null, targetTag: lp ? lp.el.tagName.toLowerCase() : null, where: lp ? lp.where : 'inside', accent: siteAccent() });
+  }
   if (m.type === 'nudgeKey' && selected && movable(selected) && FROM_DISK && mode === 'inspect') { nudge(m.dx, m.dy); }
   if (m.type === 'ancestor') {
     var up = selected;

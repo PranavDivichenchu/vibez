@@ -141,6 +141,32 @@ of the page is hidden.
 Editing works on pages served from the folder's HTML files; pages from a
 running app (App URL) are read-only for now.
 
+### Adding elements
+
+**+ Element** on the site canvas opens a library of 48 ready-made pieces,
+searchable and grouped:
+
+- **Text**: Title, heading, subheading, text box, intro text, quote, bulleted
+  list, numbered list, small print, text link
+- **Buttons**: Button, outline button, two buttons, big button
+- **Media**: Image, image with caption, gallery, video, embed, map, divider,
+  spacer
+- **Layout**: Section, card, two columns, three cards, callout, hero banner
+- **Forms**: Contact form, newsletter signup, text field, email field, phone
+  field, message box, dropdown, checkbox, choices, date field, submit button
+- **Content**: Table, question & answer, numbers, testimonial, price box, code
+  block
+- **Navigation**: Link row, social links, back to top
+
+Drag a tile onto a page (a blue line or box shows where it will land), or
+click it to add it right after the selected element. The new element is
+selected with its **Edit** panel open, and adding it is one undo step.
+
+Elements pick up your site's fonts and its accent colour (read from its
+buttons and links). Their look comes from one small stylesheet scoped to
+`.vz-el`, added to a page's `<head>` the first time an element is added there.
+Images start as a placeholder; set the file in the Edit panel.
+
 ### Dashboard: add pages from templates
 
 **Vibez: Open Dashboard** (or **+ Add page** on the site canvas, or the

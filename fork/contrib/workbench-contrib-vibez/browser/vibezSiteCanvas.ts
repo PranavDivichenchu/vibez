@@ -130,6 +130,9 @@ button,input{font:inherit;color:inherit}
 .tile{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:rgba(128,128,128,.06);cursor:grab;text-align:left;font-size:12px;line-height:1.2;user-select:none}
 .tile:hover{border-color:var(--accent);background:rgba(128,128,128,.12)}
 .tile:active{cursor:grabbing}
+.libghost{position:fixed;z-index:50;pointer-events:none;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--accent);color:#fff;font-size:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.libghost i{font-style:normal;font-weight:700;font-size:11px}
+.libghost.none{opacity:.55}
 .tile i{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:6px;background:rgba(128,128,128,.18);font-style:normal;font-weight:700;font-size:11px;color:var(--fg)}
 .tile span{overflow:hidden;text-overflow:ellipsis}
 #hint.bad{border-color:rgba(229,72,77,.6);color:#ff8589}
@@ -744,18 +747,13 @@ function renderLib(){
     var tiles = el('div', 'tiles');
     g.items.forEach(function(e){
       var t = el('div', 'tile');
-      t.setAttribute('draggable', 'true');
       t.setAttribute('role', 'button');
       t.tabIndex = 0;
       t.title = e.description + ' Drag onto a page, or click to add after the selected element.';
       t.appendChild(el('i', '', e.glyph));
       t.appendChild(el('span', '', e.name));
-      t.addEventListener('dragstart', function(ev){
-        ev.dataTransfer.setData('application/x-vibez-element', e.id);
-        ev.dataTransfer.setData('text/plain', e.name);
-        ev.dataTransfer.effectAllowed = 'copy';
-      });
-      t.addEventListener('click', function(){ addHere(e.id); });
+      t.addEventListener('pointerdown', function(ev){ libPress(ev, t, e); });
+      t.addEventListener('click', function(){ if (LD.justDropped) { LD.justDropped = false; return; } addHere(e.id); });
       t.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); addHere(e.id); } });
       tiles.appendChild(t);
     });
@@ -793,6 +791,67 @@ function insertDrop(c, m){
   S.saving = true; S.editCard = c; S.openAfter = true; S.activeCard = c;
   vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.target, tag: m.targetTag || '', ops: [{ op: 'insert', element: m.element, where: m.where, accent: m.accent }] });
 }
+/*
+ * Dragging a tile onto a page. Uses pointer events rather than HTML drag and
+ * drop, which does not carry reliably from the canvas into the pages' frames.
+ * While dragging, the frames stop taking the pointer; the canvas works out
+ * which page is under it and asks that page where the element would land.
+ */
+var LD = { press: null, on: null, ghost: null, justDropped: false };
+function libPress(ev, tile, item){
+  if (ev.button !== 0) { return; }
+  LD.press = { x: ev.clientX, y: ev.clientY, item: item, id: ev.pointerId, tile: tile, live: false };
+  try { tile.setPointerCapture(ev.pointerId); } catch (x) {}
+}
+function cardAt(x, y){
+  for (var i = S.cards.length - 1; i >= 0; i--) {
+    var c = S.cards[i];
+    if (!c.frame) { continue; }
+    var r = c.frame.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) { return { c: c, x: (x - r.left) / S.z, y: (y - r.top) / S.z }; }
+  }
+  return null;
+}
+function libMove(ev){
+  var p = LD.press;
+  if (!p || ev.pointerId !== p.id) { return; }
+  if (!p.live) {
+    if (Math.abs(ev.clientX - p.x) + Math.abs(ev.clientY - p.y) < 6) { return; }
+    p.live = true;
+    board.classList.add('dragging');
+    LD.ghost = el('div', 'libghost');
+    LD.ghost.appendChild(el('i', '', p.item.glyph));
+    LD.ghost.appendChild(el('span', '', p.item.name));
+    document.body.appendChild(LD.ghost);
+  }
+  LD.ghost.style.left = (ev.clientX + 12) + 'px';
+  LD.ghost.style.top = (ev.clientY + 10) + 'px';
+  var hit = cardAt(ev.clientX, ev.clientY);
+  if (LD.on && (!hit || hit.c !== LD.on)) { tell(LD.on, { type: 'libHover', x: null }); }
+  LD.on = hit ? hit.c : null;
+  LD.ghost.classList.toggle('none', !hit);
+  if (hit) { tell(hit.c, { type: 'libHover', x: hit.x, y: hit.y }); }
+}
+function libEnd(ev, cancel){
+  var p = LD.press;
+  if (!p || ev.pointerId !== p.id) { return; }
+  LD.press = null;
+  if (!p.live) { return; }
+  LD.justDropped = true;
+  setTimeout(function(){ LD.justDropped = false; }, 400);
+  board.classList.remove('dragging');
+  if (LD.ghost) { LD.ghost.remove(); LD.ghost = null; }
+  var hit = cancel ? null : cardAt(ev.clientX, ev.clientY);
+  if (LD.on && (!hit || hit.c !== LD.on)) { tell(LD.on, { type: 'libHover', x: null }); }
+  LD.on = null;
+  if (!hit) { if (!cancel) { notice('Drop it onto a page to add it.'); } return; }
+  S.activeCard = hit.c;
+  tell(hit.c, { type: 'libDrop', element: p.item.id, x: hit.x, y: hit.y });
+}
+document.addEventListener('pointermove', libMove, true);
+document.addEventListener('pointerup', function(ev){ libEnd(ev, false); }, true);
+document.addEventListener('pointercancel', function(ev){ libEnd(ev, true); }, true);
+document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && LD.press && LD.press.live) { var p = LD.press; libEnd({ pointerId: p.id, clientX: -1, clientY: -1 }, true); } }, true);
 $('addel').addEventListener('click', function(){ toggleLib(); });
 $('libclose').addEventListener('click', function(){ toggleLib(false); });
 $('libsearch').addEventListener('input', renderLib);
