@@ -1,0 +1,29 @@
+{
+  "vibez": "vi/0",
+  "about": "Placeholder until the graph editor defines .vi. The UI editor reads only the exports block below.",
+  "exports": {
+    "values": [
+      { "name": "orgName", "type": "String", "sample": "Northwind", "about": "The signed-in organisation" },
+      { "name": "plan", "type": "Object", "fields": { "tier": "String", "renewsOn": "Date" },
+        "sample": { "tier": "Pro", "renewsOn": "12 Oct 2026" } },
+      { "name": "customerCount", "type": "Number", "sample": 12 },
+      { "name": "revenue", "type": "Number", "sample": 70236 },
+      { "name": "orders", "type": "List", "fields": { "customer": "String", "total": "Number", "logo": "Url" },
+        "sample": [
+          { "customer": "Lantern Bay", "total": 12043, "logo": "https://picsum.photos/seed/lantern/96" },
+          { "customer": "Keystone", "total": 11130, "logo": "https://picsum.photos/seed/keystone/96" },
+          { "customer": "Juniper Co", "total": 10217, "logo": "https://picsum.photos/seed/juniper/96" },
+          { "customer": "Ironwood", "total": 9304, "logo": "https://picsum.photos/seed/ironwood/96" }
+        ] },
+      { "name": "photos", "type": "List", "fields": { "url": "Url" },
+        "sample": [
+          { "url": "https://picsum.photos/seed/nw1/600/450" }, { "url": "https://picsum.photos/seed/nw2/600/450" },
+          { "url": "https://picsum.photos/seed/nw3/600/450" }
+        ] }
+    ],
+    "actions": [
+      { "name": "inviteTeammate", "inputs": [{ "name": "email", "type": "String" }], "returns": "Object",
+        "about": "Sends an invite and adds a pending seat" }
+    ]
+  }
+}

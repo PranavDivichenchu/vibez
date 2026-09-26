@@ -1,0 +1,772 @@
+{
+  "vibez": "vibez.ui/1",
+  "name": "Dashboard",
+  "route": "/dashboard",
+  "theme": "clean",
+  "links": [
+    "dashboard.vi"
+  ],
+  "root": {
+    "id": "page",
+    "kind": "frame",
+    "size": {
+      "w": {
+        "mode": "fill"
+      },
+      "h": {
+        "mode": "hug"
+      }
+    },
+    "layout": {
+      "direction": "column",
+      "gap": "lg",
+      "padding": "xl",
+      "align": "stretch",
+      "justify": "start"
+    },
+    "fill": "page",
+    "radius": "none",
+    "border": false,
+    "shadow": "none",
+    "children": [
+      {
+        "id": "header",
+        "kind": "frame",
+        "size": {
+          "w": {
+            "mode": "fill"
+          },
+          "h": {
+            "mode": "hug"
+          }
+        },
+        "layout": {
+          "direction": "row",
+          "gap": "md",
+          "padding": "none",
+          "align": "center",
+          "justify": "between",
+          "stackOnPhone": true
+        },
+        "fill": null,
+        "radius": "none",
+        "border": false,
+        "shadow": "none",
+        "children": [
+          {
+            "id": "title-block",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "hug"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "xs",
+              "padding": "none",
+              "align": "start",
+              "justify": "start"
+            },
+            "fill": null,
+            "radius": "none",
+            "border": false,
+            "shadow": "none",
+            "children": [
+              {
+                "id": "org-name",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Company",
+                "variant": "heading",
+                "align": "start",
+                "color": "text",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "orgName"
+                }
+              },
+              {
+                "id": "subtitle",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Customers and revenue at a glance",
+                "variant": "caption",
+                "align": "start",
+                "color": "muted"
+              }
+            ],
+            "name": "Title"
+          },
+          {
+            "id": "plan-chip",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "hug"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "row",
+              "gap": "xs",
+              "padding": "sm",
+              "align": "center",
+              "justify": "start"
+            },
+            "fill": "accentSoft",
+            "radius": "full",
+            "border": false,
+            "shadow": "none",
+            "children": [
+              {
+                "id": "plan-label",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Plan",
+                "variant": "label",
+                "align": "start",
+                "color": "accent"
+              },
+              {
+                "id": "plan-tier",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Tier",
+                "variant": "caption",
+                "align": "start",
+                "color": "accent",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "plan",
+                  "field": "tier"
+                }
+              }
+            ],
+            "name": "Plan chip"
+          }
+        ],
+        "name": "Header"
+      },
+      {
+        "id": "stats",
+        "kind": "frame",
+        "size": {
+          "w": {
+            "mode": "fill"
+          },
+          "h": {
+            "mode": "hug"
+          }
+        },
+        "layout": {
+          "direction": "grid",
+          "gap": "md",
+          "padding": "none",
+          "align": "stretch",
+          "justify": "start",
+          "columns": 3
+        },
+        "fill": null,
+        "radius": "none",
+        "border": false,
+        "shadow": "none",
+        "children": [
+          {
+            "id": "stat-customers",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "sm",
+              "padding": "lg",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": "surface",
+            "radius": "lg",
+            "border": true,
+            "shadow": "soft",
+            "children": [
+              {
+                "id": "stat-customers-label",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Customers",
+                "variant": "label",
+                "align": "start",
+                "color": "muted"
+              },
+              {
+                "id": "stat-customers-value",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "0",
+                "variant": "heading",
+                "align": "start",
+                "color": "text",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "customerCount"
+                }
+              }
+            ],
+            "name": "Customers"
+          },
+          {
+            "id": "stat-revenue",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "sm",
+              "padding": "lg",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": "surface",
+            "radius": "lg",
+            "border": true,
+            "shadow": "soft",
+            "children": [
+              {
+                "id": "stat-revenue-label",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Revenue",
+                "variant": "label",
+                "align": "start",
+                "color": "muted"
+              },
+              {
+                "id": "stat-revenue-value",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "0",
+                "variant": "heading",
+                "align": "start",
+                "color": "text",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "revenue"
+                }
+              }
+            ],
+            "name": "Revenue"
+          },
+          {
+            "id": "stat-renews",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "sm",
+              "padding": "lg",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": "surface",
+            "radius": "lg",
+            "border": true,
+            "shadow": "soft",
+            "children": [
+              {
+                "id": "stat-renews-label",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Renews",
+                "variant": "label",
+                "align": "start",
+                "color": "muted"
+              },
+              {
+                "id": "stat-renews-value",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Soon",
+                "variant": "heading",
+                "align": "start",
+                "color": "text",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "plan",
+                  "field": "renewsOn"
+                }
+              }
+            ],
+            "name": "Renews"
+          }
+        ],
+        "name": "Stats"
+      },
+      {
+        "id": "orders-card",
+        "kind": "frame",
+        "size": {
+          "w": {
+            "mode": "fill"
+          },
+          "h": {
+            "mode": "hug"
+          }
+        },
+        "layout": {
+          "direction": "column",
+          "gap": "sm",
+          "padding": "lg",
+          "align": "stretch",
+          "justify": "start"
+        },
+        "fill": "surface",
+        "radius": "lg",
+        "border": true,
+        "shadow": "soft",
+        "children": [
+          {
+            "id": "orders-title",
+            "kind": "text",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "text": "Top customers",
+            "variant": "subheading",
+            "align": "start",
+            "color": "text"
+          },
+          {
+            "id": "orders-list",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "none",
+              "padding": "none",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": null,
+            "radius": "none",
+            "border": false,
+            "shadow": "none",
+            "children": [
+              {
+                "id": "order-row",
+                "kind": "frame",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "layout": {
+                  "direction": "row",
+                  "gap": "md",
+                  "padding": "sm",
+                  "align": "center",
+                  "justify": "start"
+                },
+                "fill": null,
+                "radius": "none",
+                "border": false,
+                "shadow": "none",
+                "children": [
+                  {
+                    "id": "order-logo",
+                    "kind": "image",
+                    "size": {
+                      "w": {
+                        "mode": "fixed",
+                        "px": 36
+                      },
+                      "h": {
+                        "mode": "hug"
+                      }
+                    },
+                    "src": "",
+                    "alt": "",
+                    "ratio": "1:1",
+                    "fit": "cover",
+                    "radius": "full",
+                    "bind": {
+                      "from": "item",
+                      "field": "logo"
+                    }
+                  },
+                  {
+                    "id": "order-customer",
+                    "kind": "text",
+                    "size": {
+                      "w": {
+                        "mode": "fill"
+                      },
+                      "h": {
+                        "mode": "hug"
+                      }
+                    },
+                    "text": "Customer",
+                    "variant": "body",
+                    "align": "start",
+                    "color": "text",
+                    "bind": {
+                      "from": "item",
+                      "field": "customer"
+                    }
+                  },
+                  {
+                    "id": "order-total",
+                    "kind": "text",
+                    "size": {
+                      "w": {
+                        "mode": "hug"
+                      },
+                      "h": {
+                        "mode": "hug"
+                      }
+                    },
+                    "text": "0",
+                    "variant": "body",
+                    "align": "end",
+                    "color": "text",
+                    "bind": {
+                      "from": "item",
+                      "field": "total"
+                    }
+                  }
+                ],
+                "name": "Customer row"
+              }
+            ],
+            "name": "Customer list",
+            "repeat": {
+              "from": "vi",
+              "file": "dashboard.vi",
+              "name": "orders"
+            }
+          }
+        ],
+        "name": "Top customers"
+      },
+      {
+        "id": "bottom",
+        "kind": "frame",
+        "size": {
+          "w": {
+            "mode": "fill"
+          },
+          "h": {
+            "mode": "hug"
+          }
+        },
+        "layout": {
+          "direction": "row",
+          "gap": "md",
+          "padding": "none",
+          "align": "stretch",
+          "justify": "start",
+          "stackOnPhone": true
+        },
+        "fill": null,
+        "radius": "none",
+        "border": false,
+        "shadow": "none",
+        "children": [
+          {
+            "id": "invite-card",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "sm",
+              "padding": "lg",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": "surface",
+            "radius": "lg",
+            "border": true,
+            "shadow": "soft",
+            "children": [
+              {
+                "id": "invite-title",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "Invite a teammate",
+                "variant": "subheading",
+                "align": "start",
+                "color": "text"
+              },
+              {
+                "id": "invite-body",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "They get a seat on your plan straight away.",
+                "variant": "body",
+                "align": "start",
+                "color": "muted"
+              },
+              {
+                "id": "invite-email",
+                "kind": "input",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "field": "email",
+                "label": "Email",
+                "placeholder": "teammate@northwind.com",
+                "inputType": "email"
+              },
+              {
+                "id": "invite-send",
+                "kind": "button",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "label": "Send invite",
+                "variant": "primary",
+                "on": {
+                  "run": "vi",
+                  "file": "dashboard.vi",
+                  "name": "inviteTeammate",
+                  "args": {
+                    "email": {
+                      "from": "input",
+                      "name": "email"
+                    }
+                  }
+                }
+              }
+            ],
+            "name": "Invite"
+          },
+          {
+            "id": "photos-card",
+            "kind": "frame",
+            "size": {
+              "w": {
+                "mode": "fill"
+              },
+              "h": {
+                "mode": "hug"
+              }
+            },
+            "layout": {
+              "direction": "column",
+              "gap": "sm",
+              "padding": "lg",
+              "align": "stretch",
+              "justify": "start"
+            },
+            "fill": "surface",
+            "radius": "lg",
+            "border": true,
+            "shadow": "soft",
+            "children": [
+              {
+                "id": "photos-title",
+                "kind": "text",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "text": "The office",
+                "variant": "subheading",
+                "align": "start",
+                "color": "text"
+              },
+              {
+                "id": "photos",
+                "kind": "gallery",
+                "size": {
+                  "w": {
+                    "mode": "fill"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "images": [],
+                "columns": 3,
+                "ratio": "4:3",
+                "gap": "sm",
+                "radius": "md",
+                "bind": {
+                  "from": "vi",
+                  "file": "dashboard.vi",
+                  "name": "photos"
+                }
+              },
+              {
+                "id": "photos-link",
+                "kind": "link",
+                "size": {
+                  "w": {
+                    "mode": "hug"
+                  },
+                  "h": {
+                    "mode": "hug"
+                  }
+                },
+                "label": "See all photos",
+                "to": "gallery.ui",
+                "color": "accent"
+              }
+            ],
+            "name": "Office"
+          }
+        ],
+        "name": "Bottom"
+      }
+    ],
+    "name": "Page"
+  }
+}
