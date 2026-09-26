@@ -145,31 +145,32 @@ Non-React frameworks need their own adapter. React only in v1; keep the `postMes
 
 ## 4. Gestures first, the agent second
 
-### 4.1 What a drag can and cannot mean
+### 4.1 Buttons, not drops
 
-The graph is a projection of code built from traces (§2.1). You cannot drag it
-into new software in general. But for the handful of changes this product exists
-to make, a gesture has exactly one sane reading in code, and compiles straight to
-an edit with no model involved.
+Dragging a node only rearranges the canvas. Dropping one node onto another does
+nothing: a drop that silently rewrites code was too easy to trigger by accident
+and too hard to read as a request. Changes start from a node's own controls
+instead, where what will happen is written on the button.
 
-| Gesture | Means | Becomes | Status |
+| Control | Means | Becomes | Status |
 |---|---|---|---|
-| Drag a step onto a sibling | "these should overlap" | one `Promise.all` | shipped |
 | **if** on a step | "only do this when…" | `cond ? await f() : EMPTY`, or an `if` block | shipped |
-| Drag a step onto a Branch's True/False | "only on this side" | an `if/else` with the step in that block | shipped |
 | **Start all at once** on a repeated step | "stop waiting on each one" | lookups started together, used in order | shipped |
-| Collapse a repeated step to one query | "ask once for all of them" | `findMany` / `IN (...)` | planned, library-specific |
-| Drop a node on the cache target | "stop asking twice" | memoised call | planned |
+| **Ask once** on a repeated step | "one query for all of them" | `IN (…)` / `= ANY($1)` / Prisma `findMany` | codemod done, not in the IDE yet |
+| **Remember answers** on a lookup | "stop asking twice" | the lookup wrapped in `remember(30_000, …)` | codemod done, not in the IDE yet |
 
-**Start all at once is not the same as one query.** Merging N lookups into one
-depends on the database library, so it cannot be done deterministically for any
-code. Starting them together and consuming them in order can, and it is where
-the latency goes. Order is kept on purpose: pushing results as they finish would
-silently scramble anything that pairs results with inputs by position. On the
-demo it takes the dashboard from 350 ms to 183 ms. A one-query rewrite for
-Prisma is the natural follow-up and is library-specific by nature.
+Removed from the canvas: dropping a step on a sibling (one `Promise.all`) and
+dropping a step on a Branch's True or False output (moving it into that side).
+Their codemods stay in `packages/codemod` (`merge.ts`, `move.ts`), tested but
+not shipped in the IDE.
 
-Every one previews its diff before anything changes, lands through the
+**Start all at once is not the same as one query.** Starting lookups together
+works for any async call; **Ask once** only rewrites queries it can read in the
+loop itself: a SQL string matching one column, or Prisma's `findUnique` /
+`findFirst` on one field. Rows are grouped by the matched column and handed
+back per item, in order, so each pass sees exactly what its own query returned.
+
+Every change previews its diff before anything changes, lands through the
 workbench's own edit pipeline so ⌘Z works, and is re-measured against the running
 app. Each refuses rather than guesses, in a sentence naming why.
 
@@ -187,17 +188,10 @@ traced calls and laid onto the graph:
 - A value the condition reads, like `plan` in `plan?.tier === 'Pro'`, is wired
   into the condition input, so you can see what the decision depends on.
 
-**Filling either side.** Drag a step onto a Branch's True or False output and it
-moves into that block. A ternary is rebuilt as an `if/else`: the value it made is
-hoisted into a `let` and assigned in whichever side produces it, and the moved
-step gets an empty value of its type for the side it does not run on. It refuses
-if the step reads what the branch sets, if the branch reads the step's value, or
-if an await sits between them.
-
-That is also what makes creating one coherent. The **if** button on a step writes
-the conditional, the source reader finds it on the next measure, and the new
-Branch node appears. The condition box lists every value available at that point
-with its type, so the inputs are right there while you write it.
+The **if** button on a step writes the conditional, the source reader finds it
+on the next measure, and the new Branch node appears. The condition box lists
+every value available at that point with its type, so the inputs are right there
+while you write it.
 
 ### 4.2 So what is the agent for
 

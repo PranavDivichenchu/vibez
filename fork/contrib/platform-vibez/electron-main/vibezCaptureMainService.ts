@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, promises as fsp, wa
 import { join, relative, extname } from '../../../base/common/path.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezBranchRef, IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
 import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
@@ -208,56 +208,6 @@ font:13px/1.6 system-ui;text-align:center">
 		return this.lastSelection;
 	}
 
-	/**
-	 * Find where two calls happen together and plan the merge.
-	 *
-	 * A node's anchor is where its function is defined, not where it is called,
-	 * so the call site has to be found. It is found by reading the workspace
-	 * rather than guessed: every candidate file is planned, and if the pair is
-	 * called together in more than one place the answer is a refusal, because
-	 * editing the wrong one silently is worse than asking.
-	 */
-	async planMerge(a: string, b: string): Promise<IVibezGesturePlan> {
-		if (!this.workspacePath) {
-			return { ok: false, reason: 'Open a folder first.' };
-		}
-		// Loaded on demand: the compiler is large and most sessions never drag.
-		const ts = await loadTypeScript();
-		const { planMerge } = await import('../node/vibezMerge.js');
-
-		const hits: IVibezGesturePlan[] = [];
-		let refusal: IVibezGesturePlan | undefined;
-		for (const file of await sourceFiles(this.workspacePath)) {
-			let text: string;
-			try {
-				text = await fsp.readFile(file, 'utf8');
-			} catch {
-				continue;
-			}
-			if (!text.includes(a) || !text.includes(b)) {
-				continue;
-			}
-			const plan = planMerge(ts, text, file, a, b);
-			const located = { ...plan, file, relative: relative(this.workspacePath, file), fileText: text };
-			if (plan.ok) {
-				hits.push(located);
-			} else if (!refusal || refusal.reason?.startsWith('Could not find')) {
-				refusal = located;
-			}
-		}
-
-		if (hits.length === 1) {
-			return hits[0];
-		}
-		if (hits.length > 1) {
-			return {
-				ok: false,
-				reason: `${a} and ${b} are called together in ${hits.length} places (${hits.map(h => h.relative).join(', ')}). Vibez will not guess which one you meant.`
-			};
-		}
-		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${a} and ${b}.` };
-	}
-
 	async planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan> {
 		if (!this.workspacePath) {
 			return { ok: false, reason: 'Open a folder first.' };
@@ -291,27 +241,6 @@ font:13px/1.6 system-ui;text-align:center">
 			return { ok: false, reason: `${symbol} is awaited in ${hits.length} files. Vibez will not guess which one you meant.` };
 		}
 		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${symbol}.` };
-	}
-
-	/** A branch lives in one known file, so this reads that file rather than searching. */
-	async planMove(branch: IVibezBranchRef, symbol: string, side: 'true' | 'false', empty: string): Promise<IVibezGesturePlan> {
-		if (!this.workspacePath) {
-			return { ok: false, reason: 'Open a folder first.' };
-		}
-		const file = join(this.workspacePath, branch.file);
-		if (relative(this.workspacePath, file).startsWith('..')) {
-			return { ok: false, reason: 'That branch is outside this folder.' };
-		}
-		let text: string;
-		try {
-			text = await fsp.readFile(file, 'utf8');
-		} catch {
-			return { ok: false, reason: `Could not read ${branch.file}.` };
-		}
-		const ts = await loadTypeScript();
-		const { planMoveIntoBranch } = await import('../node/vibezMove.js');
-		const plan = planMoveIntoBranch(ts, text, file, { condition: branch.condition, line: branch.line }, symbol, side, empty);
-		return { ...plan, file, relative: branch.file, fileText: text };
 	}
 
 	/** Find the function by name across the workspace, and the one loop in it that waits. */

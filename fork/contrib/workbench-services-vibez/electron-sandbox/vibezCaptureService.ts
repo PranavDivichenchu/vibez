@@ -6,7 +6,7 @@
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IVibezBranchRef, IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../../../../platform/vibez/common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**
  * The renderer's handle on the receiver running in the main process.
@@ -45,20 +45,12 @@ class VibezCaptureService implements IVibezCaptureService {
 		return this.proxy.selection();
 	}
 
-	planMerge(a: string, b: string): Promise<IVibezGesturePlan> {
-		return this.proxy.planMerge(a, b);
-	}
-
 	replay(runs: number): Promise<IVibezReplayResult> {
 		return this.proxy.replay(runs);
 	}
 
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan> {
 		return this.proxy.planBranch(symbol, condition, empty);
-	}
-
-	planMove(branch: IVibezBranchRef, symbol: string, side: 'true' | 'false', empty: string): Promise<IVibezGesturePlan> {
-		return this.proxy.planMove(branch, symbol, side, empty);
 	}
 
 	planBatch(symbol: string, count: number): Promise<IVibezGesturePlan> {

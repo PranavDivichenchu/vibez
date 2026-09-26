@@ -23,7 +23,7 @@ import type { BranchPlan } from './branches.ts';
 
 type TS = typeof import('typescript');
 
-function findFunction(ts: TS, file: SourceFile, symbol: string): Node | undefined {
+export function findFunction(ts: TS, file: SourceFile, symbol: string): Node | undefined {
   let found: Node | undefined;
   const visit = (node: Node): void => {
     if (found) return;
@@ -92,7 +92,25 @@ function namesWritten(ts: TS, body: Node): Set<string> {
   return out;
 }
 
-export function planBatch(ts: TS, source: string, fileName: string, symbol: string, count?: number): BranchPlan {
+export interface LoopLookup {
+  ok: true;
+  file: SourceFile;
+  fn: Node;
+  loop: ForOfStatement;
+  waiting: AwaitExpression;
+  call: import('typescript').CallExpression;
+  /** The loop's own item, as written: a name or a destructuring pattern. */
+  item: string;
+  /** Every name the item binds. */
+  itemNames: Set<string>;
+  list: string;
+}
+
+/**
+ * The one loop in `symbol` that waits on a lookup each pass, and proof that
+ * the passes are independent. Shared by every codemod that rewrites that loop.
+ */
+export function findLoopLookup(ts: TS, source: string, fileName: string, symbol: string): LoopLookup | { ok: false; reason: string } {
   const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const fn = findFunction(ts, file, symbol);
   if (fn === undefined) return { ok: false, reason: `Could not find a function called ${symbol}.` };
@@ -124,7 +142,7 @@ export function planBatch(ts: TS, source: string, fileName: string, symbol: stri
 
   const awaits = awaitsIn(ts, loop.statement);
   if (awaits.length > 1) {
-    return { ok: false, reason: `Each pass waits ${awaits.length} times. Vibez only starts lookups early when there is exactly one.` };
+    return { ok: false, reason: `Each pass waits ${awaits.length} times. Vibez only rewrites a loop with exactly one lookup.` };
   }
   const waiting = awaits[0]!;
   if (!ts.isCallExpression(waiting.expression)) return { ok: false, reason: 'The loop waits on something that is not a call.' };
@@ -144,8 +162,38 @@ export function planBatch(ts: TS, source: string, fileName: string, symbol: stri
   if (!ts.isVariableDeclarationList(initializer) || initializer.declarations.length !== 1) {
     return { ok: false, reason: 'The loop does not declare its own item, so Vibez cannot rewrite it safely.' };
   }
-  const item = initializer.declarations[0]!.name.getText(file);
-  const list = loop.expression.getText(file);
+  // The list is read twice after the rewrite, so it has to be something that
+  // reads the same both times: a name, or a property of one.
+  let listNode: Node = loop.expression;
+  while (ts.isPropertyAccessExpression(listNode)) listNode = listNode.expression;
+  if (!ts.isIdentifier(listNode) && listNode.kind !== ts.SyntaxKind.ThisKeyword) {
+    return { ok: false, reason: 'The loop runs over the result of a call. Store it in a variable first, then Vibez can rewrite the loop.' };
+  }
+  const itemNames = new Set<string>();
+  const collect = (binding: Node): void => {
+    if (ts.isIdentifier(binding)) itemNames.add(binding.text);
+    else ts.forEachChild(binding, collect);
+  };
+  collect(initializer.declarations[0]!.name);
+  return {
+    ok: true,
+    file,
+    fn,
+    loop,
+    waiting,
+    call: waiting.expression,
+    item: initializer.declarations[0]!.name.getText(file),
+    itemNames,
+    list: loop.expression.getText(file),
+  };
+}
+
+export function planBatch(ts: TS, source: string, fileName: string, symbol: string, count?: number): BranchPlan {
+  const found = findLoopLookup(ts, source, fileName, symbol);
+  if (!found.ok) return found;
+  const { file, fn, loop, waiting, item, list } = found;
+  const initializer = loop.initializer;
+  const call = waiting.expression.getText(file);
   const scope = fn.getText(file);
   const pending = freshName(scope, ['pending', 'started', 'inFlight']);
   const index = freshName(scope, ['index', 'i', 'position']);

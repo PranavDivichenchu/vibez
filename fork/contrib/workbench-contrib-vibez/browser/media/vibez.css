@@ -99,17 +99,6 @@
 .vibez-node { touch-action: none; user-select: none; }
 .vibez-node.dragging { cursor: grabbing; z-index: 6; border-color: var(--vz-select);
 	box-shadow: 0 0 0 3px rgba(91,141,239,.18); transition: none; }
-.vibez-graph.dragging .vibez-node:not(.dragging):not(.drop-candidate) { opacity: .32; }
-.vibez-graph.dragging .vibez-wires { opacity: .5; }
-.vibez-node.drop-candidate { outline: 1px dashed rgba(91,141,239,.55); outline-offset: 4px; }
-.vibez-node.drop-target { outline: 2px solid var(--vz-select); outline-offset: 4px; }
-.vibez-drop-hint { position: absolute; z-index: 8; transform: translateX(-50%);
-	display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 11px;
-	background: var(--vz-select); color: #fff; font-size: 11px; font-weight: 500; white-space: nowrap;
-	pointer-events: none; }
-.vibez-drop-hint::before { content: ''; width: 10px; height: 8px;
-	background: linear-gradient(currentColor, currentColor) 0 1px / 10px 1.5px no-repeat,
-		linear-gradient(currentColor, currentColor) 0 5.5px / 10px 1.5px no-repeat; }
 
 /* ----------------------------------------------------------- beats */
 
@@ -255,6 +244,4 @@
 .vibez-fact.action:hover { border-color: rgba(224,112,91,.55); background: rgba(208,98,78,.2); }
 
 /* A branch under a dragged step shows which output it would land on. */
-.vibez-node.branch .vibez-row.drop-side { background: rgba(91,141,239,.16); box-shadow: inset 2px 0 0 var(--vz-select); }
 
-.vibez-node.dragging.over-target { opacity: .3; }

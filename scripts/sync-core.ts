@@ -58,9 +58,7 @@ const nodeTarget = join(forkDir(), 'src/vs/platform/vibez/node');
 mkdirSync(nodeTarget, { recursive: true });
 const CODEMODS: Record<string, string> = {
   'edits.ts': 'vibezEdits.ts',
-  'merge.ts': 'vibezMerge.ts',
   'branches.ts': 'vibezBranchCodemod.ts',
-  'move.ts': 'vibezMove.ts',
   'batch.ts': 'vibezBatch.ts',
 };
 for (const [from, to] of Object.entries(CODEMODS)) {

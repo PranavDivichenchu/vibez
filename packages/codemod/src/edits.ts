@@ -32,7 +32,7 @@ export function fold(source: string, edits: Edit[]): { start: number; end: numbe
   const start = Math.min(...edits.map((edit) => edit.start));
   const end = Math.max(...edits.map((edit) => edit.end));
   let text = source.slice(start, end);
-  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+  for (const edit of [...edits].sort((a, b) => b.start - a.start || b.end - a.end)) {
     text = text.slice(0, edit.start - start) + edit.text + text.slice(edit.end - start);
   }
   return { start, end, replacement: text, original: source.slice(start, end) };

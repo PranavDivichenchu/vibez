@@ -80,13 +80,13 @@ interface Applied {
 type Step = 'edit' | 'restart' | 'measure';
 
 /**
- * A flow drawn as a node graph you can rearrange and edit by dragging.
+ * A flow drawn as a node graph.
  *
- * Dragging a node onto a sibling runs the two together. That gesture compiles
- * to one Promise.all through a deterministic codemod, is previewed as a diff
- * before anything changes, lands through the workbench's own edit pipeline so
- * ⌘Z works, and is then re-measured against the running app. Dragging onto
- * empty canvas just moves the node, and the arrangement is remembered.
+ * Dragging a node only rearranges the canvas, and the arrangement is
+ * remembered. Code changes come from the buttons on a node (if, Start all at
+ * once) and its right-click menu. Each compiles to a deterministic codemod, is
+ * previewed as a diff before anything changes, lands through the workbench's
+ * own edit pipeline so ⌘Z works, and is then re-measured against the running app.
  *
  * Everything is real workbench DOM rather than an iframe, so the graph shares
  * the window's theming and input handling.
@@ -479,7 +479,7 @@ export class VibezEditor extends EditorPane {
 		key(exec, localize('vibez.key.order', "order it ran in"));
 		key(dom.$('.vibez-key-wire'), localize('vibez.key.time', "where the time goes"));
 		dom.append(this.legend, dom.$('span.vibez-key-hint')).textContent =
-			localize('vibez.key.drag', "Drag a step onto another to run them together");
+			localize('vibez.key.menu', "Right-click a step to change it");
 	}
 
 	private renderHud(graph: Graph): void {
@@ -616,62 +616,11 @@ export class VibezEditor extends EditorPane {
 
 	// ------------------------------------------------------------------ drag
 
-	/** Nodes called by the same parent: the only ones a drop can mean something with. */
-	private siblingsOf(id: SemanticKey): SemanticKey[] {
-		if (!this.current) {
-			return [];
-		}
-		const exec = this.current.graph.edges.filter(edge => edge.wire === 'exec');
-		const parent = exec.find(edge => edge.to.node === id)?.from.node;
-		if (parent === undefined) {
-			return [];
-		}
-		const self = this.views.get(id)?.node;
-		if (self?.ghost || self?.kind === 'branch') {
-			return [];
-		}
-		// A ghost never ran and a branch is not a call, so neither can be run together.
-		return [...new Set(exec.filter(edge => edge.from.node === parent).map(edge => edge.to.node))]
-			.filter(other => other !== id)
-			.filter(other => {
-				const node = this.views.get(other)?.node;
-				return node !== undefined && !node.ghost && node.kind !== 'branch';
-			});
-	}
-
 	private isRepeated(node: GNode): boolean {
 		return node.metrics.calls > 1 && node.facts.some(fact => fact.code === 'n+1');
 	}
 
-	/** Branches under the same parent: dropping a step on one moves it into a side. */
-	private branchTargetsOf(id: SemanticKey): SemanticKey[] {
-		if (!this.current) {
-			return [];
-		}
-		const self = this.views.get(id)?.node;
-		if (!self || self.ghost || self.kind === 'branch') {
-			return [];
-		}
-		const exec = this.current.graph.edges.filter(edge => edge.wire === 'exec');
-		const parent = exec.find(edge => edge.to.node === id)?.from.node;
-		if (parent === undefined || this.views.get(parent)?.node.kind === 'branch') {
-			return [];
-		}
-		return exec.filter(edge => edge.from.node === parent).map(edge => edge.to.node)
-			.filter(other => this.views.get(other)?.node.kind === 'branch');
-	}
-
-	/** Which output of a branch the pointer is over: the nearer of its True and False rows. */
-	private sideAt(card: HTMLElement, clientY: number): 'true' | 'false' {
-		const yes = card.querySelector('.side-true')?.getBoundingClientRect();
-		const no = card.querySelector('.side-false')?.getBoundingClientRect();
-		if (!yes || !no) {
-			const rect = card.getBoundingClientRect();
-			return clientY < rect.top + rect.height / 2 ? 'true' : 'false';
-		}
-		return Math.abs(clientY - (yes.top + yes.height / 2)) <= Math.abs(clientY - (no.top + no.height / 2)) ? 'true' : 'false';
-	}
-
+	/** Dragging a node only moves it on the canvas. It never changes code. */
 	private installDrag(card: HTMLElement, node: GNode): void {
 		this.rendered.add(dom.addDisposableListener(card, dom.EventType.POINTER_DOWN, (down: PointerEvent) => {
 			if (down.button !== 0 || this.busy || (down.target as HTMLElement | null)?.closest?.('.vibez-node-action, .vibez-fact.action')) {
@@ -681,11 +630,6 @@ export class VibezEditor extends EditorPane {
 
 			const start = this.offsetOf(node.id);
 			let dragging = false;
-			let target: SemanticKey | undefined;
-			let side: 'true' | 'false' | undefined;
-			const candidates = this.siblingsOf(node.id);
-			const branches = this.branchTargetsOf(node.id);
-			const hint = dom.$('.vibez-drop-hint');
 			try {
 				card.setPointerCapture(down.pointerId);
 			} catch {
@@ -693,61 +637,18 @@ export class VibezEditor extends EditorPane {
 			}
 
 			const move = (event: PointerEvent) => {
-				const dx = (event.clientX - down.clientX) / this.scale;
-				const dy = (event.clientY - down.clientY) / this.scale;
 				if (!dragging) {
 					if (Math.hypot(event.clientX - down.clientX, event.clientY - down.clientY) < DRAG_THRESHOLD) {
 						return;
 					}
 					dragging = true;
-					this.root.classList.add('dragging');
 					card.classList.add('dragging');
-					for (const id of [...candidates, ...branches]) {
-						this.views.get(id)?.card.classList.add('drop-candidate');
-					}
 				}
-				this.offsets.set(node.id, { dx: start.dx + dx, dy: start.dy + dy });
+				this.offsets.set(node.id, {
+					dx: start.dx + (event.clientX - down.clientX) / this.scale,
+					dy: start.dy + (event.clientY - down.clientY) / this.scale,
+				});
 				this.reposition(node.id);
-
-				const over = (id: SemanticKey) => {
-					const rect = this.views.get(id)?.card.getBoundingClientRect();
-					return rect !== undefined && event.clientX >= rect.left && event.clientX <= rect.right
-						&& event.clientY >= rect.top && event.clientY <= rect.bottom;
-				};
-				const overBranch = branches.find(over);
-				const next = overBranch ?? candidates.find(over);
-				const nextSide = overBranch ? this.sideAt(this.views.get(overBranch)!.card, event.clientY) : undefined;
-				if (next !== target || nextSide !== side) {
-					if (target) {
-						const previous = this.views.get(target)?.card;
-						previous?.classList.remove('drop-target');
-						previous?.querySelectorAll('.drop-side').forEach(row => row.classList.remove('drop-side'));
-					}
-					target = next;
-					side = nextSide;
-					if (target) {
-						const view = this.views.get(target)!;
-						view.card.classList.add('drop-target');
-						if (side) {
-							view.card.querySelector(`.side-${side}`)?.classList.add('drop-side');
-							hint.textContent = side === 'true'
-								? localize('vibez.drop.true', "Run when True")
-								: localize('vibez.drop.false', "Run when False");
-						} else {
-							hint.textContent = localize('vibez.drop.hint', "Run together");
-						}
-						// The hint lives in the world, not the card: cards clip their contents.
-						const box = view.card;
-						hint.style.left = `${box.offsetLeft + box.offsetWidth / 2}px`;
-						hint.style.top = `${box.offsetTop - 30}px`;
-						this.world.appendChild(hint);
-					} else {
-						hint.remove();
-					}
-					// Over a target, the dragged step goes see-through, so the row it
-					// would land on is visible underneath it.
-					card.classList.toggle('over-target', target !== undefined);
-				}
 			};
 
 			const end = (event: PointerEvent | KeyboardEvent) => {
@@ -755,15 +656,7 @@ export class VibezEditor extends EditorPane {
 				upListener.dispose();
 				cancelListener.dispose();
 				keyListener.dispose();
-				hint.remove();
-				this.root.classList.remove('dragging');
-				card.classList.remove('dragging', 'over-target');
-				for (const id of [...candidates, ...branches]) {
-					const other = this.views.get(id)?.card;
-					other?.classList.remove('drop-candidate', 'drop-target');
-					other?.querySelectorAll('.drop-side').forEach(row => row.classList.remove('drop-side'));
-				}
-
+				card.classList.remove('dragging');
 				if (!dragging) {
 					if (event.type === 'pointerup') {
 						this.select(card, node);
@@ -776,26 +669,11 @@ export class VibezEditor extends EditorPane {
 					this.reposition(node.id);
 					return;
 				}
-				if (target && event.type === 'pointerup') {
-					// The drop is a request, not a move: the node goes back to where
-					// it was, and the canvas asks what that request would change.
-					this.offsets.set(node.id, start);
-					this.reposition(node.id);
-					const other = this.views.get(target)!.node;
-					if (other.kind === 'branch' && side) {
-						void this.runIntoBranch(node, other, side);
-					} else {
-						void this.runTogether(node, other);
-					}
-					return;
-				}
 				void this.saveLayout();
 			};
 
-			// The rest of the drag is followed on the window, not the card. Pointer
-			// capture does not always take, and when it does not, the release lands
-			// on whatever is under the cursor — usually the drop target — and a
-			// card-scoped listener never hears it, leaving the canvas mid-drag.
+			// Followed on the window, not the card: pointer capture does not always
+			// take, and a release that lands elsewhere must still end the drag.
 			const win = dom.getWindow(card);
 			const moveListener = dom.addDisposableListener(win, dom.EventType.POINTER_MOVE, move);
 			const upListener = dom.addDisposableListener(win, dom.EventType.POINTER_UP, end);
@@ -951,49 +829,6 @@ export class VibezEditor extends EditorPane {
 		});
 	}
 
-	private async runIntoBranch(node: GNode, branch: GNode, side: 'true' | 'false'): Promise<void> {
-		const before = this.current?.graph;
-		if (!before || !branch.branch) {
-			return;
-		}
-		this.clearMarks();
-		const sideName = side === 'true' ? 'True' : 'False';
-		const title = localize('vibez.move.title', "Run {0} when {1}", node.label, sideName);
-		const output = node.ports.out.find(port => port.kind === 'data');
-		const empty = EMPTY_FOR[output?.type ?? 'Unknown'] ?? 'undefined';
-		this.card({ title, body: localize('vibez.merge.working', "Working out the change…") });
-
-		let plan: IVibezGesturePlan;
-		try {
-			plan = await this.captureService.planMove(
-				{ file: branch.branch.file, line: branch.branch.line, condition: branch.branch.condition },
-				this.symbolOf(node), side, empty);
-		} catch (error) {
-			this.refuse(localize('vibez.merge.failed', "Could not plan that: {0}", String(error)), localize('vibez.move.cannot', "Can't move that into the branch"));
-			return;
-		}
-		if (!plan.ok) {
-			this.refuse(plan.reason ?? '', localize('vibez.move.cannot', "Can't move that into the branch"));
-			return;
-		}
-		this.card({
-			title,
-			body: plan.summary,
-			where: plan.relative && plan.line ? `${plan.relative}:${plan.line}` : undefined,
-			diff: plan.original !== undefined && plan.replacement !== undefined
-				? previewText(plan.original, plan.replacement, plan.fileText, plan.start)
-				: undefined,
-			note: output
-				? localize('vibez.move.note', "When the branch goes the other way, {0} is {1}.", output.name, empty)
-				: undefined,
-			actions: [
-				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
-				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [node.id, branch.id],
-					localize('vibez.move.undoLabel', "Run {0} when {1}", node.label, sideName), before, title) },
-			]
-		});
-	}
-
 	private async runBatch(node: GNode): Promise<void> {
 		const before = this.current?.graph;
 		if (!before) {
@@ -1041,42 +876,6 @@ export class VibezEditor extends EditorPane {
 		}
 	}
 
-	private async runTogether(a: GNode, b: GNode): Promise<void> {
-		this.clearMarks();
-		const before = this.current?.graph;
-		if (!before) {
-			return;
-		}
-		this.card({ title: localize('vibez.merge.title', "Run together"), body: localize('vibez.merge.working', "Working out the change…") });
-
-		let plan: IVibezGesturePlan;
-		try {
-			plan = await this.captureService.planMerge(this.symbolOf(a), this.symbolOf(b));
-		} catch (error) {
-			this.refuse(localize('vibez.merge.failed', "Could not plan that: {0}", String(error)));
-			return;
-		}
-		if (!plan.ok) {
-			this.refuse(plan.reason ?? localize('vibez.merge.cannot', "Those two cannot run together."));
-			return;
-		}
-
-		this.card({
-			title: localize('vibez.merge.title', "Run together"),
-			body: plan.summary,
-			where: plan.relative && plan.line ? `${plan.relative}:${plan.line}` : undefined,
-			diff: plan.original !== undefined && plan.replacement !== undefined
-				? previewText(plan.original, plan.replacement, plan.fileText, plan.start)
-				: undefined,
-			note: plan.hoisted ? localize('vibez.merge.hoisted', "One step moves up to sit beside the other. Everything between them stays in order.") : undefined,
-			actions: [
-				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
-				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [a.id, b.id],
-					localize('vibez.merge.undoLabel', "Run {0} and {1} together", a.label, b.label), before, localize('vibez.merge.title', "Run together")) },
-			]
-		});
-	}
-
 	private async apply(plan: IVibezGesturePlan, pulseIds: SemanticKey[], undoLabel: string, before: Graph, title: string): Promise<void> {
 		this.busy = true;
 		const steps: Record<Step, 'waiting' | 'active' | 'done'> = { edit: 'active', restart: 'waiting', measure: 'waiting' };
@@ -1096,7 +895,7 @@ export class VibezEditor extends EditorPane {
 		const applied = await this.applyEdit(plan, undoLabel);
 		if (!applied) {
 			this.busy = false;
-			this.refuse(localize('vibez.merge.stale', "{0} changed since the plan was made. Drag again to redo it.", file));
+			this.refuse(localize('vibez.merge.stale', "{0} changed since the plan was made. Try it again.", file));
 			return;
 		}
 		this.lastApplied = applied;
@@ -1290,7 +1089,7 @@ export class VibezEditor extends EditorPane {
 		dom.clearNode(this.cardHost);
 	}
 
-	private refuse(reason: string, title = localize('vibez.refuse.title', "Can't run those together")): void {
+	private refuse(reason: string, title = localize('vibez.refuse.title', "Can't make that change")): void {
 		this.card({
 			title,
 			body: reason,
@@ -1462,7 +1261,7 @@ export class VibezEditor extends EditorPane {
 		let lastX = 0;
 		let lastY = 0;
 		const interactive = (target: EventTarget | null) =>
-			(target as HTMLElement | null)?.closest?.('.vibez-node, .vibez-card, .vibez-drop-hint') !== null;
+			(target as HTMLElement | null)?.closest?.('.vibez-node, .vibez-card') !== null;
 
 		this._register(dom.addDisposableListener(this.root, dom.EventType.POINTER_DOWN, (event: PointerEvent) => {
 			if (interactive(event.target)) {

@@ -38,7 +38,7 @@ export interface IVibezSelection {
 
 export interface IVibezGesturePlan {
 	ok: boolean;
-	/** Why it could not be done, phrased for the person who dragged. */
+	/** Why it could not be done, phrased for the person who asked. */
 	reason?: string;
 	summary?: string;
 	/** Absolute path of the file that would change. */
@@ -49,16 +49,8 @@ export interface IVibezGesturePlan {
 	end?: number;
 	replacement?: string;
 	original?: string;
-	hoisted?: boolean;
 	/** The whole file as it was when planned, so a stale plan is caught before it lands. */
 	fileText?: string;
-}
-
-/** Where a branch is, as the graph last read it: workspace-relative file, line and condition. */
-export interface IVibezBranchRef {
-	file: string;
-	line: number;
-	condition: string;
 }
 
 export interface IVibezReplayResult {
@@ -78,14 +70,10 @@ export interface IVibezCaptureService {
 	preview(target: string): Promise<IVibezPreviewInfo>;
 	/** The last region clicked inside the preview. */
 	selection(): Promise<IVibezSelection>;
-	/** Work out what dragging `a` onto `b` would change. Reads, never writes. */
-	planMerge(a: string, b: string): Promise<IVibezGesturePlan>;
 	/** After an edit: wait for the app to restart, then measure it again. */
 	replay(runs: number): Promise<IVibezReplayResult>;
 	/** Work out what putting `symbol` behind `condition` would change. Reads, never writes. */
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan>;
-	/** Work out what moving `symbol` into one side of a branch would change. */
-	planMove(branch: IVibezBranchRef, symbol: string, side: 'true' | 'false', empty: string): Promise<IVibezGesturePlan>;
 	/** Work out what starting every lookup in `symbol`'s loop at once would change. */
 	planBatch(symbol: string, count: number): Promise<IVibezGesturePlan>;
 }
