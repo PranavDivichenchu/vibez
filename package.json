@@ -3,11 +3,18 @@
   "private": true,
   "version": "0.0.0",
   "description": "An IDE where your codebase is a node graph built from what actually ran",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "trace": "node scripts/trace.ts"
   },
-  "engines": { "node": ">=22.18" }
+  "engines": {
+    "node": ">=22.18"
+  },
+  "type": "module"
 }

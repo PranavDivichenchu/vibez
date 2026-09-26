@@ -635,3 +635,9 @@ Someone opens their own folder in Vibez and, in under two minutes:
 6. Sees the number drop, and undoes it in one action if they want
 
 And by the tenth time, the interface is calling it an N+1 query, because they now know what that is.
+
+---
+
+## 16+. After v1
+
+Three v2 features — the iPad slate, voice intent, and the multi-agent room — are planned in [plan-v2.md](plan-v2.md). None of them start until §15 is real.
