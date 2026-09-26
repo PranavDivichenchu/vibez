@@ -16,16 +16,31 @@ async function waitFor(url: string, tries = 40): Promise<void> {
   throw new Error(`${url} never came up`);
 }
 
-const capture = await startCapture({ port: 4318, dbPath: ':memory:', mode: 'measured' });
-console.log('  receiver on :4318');
+let capture: Awaited<ReturnType<typeof startCapture>> | undefined;
+let isExternalReceiver = false;
 
-const shop = spawn('node', ['examples/shop/src/server.ts'], { stdio: ['ignore', 'ignore', 'inherit'] });
+try {
+  const res = await fetch('http://127.0.0.1:4318/health');
+  if (res.ok) {
+    isExternalReceiver = true;
+    console.log('  using active IDE receiver on :4318');
+  }
+} catch {
+  // Not running, start our own
+}
+
+if (!isExternalReceiver) {
+  capture = await startCapture({ port: 4318, dbPath: ':memory:', mode: 'measured' });
+  console.log('  receiver on :4318');
+}
+
+const shop = spawn(process.execPath, ['examples/shop/src/server.ts'], { stdio: ['ignore', 'ignore', 'inherit'] });
 await waitFor(SHOP);
 console.log('  shop up, warming up');
 
 for (let i = 0; i < WARMUP; i++) await fetch(SHOP);
 await sleep(600);
-capture.store.clear();           // discard warmup, per the plan's "rough vs measured" rule
+if (capture) capture.store.clear();           // discard warmup, per the plan's "rough vs measured" rule
 
 process.stdout.write(`  measuring ${RUNS} runs `);
 for (let i = 0; i < RUNS; i++) { await fetch(SHOP); process.stdout.write('.'); }
@@ -33,8 +48,15 @@ console.log('');
 await sleep(900);                // let the batch processor export
 
 shop.kill('SIGTERM');
-const graph = capture.graph();
-await capture.close();
+let graph: any;
+if (capture) {
+  graph = capture.graph();
+  await capture.close();
+} else {
+  const { readFileSync } = await import('node:fs');
+  const text = readFileSync('.vibez/flows/default.flow', 'utf8');
+  graph = JSON.parse(text);
+}
 
 const BANDS = ['  ', '· ', '¤ ', '█ '];
 const onPath = new Set(graph.criticalPath);

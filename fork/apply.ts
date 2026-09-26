@@ -26,8 +26,8 @@ const overlay = JSON.parse(readFileSync(join(root, 'fork/overlay/product.json'),
 writeFileSync(productPath, `${JSON.stringify({ ...upstream, ...overlay }, null, '\t')}\n`);
 console.log(`  product.json: ${Object.keys(overlay).length} keys set`);
 
-execFileSync('node', ['scripts/sync-core.ts'], { stdio: 'inherit' });
-execFileSync('node', ['scripts/sync-contrib.ts'], { stdio: 'inherit' });
+execFileSync(process.execPath, ['scripts/sync-core.ts'], { stdio: 'inherit' });
+execFileSync(process.execPath, ['scripts/sync-contrib.ts'], { stdio: 'inherit' });
 
 const registration = join(vscodeDir, 'src/vs/workbench/workbench.common.main.ts');
 const source = readFileSync(registration, 'utf8');

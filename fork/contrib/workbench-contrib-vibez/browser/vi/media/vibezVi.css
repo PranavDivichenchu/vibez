@@ -1,0 +1,123 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Vibez. All rights reserved.
+ *  Licensed under the MIT License.
+ *--------------------------------------------------------------------------------------------*/
+
+.vz-vi {
+	--vz-canvas: #0B0C0E; --vz-dot: #1C1F24; --vz-body: #15171B; --vz-head: #1B1E23;
+	--vz-border: #282C33; --vz-hover: #3C4550; --vz-select: #5B8DEF;
+	--vz-t1: #EDEFF2; --vz-t2: #98A0AA; --vz-t3: #6E767F;
+	--vz-exec: #C7CCD3; --vz-accent: #5B8DEF;
+	--String: #7FB069; --Number: #C9A227; --Boolean: #C08497;
+	--Object: #6EA8D8; --List: #A084C4; --Unknown: #6E767F;
+	position: absolute; inset: 0; display: flex; flex-direction: column;
+	color: var(--vz-t1);
+	font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+	outline: none;
+}
+
+/* ------------------------------------------------------------------ tabs */
+
+.vz-vi-tabs { flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 10px;
+	background: var(--vz-head); border-bottom: 1px solid var(--vz-border); overflow-x: auto; }
+.vz-vi-tab { appearance: none; border: 1px solid transparent; background: transparent; color: var(--vz-t2);
+	font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.vz-vi-tab::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+	margin-right: 6px; background: var(--vz-t3); }
+.vz-vi-tab.value::before { background: var(--Object); }
+.vz-vi-tab.action::before { background: var(--vz-accent); }
+.vz-vi-tab:hover { color: var(--vz-t1); background: var(--vz-body); }
+.vz-vi-tab.active { color: var(--vz-t1); background: var(--vz-body); border-color: var(--vz-border); }
+.vz-vi-tab-add { appearance: none; border: 1px dashed var(--vz-border); background: transparent; color: var(--vz-t2);
+	width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 14px; line-height: 1; }
+.vz-vi-tab-add:hover { color: var(--vz-t1); border-color: var(--vz-hover); }
+
+/* ------------------------------------------------------------------ canvas */
+
+.vz-vi-canvas { position: relative; flex: 1; overflow: hidden; cursor: grab;
+	background-color: var(--vz-canvas);
+	background-image: radial-gradient(var(--vz-dot) 1px, transparent 1px);
+	background-size: 26px 26px;
+}
+.vz-vi-canvas.panning { cursor: grabbing; }
+.vz-vi-world { position: absolute; transform-origin: 0 0; }
+.vz-vi-wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.vz-vi-wire { pointer-events: stroke; cursor: pointer; }
+.vz-vi-wire:hover { filter: brightness(1.4); }
+
+/* ------------------------------------------------------------------ nodes */
+
+.vz-vi-node { position: absolute; background: var(--vz-body); border: 1px solid var(--vz-border);
+	border-radius: 9px; overflow: visible; transition: border-color .12s ease, box-shadow .12s ease; }
+.vz-vi-node:hover { border-color: var(--vz-hover); }
+.vz-vi-node.selected { border-color: var(--vz-select); box-shadow: 0 0 0 3px rgba(91, 141, 239, .16); }
+.vz-vi-node.kind-entry, .vz-vi-node.kind-return { border-color: var(--vz-accent); }
+
+.vz-vi-head { height: 32px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
+	background: var(--vz-head); border-bottom: 1px solid var(--vz-border); border-radius: 8px 8px 0 0;
+	cursor: grab; user-select: none; }
+.vz-vi-head svg { flex: none; }
+.vz-vi-head .name { flex: 1; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vz-vi-remove { appearance: none; border: none; background: transparent; color: var(--vz-t3); font-size: 14px;
+	line-height: 1; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.vz-vi-remove:hover { color: var(--vz-t1); background: var(--vz-hover); }
+
+.vz-vi-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+.vz-vi-row { height: 22px; display: flex; align-items: center; padding: 0 10px; font-size: 11px; color: var(--vz-t2); gap: 6px; }
+.vz-vi-row .left { display: flex; gap: 6px; }
+.vz-vi-row .right { margin-left: auto; display: flex; gap: 6px; }
+
+.vz-vi-fields { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px; }
+.vz-vi-field { font: inherit; font-size: 11px; background: var(--vz-canvas); color: var(--vz-t1);
+	border: 1px solid var(--vz-border); border-radius: 5px; padding: 4px 6px; width: 100%; box-sizing: border-box; }
+.vz-vi-field:focus { outline: none; border-color: var(--vz-select); }
+.vz-vi-readonly { font-size: 11px; color: var(--vz-t2); font-family: var(--monaco-monospace-font); padding: 2px 10px 6px; display: block; }
+
+/* Inputs are sockets: recessed, hollow, sitting in the node's edge. */
+.vz-vi-pin.socket { position: absolute; width: 11px; height: 11px; border-radius: 50%;
+	border: 2px solid var(--Unknown); background: var(--vz-canvas); cursor: crosshair; }
+.vz-vi-pin.socket.connected { background: currentColor; }
+.vz-vi-pin.socket:hover { transform: scale(1.3); }
+
+/* Outputs are plugs: solid, on a short stem, sticking out past the edge. */
+.vz-vi-plug { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: currentColor; cursor: crosshair; }
+.vz-vi-plug::after { content: ''; position: absolute; left: 8px; top: 3.5px; width: 5px; height: 2px; background: currentColor; border-radius: 1px; }
+.vz-vi-plug.loose { background: var(--vz-body); box-shadow: inset 0 0 0 2px currentColor; }
+.vz-vi-plug:hover { transform: scale(1.3); }
+
+.vz-vi-exec { position: absolute; cursor: crosshair; }
+.vz-vi-port { z-index: 2; }
+
+/* ------------------------------------------------------------------ search */
+
+.vz-vi-search { position: absolute; width: 260px; max-height: 320px; display: flex; flex-direction: column;
+	background: var(--vz-head); border: 1px solid var(--vz-border); border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 20; overflow: hidden; }
+.vz-vi-search-input { font: inherit; font-size: 12.5px; padding: 9px 12px; background: transparent; color: var(--vz-t1);
+	border: none; border-bottom: 1px solid var(--vz-border); outline: none; }
+.vz-vi-search-list { overflow-y: auto; padding: 4px; }
+.vz-vi-search-group { padding: 6px 8px 2px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--vz-t3); }
+.vz-vi-search-item { display: flex; flex-direction: column; align-items: flex-start; width: 100%; box-sizing: border-box;
+	appearance: none; border: none; background: transparent; color: var(--vz-t1); text-align: left;
+	padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.vz-vi-search-item .label { font-size: 12px; }
+.vz-vi-search-item .hint { font-size: 10.5px; color: var(--vz-t3); }
+.vz-vi-search-item.active, .vz-vi-search-item:hover { background: var(--vz-select); }
+.vz-vi-search-item.active .label, .vz-vi-search-item:hover .label { color: white; }
+.vz-vi-search-item.active .hint, .vz-vi-search-item:hover .hint { color: rgba(255,255,255,.75); }
+.vz-vi-search-empty { padding: 14px 10px; font-size: 12px; color: var(--vz-t3); text-align: center; }
+
+/* ------------------------------------------------------------------ problem & toast */
+
+.vz-vi-problem { display: none; position: absolute; inset: 0; flex-direction: column; align-items: center;
+	justify-content: center; gap: 8px; background: var(--vz-canvas); color: var(--vz-t2); text-align: center; padding: 24px; }
+.vz-vi-problem.show { display: flex; }
+.vz-vi-problem .title { font-size: 14px; color: var(--vz-t1); }
+.vz-vi-problem .reason { font-size: 12px; max-width: 420px; }
+.vz-vi-btn { appearance: none; border: 1px solid var(--vz-border); background: var(--vz-body); color: var(--vz-t1);
+	font-size: 12px; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-top: 6px; }
+.vz-vi-btn:hover { border-color: var(--vz-hover); }
+
+.vz-vi-toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+	background: var(--vz-head); border: 1px solid var(--vz-border); color: var(--vz-t1);
+	font-size: 12px; padding: 8px 14px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.35); z-index: 15; }

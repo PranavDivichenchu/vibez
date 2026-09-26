@@ -14,27 +14,23 @@ import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/edit
 import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { EditorExtensions } from '../../../common/editor.js';
 import { IEditorResolverService, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
-import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
+import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
-import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
 import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
-import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
 import { VibezUiEditor } from './ui/vibezUiEditor.js';
 import { VibezUiEditorInput } from './ui/vibezUiEditorInput.js';
+import { VibezViEditor } from './vi/viEditor.js';
+import { VibezViEditorInput } from './vi/viEditorInput.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { dirname } from '../../../../base/common/resources.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../../platform/configuration/common/configurationRegistry.js';
-
-const VIBEZ_CONTAINER_ID = 'workbench.view.vibez';
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(VibezEditor, VibezEditor.ID, localize('vibez.pane', "Graph")),
@@ -44,6 +40,11 @@ Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(VibezUiEditor, VibezUiEditor.ID, localize('vibez.uiPane', "Page")),
 	[new SyncDescriptor(VibezUiEditorInput)]
+);
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezViEditor, VibezViEditor.ID, localize('vibez.viPane', "Logic")),
+	[new SyncDescriptor(VibezViEditorInput)]
 );
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
@@ -58,33 +59,12 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 }]);
 
 /**
- * Vibez gets its own rail entry, beside Explorer and Search rather than below
- * them. The graph is a way of working, not a panel you go find.
- */
-const vibezViewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
-	id: VIBEZ_CONTAINER_ID,
-	title: localize2('vibez.container', "Vibez"),
-	icon: Codicon.circuitBoard,
-	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEZ_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-	storageId: VIBEZ_CONTAINER_ID,
-	order: 2,
-}, ViewContainerLocation.Sidebar, { isDefault: false });
-
-Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
-	id: VibezFlowsView.ID,
-	name: localize2('vibez.flows', "Flows"),
-	containerIcon: Codicon.circuitBoard,
-	ctorDescriptor: new SyncDescriptor(VibezFlowsView),
-	canToggleVisibility: false,
-	canMoveView: true,
-	// The container already registers workbench.view.vibez; declaring an open
-	// command here too collides on that id and takes the whole workbench down.
-}], vibezViewContainer);
-
-/**
- * `.flow` files open as a graph by default, the way `.md` opens in a preview.
- * The association is part of the product rather than something contributed at
- * runtime, so it holds on first launch with no extensions installed at all.
+ * `.vi` and `.ui` files open as their own editors by default, the way `.md`
+ * opens in a preview. The association is part of the product rather than
+ * something contributed at runtime, so it holds on first launch with no
+ * extensions installed at all. There is no separate rail entry or file list
+ * for either: a `.vi` file's logic graph opens the moment you open the file,
+ * the same way its `.ui` page already does.
  */
 class VibezContribution extends Disposable implements IWorkbenchContribution {
 
@@ -95,8 +75,6 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 		@IVibezCaptureService captureService: IVibezCaptureService,
 		@IWorkspaceContextService contextService: IWorkspaceContextService,
 		@ILogService logService: ILogService,
-		@IFileService fileService: IFileService,
-		@IEditorService editorService: IEditorService,
 	) {
 		super();
 
@@ -109,34 +87,6 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 				error => logService.warn(`[vibez] capture failed to start: ${error}`));
 		}
 
-		// If this workspace has a flow, open it. An empty editor area on launch is
-		// better than someone else's welcome page, but the graph is better still.
-		const startupFlow = folder?.uri.scheme === 'file' ? URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow') : undefined;
-		// The graph and the running app, side by side. Only on a window that has
-		// nothing else open: restoring someone's tabs beats being opinionated.
-		if (startupFlow) {
-			fileService.exists(startupFlow).then(async exists => {
-				if (!exists || editorService.activeEditor !== undefined) {
-					return;
-				}
-				await editorService.openEditor(new VibezEditorInput(startupFlow), { pinned: true });
-				await editorService.openEditor(new VibezPreviewEditorInput(), { pinned: true, preserveFocus: true }, SIDE_GROUP);
-			}, () => undefined);
-		}
-
-		this._register(editorResolverService.registerEditor(
-			'**/*.flow',
-			{
-				id: VibezEditor.ID,
-				label: localize('vibez.editor.label', "Vibez graph"),
-				// Exclusive, not default: nothing else owns .flow, and prompting
-				// the reader to choose an editor for our own file type is noise.
-				priority: RegisteredEditorPriority.exclusive
-			},
-			{ singlePerResource: true },
-			{ createEditorInput: ({ resource }) => ({ editor: new VibezEditorInput(resource) }) }
-		));
-
 		// A .ui file is a page, built by dragging. The text of it is still one
 		// "Open as text" away, for anyone who wants the JSON.
 		this._register(editorResolverService.registerEditor(
@@ -148,6 +98,20 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 			},
 			{ singlePerResource: true },
 			{ createEditorInput: ({ resource }) => ({ editor: new VibezUiEditorInput(resource) }) }
+		));
+
+		// A .vi file is logic, built as a node graph. Double-clicking it is the
+		// only way in: there is no separate rail entry or file list for it, the
+		// same way a `.ui` page needs none.
+		this._register(editorResolverService.registerEditor(
+			'**/*.vi',
+			{
+				id: VibezViEditor.ID,
+				label: localize('vibez.vi.editor.label', "Vibez logic"),
+				priority: RegisteredEditorPriority.default
+			},
+			{ singlePerResource: true },
+			{ createEditorInput: ({ resource }) => ({ editor: new VibezViEditorInput(resource) }) }
 		));
 	}
 }
@@ -165,27 +129,6 @@ registerAction2(class extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await accessor.get(IEditorService).openEditor(new VibezPreviewEditorInput(), { pinned: true });
-	}
-});
-
-registerAction2(class extends Action2 {
-	constructor() {
-		super({
-			id: 'vibez.openGraph',
-			title: localize2('vibez.openGraph', "Vibez: Open the graph"),
-			f1: true
-		});
-	}
-
-	async run(accessor: ServicesAccessor): Promise<void> {
-		const contextService = accessor.get(IWorkspaceContextService);
-		const editorService = accessor.get(IEditorService);
-		const folder = contextService.getWorkspace().folders[0];
-		if (!folder) {
-			return;
-		}
-		const flow = URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow');
-		await editorService.openEditor(new VibezEditorInput(flow), { pinned: true });
 	}
 });
 

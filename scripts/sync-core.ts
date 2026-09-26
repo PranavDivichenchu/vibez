@@ -77,6 +77,29 @@ for (const [from, to] of Object.entries(UI_FILES)) {
 }
 console.log(`  synced ${Object.keys(UI_FILES).length} ui files -> platform/vibez/common`);
 
+// The logic graph editor's core: isomorphic like the rest, and it imports the
+// graph's core files above by relative path, so it is synced after them and
+// its own imports are rewritten the same way.
+const VI_FILES: Record<string, string> = {
+  'types.ts': 'vibezViTypes.ts',
+  'ops.ts': 'vibezViOps.ts',
+  'scope.ts': 'vibezViScope.ts',
+  'catalog.ts': 'vibezViCatalog.ts',
+};
+for (const [from, to] of Object.entries(VI_FILES)) {
+  let source = readFileSync(join('packages/vi/src', from), 'utf8');
+  if (/from 'node:/.test(source)) {
+    console.error(`  vi/${from} imports Node and cannot cross into the fork.`);
+    process.exit(1);
+  }
+  for (const [a, b] of Object.entries(VI_FILES)) {
+    source = source.replaceAll(`'./${a}'`, `'./${b.replace(/\.ts$/, '.js')}'`);
+  }
+  source = source.replaceAll(`'../../core/src/types.ts'`, `'./vibezTypes.js'`);
+  writeFileSync(join(target, to), HEADER.replace('packages/core', 'packages/vi') + source);
+}
+console.log(`  synced ${Object.keys(VI_FILES).length} vi files -> platform/vibez/common`);
+
 // The codemods need the TypeScript compiler at runtime, so they live in the
 // node layer and are loaded lazily by the main process, never at startup.
 const nodeTarget = join(forkDir(), 'src/vs/platform/vibez/node');
