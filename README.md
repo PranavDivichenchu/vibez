@@ -123,11 +123,17 @@ of the page is hidden.
   where a link goes and an image's file and description. Changes show on the
   page as you make them and save to that element's own `style` attribute in
   the HTML file, so nothing else on the site changes.
-- **Move something**: in Inspect mode, press on it and drag. A blue line shows
-  where it will land (before or after another element, in any container). The
-  element moves in the HTML, so the layout still works on phones. To move a
-  whole card or section, click the larger element in the inspector's
-  breadcrumb first, then drag.
+- **Move something**: in Inspect mode, press on anything and drag it. It
+  follows the cursor and stays exactly where you drop it. Pink guides snap it
+  into line with other elements (hold Option to place it freely), and the
+  arrow keys nudge it by 1px (Shift: 10px). Drop it in a different section
+  and it moves into that section. The position is saved on that element
+  only; **Put back in its place** in the Edit panel undoes the move.
+  To move a whole card or section, click the larger element in the
+  inspector's breadcrumb first, then drag.
+- **Reorder** (toolbar): the other way to drag. The element slots in
+  before or after another one (a blue line shows where), which keeps the
+  page's layout flowing naturally on every screen size.
 - **Undo / Redo** (`⌘Z`, `⇧⌘Z`, or the toolbar) cover every canvas change.
   A file with unsaved changes in an editor is never written, and a change is
   refused if the file no longer matches the page on screen.

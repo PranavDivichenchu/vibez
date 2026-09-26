@@ -327,6 +327,7 @@ on(document, 'click', function(e){
   var el = pick(e.target);
   e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
   selected = el; refresh();
+  try { window.focus(); } catch (x) {}
   if (e.altKey && mode !== 'inspect' && el) { post({ type: 'inspect', info: info(el) }); }
 }, true);
 on(document, 'submit', function(e){ if (mode === 'inspect') { e.preventDefault(); e.stopPropagation(); } }, true);
@@ -516,6 +517,7 @@ on(document, 'pointerdown', function(e){
   if (!movable(el)) { return; }
   press = { el: el, x: e.clientX, y: e.clientY };
   e.preventDefault();
+  try { window.focus(); } catch (x) {}
 }, true);
 on(document, 'dragstart', function(e){ if (mode === 'inspect') { e.preventDefault(); } }, true);
 on(document, 'pointermove', function(e){
@@ -597,7 +599,7 @@ on(window, 'message', function(e){
   if (m.type === 'restore') {
     if (m.sy) { scrollTo(0, m.sy); }
     var se = byAt(m.at);
-    if (se) { selected = se; refresh(); }
+    if (se) { selected = se; refresh(); try { window.focus(); } catch (x) {} }
     if (m.report) { post({ type: 'reselected', info: se ? info(se) : null }); }
   }
   if (m.type === 'nudgeKey' && selected && movable(selected) && FROM_DISK && mode === 'inspect') { nudge(m.dx, m.dy); }
