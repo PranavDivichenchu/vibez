@@ -24,7 +24,9 @@ import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/edit
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../webview/browser/webview.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
+import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { siteCanvasHtml } from './vibezSiteCanvas.js';
+import { siteHistory } from './vibezSiteHistory.js';
 
 const APP_URL_KEY = 'vibez.site.appUrl';
 const MAX_FILE_BYTES = 512_000;
@@ -46,11 +48,8 @@ type EditOp =
 	| { op: 'attr'; name: string; value: string | null }
 	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' | 'inside' };
 
-interface EditStep { file: string; before: string; after: string }
-
 /** Attributes the edit panel may change. Anything else is edited in code. */
 const EDITABLE_ATTRIBUTES = /^(href|src|alt|title|placeholder|style)$/;
-const MAX_UNDO = 200;
 
 interface CanvasPage { id: string; route: string; file: string; url: string; match: string; path: string }
 
@@ -76,8 +75,8 @@ export class VibezPagesEditor extends EditorPane {
 	private sources = new Map<string, string>();
 	private pages: PageNode[] = [];
 	private graph: GraphLike | null = null;
-	private readonly undoStack: EditStep[] = [];
-	private readonly redoStack: EditStep[] = [];
+	/** Set by the dashboard: the page to bring into view the next time the canvas loads. */
+	static focusNext: string | undefined;
 
 	constructor(
 		group: IEditorGroup,
@@ -92,6 +91,17 @@ export class VibezPagesEditor extends EditorPane {
 		@ITextFileService private readonly textFiles: ITextFileService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
+		this._register(siteHistory.onDidChange(e => {
+			if (!this.ready) {
+				return;
+			}
+			if (e.structural) {
+				void this.load();
+			} else if (e.focus) {
+				VibezPagesEditor.focusNext = undefined;
+				this.post({ type: 'focus', file: e.focus });
+			}
+		}));
 	}
 
 	protected createEditor(parent: HTMLElement): void {
@@ -155,6 +165,9 @@ export class VibezPagesEditor extends EditorPane {
 				return this.undo(false);
 			case 'redo':
 				return this.undo(true);
+			case 'addPage':
+				await this.editors.openEditor(new VibezDashboardInput(), { pinned: true });
+				return;
 			case 'open':
 				return this.openSource(String(message.file), Number(message.line) || 1);
 			case 'graph': {
@@ -226,33 +239,36 @@ export class VibezPagesEditor extends EditorPane {
 		}
 		if (html !== before) {
 			await this.write(resource, file, html);
-			this.undoStack.push({ file, before, after: html });
-			if (this.undoStack.length > MAX_UNDO) {
-				this.undoStack.shift();
-			}
-			this.redoStack.length = 0;
+			siteHistory.record({ label: `a change to ${file}`, changes: [{ file, before, after: html }] });
 		}
 		this.post({ type: 'edited', file, at: where });
 	}
 
 	private async undo(redo: boolean): Promise<void> {
-		const from = redo ? this.redoStack : this.undoStack;
-		const to = redo ? this.undoStack : this.redoStack;
-		const step = from[from.length - 1];
-		if (!step || !this.folder) {
-			this.post({ type: 'notice', text: redo ? 'Nothing to redo.' : 'Nothing to undo.' });
+		if (!this.folder) {
 			return;
 		}
-		const resource = URI.joinPath(this.folder, step.file);
-		const current = (await this.files.readFile(resource).catch(() => undefined))?.value.toString();
-		if (current !== (redo ? step.before : step.after) || this.textFiles.isDirty(resource)) {
-			this.post({ type: 'editFailed', file: step.file, reason: `${step.file} was changed somewhere else since, so ${redo ? 'redo' : 'undo'} would overwrite that. Use the text editor's undo for it.` });
+		const result = await siteHistory.undo(this.files, this.folder, r => this.textFiles.isDirty(r), redo);
+		if (!result.ok) {
+			this.post({ type: 'editFailed', file: '', reason: result.text });
 			return;
 		}
-		from.pop();
-		await this.write(resource, step.file, redo ? step.after : step.before);
-		to.push(step);
-		this.post({ type: 'undone', file: step.file, text: `${redo ? 'Redid' : 'Undid'} a change to ${step.file}` });
+		if (!result.event) {
+			this.post({ type: 'notice', text: result.text });
+			return;
+		}
+		for (const file of result.event.files) {
+			const text = await this.files.readFile(URI.joinPath(this.folder, file)).then(c => c.value.toString(), () => undefined);
+			if (text === undefined) { this.sources.delete(file); } else { this.sources.set(file, text); }
+		}
+		this.pages = discoverPages(this.sources).pages;
+		if (result.event.structural) {
+			this.post({ type: 'notice', text: result.text });
+			return; // the history event reloads the whole canvas
+		}
+		for (const file of result.event.files) {
+			this.post({ type: 'undone', file, text: result.text });
+		}
 	}
 
 	private async write(resource: URI, file: string, html: string): Promise<void> {
@@ -314,8 +330,10 @@ export class VibezPagesEditor extends EditorPane {
 			notes.push(`${skipped} file${skipped === 1 ? ' was' : 's were'} too large or unreadable and skipped.`);
 		}
 		const status = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${appUrl ? `from ${appUrl}` : 'this folder’s files'}${notes.length ? ' · ' + notes.join(' ') : ''}`;
+		const focus = VibezPagesEditor.focusNext;
+		VibezPagesEditor.focusNext = undefined;
 		this.post({
-			type: 'init', pages, fresh, appUrl, suggest, status,
+			type: 'init', pages, fresh, appUrl, suggest, status, focus,
 			emptyTitle: framework.length && !appUrl ? 'Start the app to see its pages' : 'No pages found',
 			note: notes.join(' ') || 'Open a folder with .html pages, or a Next.js app with its dev server running.',
 		});

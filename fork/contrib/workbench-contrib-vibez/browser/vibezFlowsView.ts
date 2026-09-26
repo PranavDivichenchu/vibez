@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VibezPagesInput } from './vibezPagesEditor.js';
+import { VibezDashboardInput } from './vibezDashboardInput.js';
 import * as dom from '../../../../base/browser/dom.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
@@ -63,6 +64,9 @@ export class VibezFlowsView extends ViewPane {
 		const site = dom.append(container, dom.$('button.vibez-open-site'));
 		site.textContent = 'Open Site canvas';
 		this._register(dom.addDisposableListener(site, 'click', () => void this.editorService.openEditor(new VibezPagesInput(), { pinned: true })));
+		const dashboard = dom.append(container, dom.$('button.vibez-open-dashboard'));
+		dashboard.textContent = 'Open Dashboard';
+		this._register(dom.addDisposableListener(dashboard, 'click', () => void this.editorService.openEditor(new VibezDashboardInput(), { pinned: true })));
 		this.list = dom.append(container, dom.$('.vibez-flow-list'));
 
 		const folder = this.contextService.getWorkspace().folders[0];

@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
+import { VibezDashboardEditor } from './vibezDashboardEditor.js';
+import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -241,5 +243,19 @@ registerAction2(class extends Action2 {
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await accessor.get(IEditorService).openEditor(new VibezPagesInput(), { pinned: true });
+	}
+});
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezDashboardEditor, VibezDashboardEditor.ID, localize('vibez.dashboard', "Dashboard")),
+	[new SyncDescriptor(VibezDashboardInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openDashboard', title: localize2('vibez.openDashboard', "Vibez: Open Dashboard"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezDashboardInput(), { pinned: true });
 	}
 });

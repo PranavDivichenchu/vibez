@@ -38,6 +38,8 @@ button,input{font:inherit;color:inherit}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button.on{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);opacity:1}
 .btn{border:1px solid var(--line);background:transparent;border-radius:7px;padding:4px 10px;cursor:pointer}
+#addpage{background:var(--vscode-button-background,#2563eb);color:var(--vscode-button-foreground,#fff);border-color:transparent}
+#addpage:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
 .btn:hover,.seg button:hover{opacity:1;background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.15))}
 .seg button.on:hover{background:var(--vscode-button-hoverBackground,#1d4ed8)}
 #zoom{min-width:40px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -122,6 +124,7 @@ const BODY = String.raw`
   <div class="seg" id="modes"><button data-mode="inspect" title="Hover to see what things are; double-click to explain (I)">Inspect</button><button data-mode="browse" title="Use the site normally (I)">Browse</button></div>
   <div class="seg" id="drags" title="How dragging works in Inspect mode"><button data-drag="free" title="Drag anything anywhere: it stays exactly where you drop it">Move freely</button><button data-drag="layout" title="Drag to reorder: it slots in before or after other elements">Reorder</button></div>
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
+  <button class="btn primary" id="addpage" title="Add a page from a template">+ Add page</button>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
   <button class="btn" id="undo" title="Undo the last change to the site (⌘Z)">Undo</button><button class="btn" id="redo" title="Redo (⇧⌘Z)">Redo</button>
@@ -421,6 +424,7 @@ $('redo').addEventListener('click', function(){ vscode.postMessage({ type: 'redo
 Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function(b){ b.addEventListener('click', function(){ setMode(b.getAttribute('data-mode')); }); });
 Array.prototype.forEach.call(document.querySelectorAll('#devices button'), function(b){ b.addEventListener('click', function(){ setDevice(b.getAttribute('data-dev')); build(); fit(); }); });
 $('fit').addEventListener('click', fit);
+$('addpage').addEventListener('click', function(){ vscode.postMessage({ type: 'addPage' }); });
 Array.prototype.forEach.call(document.querySelectorAll('#drags button'), function(b){ b.addEventListener('click', function(){ setDrag(b.getAttribute('data-drag')); }); });
 $('reload').addEventListener('click', function(){ vscode.postMessage({ type: 'reload' }); });
 var app = $('app');
@@ -560,9 +564,14 @@ window.addEventListener('message', function(e){
     empty.appendChild(document.createTextNode(m.note || ''));
     closePanel();
     build();
-    if (!saved.z || m.fresh) { if (S.cards.length) { focusCard(S.cards[0], false); } else { fit(); } saved.z = S.z; } else { apply(); drawWires(); }
+    var want = m.focus ? S.cards.filter(function(c){ return c.page.file === m.focus; })[0] : null;
+    if (want) { focusCard(want, true); saved.z = S.z; }
+    else if (!saved.z || m.fresh) { if (S.cards.length) { focusCard(S.cards[0], false); } else { fit(); } saved.z = S.z; } else { apply(); drawWires(); }
   } else if (m.type === 'explain' && m.req === S.panelReq) {
     renderPanel(m.result);
+  } else if (m.type === 'focus') {
+    var fc = S.cards.filter(function(c){ return c.page.file === m.file; })[0];
+    if (fc) { focusCard(fc, true); }
   } else if (m.type === 'edited') {
     edited(m);
   } else if (m.type === 'editFailed') {
