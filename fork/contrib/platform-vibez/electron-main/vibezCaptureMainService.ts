@@ -6,10 +6,11 @@
 import { createServer, request as httpRequest, get as httpGet, IncomingMessage, Server } from 'http';
 import { gunzipSync } from 'zlib';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, promises as fsp, watch as fsWatch, FSWatcher } from 'fs';
+import { spawn, ChildProcess } from 'child_process';
 import { join, relative, extname } from '../../../base/common/path.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
+import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezRunLog, IVibezRunStatus, IVibezSelection, IVibezTestRequest, IVibezTestResult } from '../common/vibezCapture.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
 import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
@@ -429,6 +430,146 @@ font:13px/1.6 system-ui;text-align:center">
 		this.traces.clear();
 	}
 
+	// ------------------------------------------------------------------ run
+
+	private runProcess: ChildProcess | undefined;
+	private runEntry: string | undefined;
+	private readonly runPort = 4310;
+	private readonly runLogBuffer: IVibezRunLog[] = [];
+	private runLogSequence = 0;
+
+	private appendRunLog(stream: IVibezRunLog['stream'], text: string): void {
+		if (!text) { return; }
+		this.runLogBuffer.push({ seq: ++this.runLogSequence, stream, text: text.slice(0, 20_000) });
+		if (this.runLogBuffer.length > 500) {
+			this.runLogBuffer.splice(0, this.runLogBuffer.length - 500);
+		}
+	}
+
+	private runStatusNow(): IVibezRunStatus {
+		return this.runProcess
+			? { running: true, entry: this.runEntry, port: this.runPort, url: `http://127.0.0.1:${this.runPort}` }
+			: { running: false };
+	}
+
+	/**
+	 * The "Run" button: a plain `node <entry>` child process, the same way
+	 * `scripts/trace.ts` already starts the shop example for its own tests.
+	 * Only one runs at a time per window — asking to run a different file
+	 * stops whatever was running first, the same way a dev server restart works.
+	 */
+	async runServer(entry: string): Promise<IVibezRunStatus> {
+		if (this.runProcess && this.runEntry === entry) {
+			return this.runStatusNow();
+		}
+		await this.stopServer();
+		this.runLogBuffer.length = 0;
+		this.runEntry = entry;
+		this.appendRunLog('system', 'Starting logic server…\n');
+		const child = spawn(process.execPath, [entry], {
+			env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PORT: String(this.runPort) },
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		this.runProcess = child;
+		child.stdout?.on('data', chunk => this.appendRunLog('stdout', String(chunk)));
+		child.stderr?.on('data', chunk => this.appendRunLog('stderr', String(chunk)));
+		child.on('exit', (code, signal) => {
+			if (this.runProcess === child) {
+				this.appendRunLog(code && code !== 0 ? 'stderr' : 'system', code && code !== 0
+					? `Logic server exited with code ${code}.\n`
+					: signal ? 'Logic server stopped.\n' : 'Logic server finished.\n');
+				this.runProcess = undefined;
+				this.runEntry = undefined;
+			}
+		});
+		child.on('error', error => {
+			this.appendRunLog('stderr', `Could not start logic server: ${error.message}\n`);
+			this.logService.warn(`[vibez] run failed: ${error}`);
+		});
+		// A moment for the port to actually bind, so the caller's "open the
+		// browser" doesn't race a server that hasn't started listening yet.
+		await new Promise(resolve => setTimeout(resolve, 400));
+		return this.runStatusNow();
+	}
+
+	async stopServer(): Promise<IVibezRunStatus> {
+		const child = this.runProcess;
+		this.runProcess = undefined;
+		this.runEntry = undefined;
+		if (child) {
+			this.appendRunLog('system', 'Logic server stopped.\n');
+			// Wait for the process to release its port, or an immediate restart hits EADDRINUSE.
+			await new Promise<void>(resolve => {
+				const timer = setTimeout(resolve, 1500);
+				child.once('exit', () => { clearTimeout(timer); resolve(); });
+				child.kill();
+			});
+		}
+		return { running: false };
+	}
+
+	async runStatus(): Promise<IVibezRunStatus> {
+		return this.runStatusNow();
+	}
+
+	async logicLogs(): Promise<IVibezRunLog[]> {
+		return this.runLogBuffer.slice();
+	}
+
+	async clearLogicLogs(): Promise<void> {
+		this.runLogBuffer.length = 0;
+	}
+
+	async testVi(request: IVibezTestRequest): Promise<IVibezTestResult> {
+		const runner = `
+import { pathToFileURL } from 'node:url';
+const [modulePath, kind, name, rawArgs] = process.argv.slice(1);
+const logs = [];
+for (const level of ['log', 'warn', 'error']) console[level] = (...parts) => logs.push((level === 'log' ? '' : level + ': ') + parts.map((part) => typeof part === 'string' ? part : JSON.stringify(part)).join(' '));
+const started = performance.now();
+try {
+  const target = await import(pathToFileURL(modulePath).href + '?test=' + Date.now());
+  const fn = target.__vibezTest?.[kind + 's']?.[name];
+  if (typeof fn !== 'function') throw new Error(name + ' is not available to test. Compile the graph and try again.');
+  const value = await fn(...JSON.parse(rawArgs));
+  process.stdout.write(JSON.stringify({ ok: true, value: value ?? null, logs, durationMs: performance.now() - started }));
+} catch (error) {
+  process.stdout.write(JSON.stringify({ ok: false, logs, durationMs: performance.now() - started, error: String(error?.message ?? error) }));
+}`;
+		return new Promise((resolve) => {
+			const child = spawn(process.execPath, ['--input-type=module', '-e', runner, request.module, request.kind, request.name, JSON.stringify(request.args)], {
+				env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+				stdio: ['ignore', 'pipe', 'pipe'],
+			});
+			let stdout = '';
+			let stderr = '';
+			const timer = setTimeout(() => {
+				child.kill();
+				this.appendRunLog('stderr', `Test ${request.name} took longer than 10 seconds and was stopped.\n`);
+				resolve({ ok: false, logs: [], durationMs: 10_000, error: 'The test took longer than 10 seconds and was stopped.' });
+			}, 10_000);
+			child.stdout?.on('data', chunk => stdout += String(chunk));
+			child.stderr?.on('data', chunk => stderr += String(chunk));
+			child.on('error', error => {
+				clearTimeout(timer);
+				resolve({ ok: false, logs: [], durationMs: 0, error: String(error.message) });
+			});
+			child.on('exit', () => {
+				clearTimeout(timer);
+				let result: IVibezTestResult;
+				try {
+					result = JSON.parse(stdout) as IVibezTestResult;
+				} catch {
+					result = { ok: false, logs: [], durationMs: 0, error: stderr.trim() || stdout.trim() || 'The test process ended without a result.' };
+				}
+				this.appendRunLog('system', `Test ${request.kind} ${request.name}\n`);
+				for (const line of result.logs) { this.appendRunLog(/^(warn|error): /.test(line) ? 'stderr' : 'stdout', line + '\n'); }
+				this.appendRunLog(result.ok ? 'system' : 'stderr', result.ok ? `Finished in ${Math.round(result.durationMs)} ms\n` : `Failed: ${result.error}\n`);
+				resolve(result);
+			});
+		});
+	}
+
 	override dispose(): void {
 		if (this.pending) {
 			clearTimeout(this.pending);
@@ -436,6 +577,8 @@ font:13px/1.6 system-ui;text-align:center">
 		this.server?.close();
 		this.server = undefined;
 		this.sourceWatcher?.close();
+		this.runProcess?.kill();
+		this.runProcess = undefined;
 		super.dispose();
 	}
 }

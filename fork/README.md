@@ -1,60 +1,32 @@
-# The fork
+# Code – OSS integration
 
-Vibez is a fork of Code – OSS, but the fork is deliberately almost empty.
+Vibez's editors are native workbench contributions, not a bundled extension.
+The pinned upstream checkout lives at `~/.vibez/vscode` by default. Override it
+with `VIBEZ_FORK_DIR`; the setup scripts require a path without spaces for native builds.
 
-Everything that makes Vibez what it is lives in `packages/vibez-core`, an
-ordinary VS Code extension that the fork ships as a built-in. The fork itself
-carries branding and defaults, nothing else.
-
-## Why so little
-
-Every line of divergence from upstream is a merge tax paid every month,
-forever. The budget is **2000 lines against upstream**, measured by
-`npm run fork:diff`. If a feature seems to need core changes, the first
-question is whether the extension API can do it instead.
-
-Cursor and Windsurf forked for real reasons: control of the welcome screen,
-defaults, branding, first-run, and the ability to make a surface first-class
-rather than a webview guest. Those are the only reasons that justify the tax.
-
-## Layout
-
-```
-fork/
-  pinned.json          which upstream tag we track
-  overlay/
-    product.json       merged into upstream's product.json, never replacing it
-  apply.ts             copies the overlay in and bundles the extension
-~/.vibez/vscode        the clone. Outside the repo, and here is why:
-```
-
-**The checkout must live at a path with no spaces.** node-gyp does not quote
-paths, so a single space anywhere above the checkout breaks every native module
-build with a confusing `clang++: no such file or directory` pointing at half a
-path. This repo lives under `georgia tech`, so the default is `~/.vibez/vscode`.
-Override with `VIBEZ_FORK_DIR`; the scripts refuse a path containing a space
-rather than letting you discover it twenty minutes into a build.
-
-## Commands
+`fork/overlay/product.json` supplies branding. `fork/contrib` contains the
+workbench editor, renderer service and main-process service overlays.
+`scripts/sync-core.ts` copies the isomorphic package implementations into the
+platform layer and rewrites their imports for the upstream build. Edit package
+sources here, not their generated copies in the checkout.
 
 ```bash
-npm run fork:setup     clone Code - OSS at the pinned tag
-npm run fork:build     bundle vibez-core, apply the overlay
-npm run fork:diff      measure the divergence against upstream
-npm run fork:run       launch the built fork from source
-npm run ui:harness     serve the page editor's panels in a browser (after sync + compile)
+npm run fork:setup
+npm run fork:build
+(cd ~/.vibez/vscode && npm run compile)
+npm run fork:run -- /path/to/project
+npm run fork:diff
 ```
 
-`fork:setup` needs roughly 5 GB free once upstream's dependencies are installed,
-and upstream's own install takes a while the first time.
+`fork:build` applies the overlay and syncs contributions; it does not compile
+Electron. `fork:run` removes `ELECTRON_RUN_AS_NODE` from the launch environment
+and forwards its arguments to the upstream launcher.
 
-## Known constraint at the pinned tag
+Keep upstream modifications small. Workbench and desktop registration are
+applied by the sync script. The existing `app.ts` main-process service/channel
+registration is maintained in the checkout; inspect `scripts/sync-contrib.ts`
+and `vibezCaptureMainService.ts` when updating the pinned upstream version.
 
-The 1.99.x extension host runs Node 20.18, which has neither `node:sqlite` nor
-TypeScript type stripping. Two consequences:
-
-- The extension is bundled to CommonJS by esbuild rather than run as source.
-- `SpanStore` degrades to an in-memory driver, so traces do not survive a
-  restart. `store.durable` reports which mode it is in.
-
-Both go away on an Electron carrying Node 22.
+The pinned 1.99.x Electron embeds Node 20, while repository tools need Node
+22.18+. Generated logic is plain JavaScript and explicitly uses ESM metadata.
+Trace storage falls back to memory if `node:sqlite` is unavailable.

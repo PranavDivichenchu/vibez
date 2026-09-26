@@ -23,6 +23,7 @@ change appears on the canvas as it is written and is one ⌘Z away.
 | `ui_build` | compile a page to `.vibez/build/<page>.html`, report broken links |
 | `vi_read` | the values and actions a `.vi` file exports |
 | `vi_declare` | add, replace or remove exports (only the exports block is touched) |
+| `vi_run` | compile and test one value, action or function in a fresh process, with logs and a 10-second timeout |
 | `flow_read` | what actually ran: steps, timings, the critical path, problems noticed |
 
 The same vocabulary is available as the resource `vibez://reference`.
@@ -67,6 +68,6 @@ The button's `email` input fills itself from the input saved as `email`.
 
 ## Scope
 
-`.vi` files are the graph editor's. This server reads and writes only their
-`exports` block, per [docs/ui-vi-contract.md](../../docs/ui-vi-contract.md).
+`.vi` files are the graph editor's. Declaration editing changes their
+`exports` block; `vi_run` compiles their existing graphs and executes one selected item, per [docs/ui-vi-contract.md](../../docs/ui-vi-contract.md).
 When the graph format settles, graph reading and editing tools belong here too.

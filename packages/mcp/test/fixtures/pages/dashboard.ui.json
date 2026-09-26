@@ -667,7 +667,7 @@
                     "mode": "hug"
                   }
                 },
-                "label": "Send person",
+                "label": "Send invite",
                 "variant": "primary",
                 "on": {
                   "run": "vi",
@@ -680,7 +680,7 @@
                     }
                   }
                 },
-                "name": "Send person"
+                "name": "Send invite"
               }
             ],
             "name": "Invite"

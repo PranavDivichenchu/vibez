@@ -178,7 +178,12 @@ export function layoutGraph(graph: Graph): Layout {
       ports.push(point);
       pointOf.set(`${node.id}|${port}`, point);
     };
-    add('exec', 'in', 'exec', box.y + GEO.HEADER / 2);
+    // Pure authored nodes deliberately have no execution input. Older layout
+    // code drew a phantom header pin on every node, which made constants and
+    // arithmetic look stateful even though no such port existed in the model.
+    if (node.ports.in.some((p) => p.id === 'exec' && p.kind === 'exec')) {
+      add('exec', 'in', 'exec', box.y + GEO.HEADER / 2);
+    }
     box.rows.forEach((row, i) => {
       const y = box.y + GEO.HEADER + i * GEO.ROW + GEO.ROW / 2;
       if (row.left !== undefined) add(row.left, 'in', 'data', y);

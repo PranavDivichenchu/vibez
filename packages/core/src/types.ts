@@ -3,13 +3,21 @@
 export type NodeKind =
   | 'entry'     // http route, server action, job
   | 'render'    // server component, client hydration
-  | 'compute'   // plain function span
+  | 'compute'   // plain function span, or an authored expression
   | 'data'      // sql, cache read/write
   | 'external'  // third-party fetch
   | 'boundary'  // auth, validation, error handler
   | 'effect'    // mutation, email, file write
   | 'branch'    // an if/else or ?: read from source, with True and False outputs
-  | 'group';    // collapsed subgraph
+  | 'group'     // collapsed subgraph
+  // Authored-only kinds: never produced from a capture, only from the .vi graph
+  // editor. See @vibez/vi, which owns what each one means and how it compiles.
+  | 'return'    // ends a branch of an action/value with a value
+  | 'loop'      // for-each over a List
+  | 'literal'   // a constant
+  | 'variable'  // get or set a named local
+  | 'debug'     // print to console, or throw, while testing
+  | 'call';     // invoke another .vi export or a helper
 
 export type PortType =
   | 'String' | 'Number' | 'Boolean' | 'Object' | 'List' | 'Unknown';
@@ -88,6 +96,12 @@ export interface GNode {
     line: number;
     taken: { true: boolean; false: boolean };
   };
+  /**
+   * Present on an authored node (one placed in the .vi graph editor, rather
+   * than reconstructed from a trace): the settings the compiler needs to
+   * generate this block's code. Opaque here; @vibez/vi owns its shape.
+   */
+  config?: unknown;
 }
 
 export interface PortRef { node: SemanticKey; port: string }

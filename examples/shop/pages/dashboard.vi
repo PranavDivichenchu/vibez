@@ -3,27 +3,3577 @@
   "about": "Placeholder until the graph editor defines .vi. The UI editor reads only the exports block below.",
   "exports": {
     "values": [
-      { "name": "orgName", "type": "String", "sample": "Northwind", "about": "The signed-in organisation" },
-      { "name": "plan", "type": "Object", "fields": { "tier": "String", "renewsOn": "Date" },
-        "sample": { "tier": "Pro", "renewsOn": "12 Oct 2026" } },
-      { "name": "customerCount", "type": "Number", "sample": 12 },
-      { "name": "revenue", "type": "Number", "sample": 70236 },
-      { "name": "orders", "type": "List", "fields": { "customer": "String", "total": "Number", "logo": "Url" },
+      {
+        "name": "orgName",
+        "type": "String",
+        "sample": "Northwind"
+      },
+      {
+        "name": "plan",
+        "type": "Object",
+        "fields": {
+          "tier": "String",
+          "renewsOn": "Date"
+        },
+        "sample": {
+          "tier": "Pro",
+          "renewsOn": "12 Oct 2026"
+        }
+      },
+      {
+        "name": "customerCount",
+        "type": "Number",
+        "sample": 12
+      },
+      {
+        "name": "revenue",
+        "type": "Number",
+        "sample": 70236
+      },
+      {
+        "name": "orders",
+        "type": "List",
+        "fields": {
+          "customer": "String",
+          "total": "Number",
+          "logo": "Url"
+        },
         "sample": [
-          { "customer": "Lantern Bay", "total": 12043, "logo": "https://picsum.photos/seed/lantern/96" },
-          { "customer": "Keystone", "total": 11130, "logo": "https://picsum.photos/seed/keystone/96" },
-          { "customer": "Juniper Co", "total": 10217, "logo": "https://picsum.photos/seed/juniper/96" },
-          { "customer": "Ironwood", "total": 9304, "logo": "https://picsum.photos/seed/ironwood/96" }
-        ] },
-      { "name": "photos", "type": "List", "fields": { "url": "Url" },
+          {
+            "customer": "Lantern Bay",
+            "total": 12043,
+            "logo": "https://picsum.photos/seed/lantern/96"
+          },
+          {
+            "customer": "Keystone",
+            "total": 11130,
+            "logo": "https://picsum.photos/seed/keystone/96"
+          },
+          {
+            "customer": "Juniper Co",
+            "total": 10217,
+            "logo": "https://picsum.photos/seed/juniper/96"
+          },
+          {
+            "customer": "Ironwood",
+            "total": 9304,
+            "logo": "https://picsum.photos/seed/ironwood/96"
+          }
+        ]
+      },
+      {
+        "name": "photos",
+        "type": "List",
+        "fields": {
+          "url": "Url"
+        },
         "sample": [
-          { "url": "https://picsum.photos/seed/nw1/600/450" }, { "url": "https://picsum.photos/seed/nw2/600/450" },
-          { "url": "https://picsum.photos/seed/nw3/600/450" }
-        ] }
+          {
+            "url": "https://picsum.photos/seed/nw1/600/450"
+          },
+          {
+            "url": "https://picsum.photos/seed/nw2/600/450"
+          },
+          {
+            "url": "https://picsum.photos/seed/nw3/600/450"
+          }
+        ]
+      },
+      {
+        "name": "NewValue",
+        "type": "String",
+        "sample": "",
+        "about": "Data this page can display."
+      }
     ],
     "actions": [
-      { "name": "inviteTeammate", "inputs": [{ "name": "email", "type": "String" }], "returns": "Object",
-        "about": "Sends an invite and adds a pending seat" }
+      {
+        "name": "inviteTeammate",
+        "inputs": [
+          {
+            "name": "email",
+            "type": "String"
+          }
+        ],
+        "returns": "Object",
+        "about": "Sends an invite and adds a pending seat"
+      },
+      {
+        "name": "Priintsmth",
+        "inputs": [
+          {
+            "name": "string1",
+            "type": "String"
+          }
+        ],
+        "about": "Work the page can trigger."
+      },
+      {
+        "name": "NewAction",
+        "inputs": [],
+        "about": "Work the page can trigger."
+      }
     ]
+  },
+  "logic": {
+    "orgName": {
+      "flow": "orgName",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-luh9",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "String",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "entry-go9h",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-gudg",
+          "from": {
+            "node": "entry-go9h",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-luh9",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "inviteTeammate": {
+      "flow": "inviteTeammate",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-u3vr",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "in:email",
+                "name": "email",
+                "kind": "data",
+                "type": "String",
+                "connected": false
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-u9zq",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Object",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "compute-6fc4",
+          "kind": "compute",
+          "label": "Make Object",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "fields",
+                "kind": "data",
+                "type": "Object",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "Object",
+                "connected": false
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "makeObject",
+            "label": "Make Object",
+            "inputs": [
+              {
+                "name": "fields",
+                "type": "Object"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "Object"
+              }
+            ]
+          }
+        },
+        {
+          "id": "compute-y5pv",
+          "kind": "compute",
+          "label": "Get Field",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "object",
+                "kind": "data",
+                "type": "Object",
+                "connected": false
+              },
+              {
+                "id": "in:1",
+                "name": "field",
+                "kind": "data",
+                "type": "String",
+                "connected": false
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "value",
+                "kind": "data",
+                "type": "Unknown",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "getField",
+            "label": "Get Field",
+            "inputs": [
+              {
+                "name": "object",
+                "type": "Object"
+              },
+              {
+                "name": "field",
+                "type": "String"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "value"
+              }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-ug3p",
+          "from": {
+            "node": "entry-u3vr",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-u9zq",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-yeor",
+          "from": {
+            "node": "compute-y5pv",
+            "port": "result"
+          },
+          "to": {
+            "node": "compute-6fc4",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "plan": {
+      "flow": "plan",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-uuvc",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Object",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "entry-9pay",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-9vey",
+          "from": {
+            "node": "entry-9pay",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-uuvc",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "customerCount": {
+      "flow": "customerCount",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-verl",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "revenue": {
+      "flow": "revenue",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-vx5x",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "call-n8bo",
+          "kind": "call",
+          "label": "CalculateUnitPrice",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "in:Revenue",
+                "name": "Revenue",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              },
+              {
+                "id": "in:Units Sold",
+                "name": "Units Sold",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "call",
+            "file": "",
+            "name": "CalculateUnitPrice"
+          }
+        },
+        {
+          "id": "literal-g2uj",
+          "kind": "literal",
+          "label": "10000",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "literal",
+            "value": 10000,
+            "type": "Number"
+          }
+        },
+        {
+          "id": "literal-heyn",
+          "kind": "literal",
+          "label": "20",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "literal",
+            "value": 20,
+            "type": "Number"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-njh6",
+          "from": {
+            "node": "call-n8bo",
+            "port": "result"
+          },
+          "to": {
+            "node": "return-vx5x",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-gykh",
+          "from": {
+            "node": "literal-g2uj",
+            "port": "value"
+          },
+          "to": {
+            "node": "call-n8bo",
+            "port": "in:Revenue"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-hp76",
+          "from": {
+            "node": "literal-heyn",
+            "port": "value"
+          },
+          "to": {
+            "node": "call-n8bo",
+            "port": "in:Units Sold"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "orders": {
+      "flow": "orders",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-wftt",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "List",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "photos": {
+      "flow": "photos",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-wseu",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-wyit",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "List",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-x4ms",
+          "from": {
+            "node": "entry-wseu",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-wyit",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "Priintsmth": {
+      "flow": "NewAction",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-75zh",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "in:string1",
+                "name": "string1",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-7c3h",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "compute-zokq",
+          "kind": "compute",
+          "label": "Concatenate",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "a",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              },
+              {
+                "id": "in:1",
+                "name": "b",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "concat",
+            "label": "Concatenate",
+            "inputs": [
+              {
+                "name": "a",
+                "type": "String"
+              },
+              {
+                "name": "b",
+                "type": "String"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "id": "literal-rlz9",
+          "kind": "literal",
+          "label": "arnav",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "literal",
+            "value": "arnav",
+            "type": "String"
+          }
+        },
+        {
+          "id": "debug-joue",
+          "kind": "debug",
+          "label": "Print to Console",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "debug",
+            "op": "log",
+            "level": "log"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-zuoq",
+          "from": {
+            "node": "entry-75zh",
+            "port": "in:string1"
+          },
+          "to": {
+            "node": "compute-zokq",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-rs38",
+          "from": {
+            "node": "literal-rlz9",
+            "port": "value"
+          },
+          "to": {
+            "node": "compute-zokq",
+            "port": "in:1"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-juye",
+          "from": {
+            "node": "compute-zokq",
+            "port": "result"
+          },
+          "to": {
+            "node": "debug-joue",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-k2ny",
+          "from": {
+            "node": "debug-joue",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-7c3h",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "NewAction": {
+      "flow": "NewAction",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-p2q6",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-p8u5",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-pey5",
+          "from": {
+            "node": "entry-p2q6",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-p8u5",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "NewValue": {
+      "flow": "NewValue",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "return-px18",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "String",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    }
+  },
+  "variables": [
+    {
+      "name": "CompanyName",
+      "type": "Number",
+      "mutable": false,
+      "initial": "Bakery",
+      "about": ""
+    },
+    {
+      "name": "CurrRevenue",
+      "type": "String",
+      "mutable": true,
+      "initial": "",
+      "about": "Stored data shared by graphs in this file."
+    }
+  ],
+  "functions": [
+    {
+      "name": "printThing",
+      "inputs": [
+        {
+          "name": "thing",
+          "type": "String"
+        }
+      ]
+    },
+    {
+      "name": "NewFunction",
+      "inputs": []
+    },
+    {
+      "name": "printThing2",
+      "inputs": [
+        {
+          "name": "thing",
+          "type": "String"
+        }
+      ]
+    },
+    {
+      "name": "CalculateUnitPrice",
+      "inputs": [
+        {
+          "name": "Revenue",
+          "type": "Number"
+        },
+        {
+          "name": "Units Sold",
+          "type": "Number"
+        }
+      ],
+      "returns": "Number",
+      "about": "Reusable logic called by other graphs."
+    },
+    {
+      "name": "TotalRevenueCalc",
+      "inputs": [
+        {
+          "name": "price",
+          "type": "Number"
+        },
+        {
+          "name": "units",
+          "type": "Number"
+        }
+      ],
+      "returns": "Number",
+      "about": "Reusable logic called by other graphs."
+    }
+  ],
+  "helpers": {
+    "printThing": {
+      "flow": "printThing",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-qcob",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "in:thing",
+                "name": "thing",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-qisb",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "debug-hu8h",
+          "kind": "debug",
+          "label": "Print to Console",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": false
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "debug",
+            "op": "log",
+            "level": "log"
+          }
+        },
+        {
+          "id": "compute-smiz",
+          "kind": "compute",
+          "label": "Concatenate",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "a",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              },
+              {
+                "id": "in:1",
+                "name": "b",
+                "kind": "data",
+                "type": "String",
+                "connected": false
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "concat",
+            "label": "Concatenate",
+            "inputs": [
+              {
+                "name": "a",
+                "type": "String"
+              },
+              {
+                "name": "b",
+                "type": "String"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "String"
+              }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-i9h4",
+          "from": {
+            "node": "debug-hu8h",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-qisb",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-ssmz",
+          "from": {
+            "node": "entry-qcob",
+            "port": "in:thing"
+          },
+          "to": {
+            "node": "compute-smiz",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-t29h",
+          "from": {
+            "node": "compute-smiz",
+            "port": "result"
+          },
+          "to": {
+            "node": "debug-hu8h",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "NewFunction": {
+      "flow": "NewFunction",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-xil9",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-xop8",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-xut7",
+          "from": {
+            "node": "entry-xil9",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-xop8",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "printThing2": {
+      "flow": "NewFunction2",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-yd31",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "in:thing",
+                "name": "thing",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-yj70",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "debug-risu",
+          "kind": "debug",
+          "label": "Print to Console",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "debug",
+            "op": "log",
+            "level": "log"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-rowu",
+          "from": {
+            "node": "entry-yd31",
+            "port": "in:thing"
+          },
+          "to": {
+            "node": "debug-risu",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-s3bv",
+          "from": {
+            "node": "entry-yd31",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "debug-risu",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-sb8u",
+          "from": {
+            "node": "debug-risu",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-yj70",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "CalculateUnitPrice": {
+      "flow": "NewFunction2",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-k666",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "in:Revenue",
+                "name": "Revenue",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              },
+              {
+                "id": "in:Units Sold",
+                "name": "Units Sold",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-kca5",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "compute-lvkx",
+          "kind": "compute",
+          "label": "Divide (÷)",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "a",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              },
+              {
+                "id": "in:1",
+                "name": "b",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "/",
+            "label": "Divide (÷)",
+            "inputs": [
+              {
+                "name": "a",
+                "type": "Number"
+              },
+              {
+                "name": "b",
+                "type": "Number"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "Number"
+              }
+            ]
+          }
+        },
+        {
+          "id": "compute-47hs",
+          "kind": "compute",
+          "label": "Concatenate",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "a",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              },
+              {
+                "id": "in:1",
+                "name": "b",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "concat",
+            "label": "Concatenate",
+            "inputs": [
+              {
+                "name": "a",
+                "type": "String"
+              },
+              {
+                "name": "b",
+                "type": "String"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "id": "compute-4dls",
+          "kind": "compute",
+          "label": "To String",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "toString",
+            "label": "To String",
+            "inputs": [
+              {
+                "name": "value",
+                "type": "Number"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "id": "literal-wzme",
+          "kind": "literal",
+          "label": "Unit Price: ",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "String",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "literal",
+            "value": "Unit Price: ",
+            "type": "String"
+          }
+        },
+        {
+          "id": "debug-p9dp",
+          "kind": "debug",
+          "label": "Print to Console",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "debug",
+            "op": "log",
+            "level": "log"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-m40s",
+          "from": {
+            "node": "entry-k666",
+            "port": "in:Revenue"
+          },
+          "to": {
+            "node": "compute-lvkx",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-mbcd",
+          "from": {
+            "node": "entry-k666",
+            "port": "in:Units Sold"
+          },
+          "to": {
+            "node": "compute-lvkx",
+            "port": "in:1"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-mirh",
+          "from": {
+            "node": "compute-lvkx",
+            "port": "result"
+          },
+          "to": {
+            "node": "return-kca5",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-4jpr",
+          "from": {
+            "node": "compute-lvkx",
+            "port": "result"
+          },
+          "to": {
+            "node": "compute-4dls",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-531f",
+          "from": {
+            "node": "compute-4dls",
+            "port": "result"
+          },
+          "to": {
+            "node": "compute-47hs",
+            "port": "in:1"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-x5qd",
+          "from": {
+            "node": "literal-wzme",
+            "port": "value"
+          },
+          "to": {
+            "node": "compute-47hs",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-pfho",
+          "from": {
+            "node": "compute-47hs",
+            "port": "result"
+          },
+          "to": {
+            "node": "debug-p9dp",
+            "port": "value"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-pvy8",
+          "from": {
+            "node": "entry-k666",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "debug-p9dp",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-q5ab",
+          "from": {
+            "node": "debug-p9dp",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-kca5",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    },
+    "TotalRevenueCalc": {
+      "flow": "NewFunction2",
+      "mode": "rough",
+      "runs": 0,
+      "nodes": [
+        {
+          "id": "entry-mwr3",
+          "kind": "entry",
+          "label": "Start",
+          "anchor": null,
+          "ports": {
+            "in": [],
+            "out": [
+              {
+                "id": "exec:out",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "in:price",
+                "name": "price",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              },
+              {
+                "id": "in:units",
+                "name": "units",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "entry"
+          }
+        },
+        {
+          "id": "return-n2v2",
+          "kind": "return",
+          "label": "Return",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "exec",
+                "name": "do",
+                "kind": "exec",
+                "connected": true
+              },
+              {
+                "id": "value",
+                "name": "value",
+                "kind": "data",
+                "type": "Number",
+                "connected": false
+              }
+            ],
+            "out": []
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "return"
+          }
+        },
+        {
+          "id": "compute-ggh1",
+          "kind": "compute",
+          "label": "Multiply (×)",
+          "anchor": null,
+          "ports": {
+            "in": [
+              {
+                "id": "in:0",
+                "name": "a",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              },
+              {
+                "id": "in:1",
+                "name": "b",
+                "kind": "data",
+                "type": "Number",
+                "connected": true
+              }
+            ],
+            "out": [
+              {
+                "id": "result",
+                "name": "result",
+                "kind": "data",
+                "type": "Number",
+                "connected": false
+              }
+            ]
+          },
+          "metrics": {
+            "calls": 0,
+            "selfMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "totalMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            },
+            "perCallMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "heat": 0,
+          "band": 0,
+          "facts": [],
+          "config": {
+            "kind": "compute",
+            "op": "*",
+            "label": "Multiply (×)",
+            "inputs": [
+              {
+                "name": "a",
+                "type": "Number"
+              },
+              {
+                "name": "b",
+                "type": "Number"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "result",
+                "type": "Number"
+              }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "edge-n8z2",
+          "from": {
+            "node": "entry-mwr3",
+            "port": "exec:out"
+          },
+          "to": {
+            "node": "return-n2v2",
+            "port": "exec"
+          },
+          "wire": "exec",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-gml0",
+          "from": {
+            "node": "entry-mwr3",
+            "port": "in:price"
+          },
+          "to": {
+            "node": "compute-ggh1",
+            "port": "in:0"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        },
+        {
+          "id": "edge-gu9g",
+          "from": {
+            "node": "entry-mwr3",
+            "port": "in:units"
+          },
+          "to": {
+            "node": "compute-ggh1",
+            "port": "in:1"
+          },
+          "wire": "data",
+          "metrics": {
+            "count": 0,
+            "gapMs": {
+              "p50": 0,
+              "p95": 0,
+              "min": 0,
+              "max": 0,
+              "n": 0
+            }
+          },
+          "onCriticalPath": false
+        }
+      ],
+      "criticalPath": [],
+      "rootTotalMs": 0,
+      "builtAt": "1970-01-01T00:00:00.000Z"
+    }
   }
 }

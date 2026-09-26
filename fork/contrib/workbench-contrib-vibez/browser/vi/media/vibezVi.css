@@ -1,0 +1,398 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Vibez. All rights reserved.
+ *  Licensed under the MIT License.
+ *--------------------------------------------------------------------------------------------*/
+
+/*
+ * Unlike the `.ui` page editor's fixed dark chrome, this editor is meant to
+ * read as a native part of the workbench: every color below is one of VS
+ * Code's own theme variables, so it follows light/dark/high-contrast themes
+ * automatically instead of carrying its own palette.
+ */
+.vz-vi {
+	--vz-canvas: var(--vscode-editor-background);
+	--vz-dot: var(--vscode-editorIndentGuide-background, rgba(128, 128, 128, .2));
+	--vz-body: var(--vscode-editorWidget-background);
+	--vz-head: var(--vscode-sideBarSectionHeader-background, var(--vscode-editorWidget-background));
+	--vz-border: var(--vscode-editorWidget-border, var(--vscode-widget-border, var(--vscode-contrastBorder, rgba(128, 128, 128, .3))));
+	--vz-hover: var(--vscode-list-hoverBackground);
+	--vz-select: var(--vscode-focusBorder);
+	--vz-t1: var(--vscode-editor-foreground, var(--vscode-foreground));
+	--vz-t2: var(--vscode-descriptionForeground);
+	--vz-t3: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+	/*
+	 * A wire's color says its data type, and it has to stay legible sitting
+	 * right next to a colored node header — so these are fixed, Unreal-style
+	 * pin colors, deliberately in different hues than the four category colors
+	 * below, rather than reused theme accents that could land on the same blue
+	 * or yellow a header already uses. Exec is the one wire that must always
+	 * read as "the default," so it alone still tracks the theme's own text
+	 * color, guaranteeing contrast against the canvas in light or dark.
+	 */
+	--vz-exec: var(--vscode-editor-foreground, var(--vscode-foreground));
+	--vz-accent: var(--vscode-focusBorder);
+	--String: #E066A6;
+	--Number: #3FC1C9;
+	--Boolean: #8E4585;
+	--Object: #4C7BD9;
+	--List: #9B6FD1;
+	--Unknown: #8A8A8A;
+	position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column;
+	color: var(--vz-t1);
+	font-family: var(--vscode-font-family);
+	outline: none;
+}
+.vz-vi button, .vz-vi input, .vz-vi select { font-family: var(--vscode-font-family); }
+.vz-vi :focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.vz-vi, .vz-vi * {
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+	scrollbar-width: thin;
+}
+.vz-vi::-webkit-scrollbar, .vz-vi *::-webkit-scrollbar { width: 10px; height: 10px; }
+.vz-vi::-webkit-scrollbar-track, .vz-vi *::-webkit-scrollbar-track { background: transparent; }
+.vz-vi::-webkit-scrollbar-thumb, .vz-vi *::-webkit-scrollbar-thumb {
+	background: var(--vscode-scrollbarSlider-background);
+	background-clip: padding-box;
+	border: 2px solid transparent;
+	border-radius: 999px;
+}
+.vz-vi::-webkit-scrollbar-thumb:hover, .vz-vi *::-webkit-scrollbar-thumb:hover { background-color: var(--vscode-scrollbarSlider-hoverBackground); }
+.vz-vi::-webkit-scrollbar-thumb:active, .vz-vi *::-webkit-scrollbar-thumb:active { background-color: var(--vscode-scrollbarSlider-activeBackground); }
+.vz-vi::-webkit-scrollbar-corner, .vz-vi *::-webkit-scrollbar-corner { background: transparent; }
+.vz-vi-lucide { display: block; flex: none; }
+
+/* ------------------------------------------------------------------ Blueprint / canvas / Details */
+
+.vz-vi-main { position: relative; flex: 1; min-height: 0; min-width: 0; display: flex; align-items: stretch; overflow: hidden; }
+.vz-vi-blueprint { flex: 0 0 clamp(190px, 22%, 265px); min-width: 0; }
+.vz-vi-details { flex: 0 0 clamp(220px, 24%, 285px); min-width: 0; }
+.vz-vi-center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.vz-vi-blueprint, .vz-vi-details { overflow: auto;
+	background: var(--vscode-sideBar-background, var(--vz-body)); color: var(--vscode-sideBar-foreground, var(--vz-t1)); }
+.vz-vi-blueprint { border-right: 1px solid var(--vz-border); }
+.vz-vi-details { border-left: 1px solid var(--vz-border); padding-top: 0; }
+.vz-vi.logic-collapsed .vz-vi-blueprint, .vz-vi.details-collapsed .vz-vi-details { display: none; }
+.vz-vi-panel-title { position: sticky; top: 0; z-index: 3; box-sizing: border-box; min-height: 38px; background: var(--vscode-sideBar-background, var(--vz-body)); padding: 12px; border-bottom: 1px solid var(--vz-border); font-size: 11px;
+	font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--vz-t2); }
+.vz-vi-logic-title { display: flex; align-items: baseline; gap: 8px; }
+.vz-vi-logic-title strong { color: var(--vz-t1); }
+.vz-vi-logic-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.vz-vi-blueprint-group { padding-top: 5px; }
+.vz-vi-blueprint-group + .vz-vi-blueprint-group { margin-top: 8px; }
+.vz-vi-blueprint-group-heading { padding: 8px 10px 5px; display: flex; flex-direction: column; gap: 2px; }
+.vz-vi-blueprint-group-heading strong { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--vz-t2); }
+.vz-vi-blueprint-group-heading span { font-size: 10px; color: var(--vz-t3); }
+.vz-vi-blueprint-section { border-bottom: 1px solid var(--vz-border); }
+.vz-vi-blueprint-heading { min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 3px 7px 3px 10px;
+	font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--vz-t2); cursor: pointer; user-select: none; }
+.vz-vi-blueprint-heading-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vz-vi-blueprint-heading-text strong { font-size: 11px; color: var(--vz-t1); letter-spacing: 0; }
+.vz-vi-blueprint-heading-text span { font-size: 9.5px; font-weight: 400; color: var(--vz-t3); letter-spacing: 0; }
+.vz-vi-blueprint-add { appearance: none; width: 22px; height: 22px; border: none; border-radius: 4px;
+	display: inline-flex; align-items: center; justify-content: center; padding: 0; background: transparent; color: var(--vz-t1); cursor: pointer; }
+.vz-vi-blueprint-add:hover { background: var(--vz-hover); }
+.vz-vi-section-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.vz-vi-section-icon.value, .vz-vi-graph-kind-icon.value { color: var(--cat-value); }
+.vz-vi-section-icon.action, .vz-vi-graph-kind-icon.action { color: var(--cat-event); }
+.vz-vi-section-icon.function, .vz-vi-graph-kind-icon.function { color: var(--cat-flow); }
+.vz-vi-section-icon.variable, .vz-vi-graph-kind-icon.variable { color: var(--String); }
+.vz-vi-blueprint-list { padding: 0 5px 6px; }
+.vz-vi-blueprint-row { appearance: none; width: 100%; min-height: 40px; display: flex; align-items: center; gap: 9px;
+	border: none; border-radius: 4px; padding: 5px 7px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.vz-vi-blueprint-row:hover { background: var(--vscode-list-hoverBackground); }
+.vz-vi-blueprint-row.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.vz-vi-decl-icon { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; flex: none; background: var(--vz-body); border: 1px solid var(--vz-border); }
+.vz-vi-decl-icon .vz-vi-lucide { width: 13px; height: 13px; }
+.vz-vi-decl-icon.value { color: var(--cat-value); }
+.vz-vi-decl-icon.action { color: var(--cat-event); }
+.vz-vi-decl-icon.function { color: var(--cat-flow); }
+.vz-vi-decl-icon.variable { color: var(--String); }
+.vz-vi-decl-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.vz-vi-blueprint-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.vz-vi-blueprint-row .type { overflow: hidden; text-overflow: ellipsis; font-size: 9.5px; color: var(--vz-t3); white-space: nowrap; }
+.vz-vi-blueprint-row.active .type { color: inherit; opacity: .75; }
+.vz-vi-decl-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--cat-event); }
+.vz-vi-details-empty { padding: 18px 12px; color: var(--vz-t3); font-size: 11px; line-height: 1.45; }
+.vz-vi-role-card { margin: 10px 12px 2px; padding: 9px 10px; border: 1px solid var(--vz-border); border-left: 3px solid var(--cat-flow); border-radius: 5px; display: flex; flex-direction: column; gap: 4px; background: var(--vz-body); }
+.vz-vi-role-card.value { border-left-color: var(--cat-value); }
+.vz-vi-role-card.action { border-left-color: var(--cat-event); }
+.vz-vi-role-card.variable { border-left-color: var(--String); }
+.vz-vi-role-heading { display: flex; align-items: center; gap: 6px; }
+.vz-vi-role-card.value .vz-vi-role-heading { color: var(--cat-value); }
+.vz-vi-role-card.action .vz-vi-role-heading { color: var(--cat-event); }
+.vz-vi-role-card.function .vz-vi-role-heading { color: var(--cat-flow); }
+.vz-vi-role-card.variable .vz-vi-role-heading { color: var(--String); }
+.vz-vi-role-heading strong { color: var(--vz-t1); }
+.vz-vi-role-card strong { font-size: 11px; }
+.vz-vi-role-card span, .vz-vi-field-help { color: var(--vz-t3); font-size: 9.5px; line-height: 1.35; }
+.vz-vi-detail-field { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px 0; }
+.vz-vi-detail-field > label, .vz-vi-detail-label { color: var(--vz-t2); font-size: 10.5px; font-weight: 600; }
+.vz-vi-detail-label { padding: 16px 12px 3px; }
+.vz-vi-detail-input { width: 100%; box-sizing: border-box; min-height: 27px; padding: 4px 6px; border: 1px solid var(--vscode-input-border, var(--vz-border));
+	border-radius: 3px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; font-size: 11px; }
+textarea.vz-vi-detail-input { min-height: 64px; resize: vertical; font-family: var(--monaco-monospace-font); }
+textarea.vz-vi-about { min-height: 48px; font-family: var(--vscode-font-family); }
+textarea.vz-vi-initial { min-height: 42px; }
+.vz-vi-type-select { border-left-width: 4px; }
+.vz-vi-access-toggle { display: grid; grid-template-columns: 1fr 1fr; }
+.vz-vi-access-toggle button { appearance: none; border: 1px solid var(--vz-border); background: var(--vz-body); color: var(--vz-t2); padding: 6px 3px; font-size: 10px; cursor: pointer; }
+.vz-vi-access-toggle button:first-child { border-radius: 4px 0 0 4px; }
+.vz-vi-access-toggle button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.vz-vi-access-toggle button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: var(--vscode-button-background); }
+.vz-vi-parameter-row { display: grid; grid-template-columns: minmax(0, 1fr) 88px 24px; gap: 5px; padding: 5px 12px 0; }
+.vz-vi-parameter-remove { appearance: none; border: none; border-radius: 3px; background: transparent; color: var(--vz-t2); cursor: pointer; font-size: 15px; }
+.vz-vi-parameter-remove:hover { color: var(--vscode-errorForeground); background: var(--vz-hover); }
+.vz-vi-add-parameter { appearance: none; margin: 7px 12px 0; border: 1px dashed var(--vz-border); border-radius: 4px;
+	background: transparent; color: var(--vscode-textLink-foreground); padding: 6px; text-align: left; font-size: 11px; cursor: pointer; }
+.vz-vi-add-parameter:hover { background: var(--vz-hover); }
+.vz-vi-danger { margin: 18px 12px 14px; color: var(--vz-t3); font-size: 10px; }
+.vz-vi-danger summary { cursor: pointer; padding: 5px 0; }
+.vz-vi-delete-declaration { appearance: none; margin: 7px 0 0; width: 100%; border: 1px solid var(--vscode-errorForeground);
+	border-radius: 4px; background: transparent; color: var(--vscode-errorForeground); padding: 7px; cursor: pointer; }
+.vz-vi-delete-declaration:hover { background: color-mix(in srgb, var(--vscode-errorForeground) 12%, transparent); }
+.vz-vi-delete-warning { display: none; margin-top: 7px; padding: 7px; border-left: 2px solid var(--vscode-errorForeground);
+	background: color-mix(in srgb, var(--vscode-errorForeground) 8%, transparent); color: var(--vz-t2); line-height: 1.4; }
+.vz-vi-delete-warning.show { display: block; }
+
+/* ------------------------------------------------------------------ toolbar */
+
+/* A real header row reserves space instead of overlapping the graph and Details. */
+.vz-vi-header { flex: none; min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 8px 12px; border-bottom: 1px solid var(--vz-border); background: var(--vscode-editorWidget-background); z-index: 10; }
+.vz-vi-toolbar { position: relative; flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+.vz-vi-toolbtn { appearance: none; border: 1px solid var(--vz-border); border-radius: 6px;
+	background: var(--vz-body); color: var(--vz-t1); font-size: 12px; font-weight: 600;
+	height: 30px; padding: 4px 10px; white-space: nowrap; cursor: pointer; }
+.vz-vi-toolbtn:hover { border-color: var(--vscode-focusBorder); }
+.vz-vi-toolbtn.run { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border-color: var(--vscode-button-background); }
+.vz-vi-toolbtn.run:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); }
+.vz-vi-toolbtn.run.active { color: #fff; background: var(--cat-event); border-color: var(--cat-event); }
+.vz-vi-run-split { display: flex; position: relative; }
+.vz-vi-run-split .run { border-radius: 6px 0 0 6px; }
+.vz-vi-toolbtn.run-menu { border-radius: 0 6px 6px 0; border-left-color: color-mix(in srgb, var(--vscode-button-foreground) 35%, transparent); padding: 6px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+.vz-vi-toolbtn.console { display: inline-flex; align-items: center; gap: 6px; padding-inline: 10px; }
+.vz-vi-toolbtn.console.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); border-color: var(--vscode-focusBorder); }
+.vz-vi-run-dropdown { position: absolute; right: 0; top: calc(100% + 5px); width: 240px; padding: 4px; border: 1px solid var(--vz-border); border-radius: 6px; background: var(--vscode-menu-background, var(--vz-body)); box-shadow: 0 4px 14px var(--vscode-widget-shadow, rgba(0, 0, 0, .35)); }
+.vz-vi-run-option { appearance: none; display: block; width: 100%; border: none; border-radius: 4px; padding: 8px 9px; background: transparent; color: var(--vscode-menu-foreground, var(--vz-t1)); text-align: left; font-size: 11px; cursor: pointer; }
+.vz-vi-run-option:hover { background: var(--vscode-menu-selectionBackground, var(--vz-hover)); color: var(--vscode-menu-selectionForeground, var(--vz-t1)); }
+.vz-vi-run-option:disabled { opacity: .5; cursor: default; }
+
+.vz-vi-test { margin-top: 18px; padding: 13px 12px 4px; border-top: 1px solid var(--vz-border); display: flex; flex-direction: column; gap: 8px; }
+.vz-vi-test-heading { display: flex; flex-direction: column; gap: 3px; }
+.vz-vi-test-heading strong { font-size: 11px; }
+.vz-vi-test-heading span { color: var(--vz-t3); font-size: 9.5px; line-height: 1.35; }
+.vz-vi-test-open, .vz-vi-test-run { appearance: none; border: 1px solid var(--vscode-button-background); border-radius: 4px; padding: 7px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); font-size: 11px; cursor: pointer; }
+.vz-vi-test-run:disabled { opacity: .65; cursor: wait; }
+.vz-vi-test-field { display: flex; flex-direction: column; gap: 4px; }
+.vz-vi-test-field label { display: flex; justify-content: space-between; color: var(--vz-t2); font-size: 10px; }
+.vz-vi-test-field label small { color: var(--vz-t3); }
+.vz-vi-test-field input[type='checkbox'] { align-self: flex-start; }
+.vz-vi-test-result { border: 1px solid var(--vz-border); border-left: 3px solid var(--vscode-testing-iconPassed, #73c991); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+.vz-vi-test-result.error { border-left-color: var(--vscode-errorForeground); }
+.vz-vi-test-result strong { font-size: 10.5px; }
+.vz-vi-test-result span { color: var(--vz-t2); font-size: 9.5px; }
+.vz-vi-test-result pre { margin: 0; padding: 6px; max-height: 150px; overflow: auto; border-radius: 3px; background: var(--vscode-textCodeBlock-background, var(--vz-canvas)); color: var(--vz-t1); font-size: 10px; white-space: pre-wrap; word-break: break-word; }
+
+/* ------------------------------------------------------------------ logic server console */
+
+.vz-vi-console { display: none; flex: 0 0 clamp(130px, 22vh, 220px); min-height: 0; border-top: 1px solid var(--vz-border); background: var(--vscode-panel-background, var(--vz-body)); color: var(--vscode-panel-foreground, var(--vz-t1)); }
+.vz-vi-console.show { display: flex; flex-direction: column; }
+.vz-vi-console.collapsed { flex-basis: 31px; }
+.vz-vi-console-header { flex: 0 0 30px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; padding: 0 7px 0 10px; border-bottom: 1px solid var(--vz-border); }
+.vz-vi-console-title, .vz-vi-console-actions { display: flex; align-items: center; gap: 7px; }
+.vz-vi-console-title strong { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; }
+.vz-vi-console-status { display: inline-flex; align-items: center; gap: 5px; color: var(--vz-t3); font-size: 9.5px; }
+.vz-vi-console-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-disabledForeground); }
+.vz-vi-console-status.running::before { background: var(--vscode-testing-iconPassed, #73c991); box-shadow: 0 0 0 2px color-mix(in srgb, var(--vscode-testing-iconPassed, #73c991) 20%, transparent); }
+.vz-vi-console-actions button { appearance: none; border: none; border-radius: 3px; background: transparent; color: var(--vz-t2); font-size: 10px; padding: 4px 6px; cursor: pointer; }
+.vz-vi-console-actions button:hover { color: var(--vz-t1); background: var(--vz-hover); }
+.vz-vi-console-actions .vz-vi-console-icon { width: 23px; height: 23px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.vz-vi-console-collapse .vz-vi-lucide, .vz-vi-console-icon .vz-vi-lucide { transition: transform 120ms ease; }
+.vz-vi-console-icon.collapsed .vz-vi-lucide { transform: rotate(180deg); }
+.vz-vi-console-body { flex: 1; min-height: 0; overflow: auto; padding: 7px 10px 10px; font-family: var(--monaco-monospace-font); font-size: var(--vscode-editor-font-size, 12px); line-height: 1.5; }
+.vz-vi-console.collapsed .vz-vi-console-body { display: none; }
+.vz-vi-console-empty { color: var(--vz-t3); font-family: var(--vscode-font-family); font-size: 10px; }
+.vz-vi-console-empty.hidden { display: none; }
+.vz-vi-console-output { white-space: pre-wrap; word-break: break-word; }
+.vz-vi-console-line.stdout { color: var(--vz-t1); }
+.vz-vi-console-line.stderr { color: var(--vscode-errorForeground); }
+.vz-vi-console-line.system { color: var(--vz-t3); font-style: italic; }
+
+/* ------------------------------------------------------------------ canvas */
+
+.vz-vi-canvas { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; cursor: grab;
+	background-color: var(--vz-canvas);
+	background-image: radial-gradient(var(--vz-dot) 1px, transparent 1px);
+	background-size: 26px 26px;
+}
+.vz-vi-graph-header { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+
+.vz-vi-graph-title { display: flex; align-items: center; gap: 7px; }
+.vz-vi-graph-kind-icon { width: 14px; height: 14px; }
+.vz-vi-graph-title span { color: var(--vz-t3); font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.vz-vi-graph-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.vz-vi-graph-signature { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vz-t2); font-size: 10px; }
+.vz-vi-graph-about { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vz-t3); font-size: 9.5px; }
+.vz-vi-canvas-controls { position: relative; flex: none; min-height: 34px; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 2px; padding: 3px 8px; box-sizing: border-box; border-top: 1px solid var(--vz-border); background: var(--vscode-editorWidget-background); }
+
+.vz-vi-canvas-control { appearance: none; width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+	border: none; border-radius: 4px; padding: 0; background: transparent; color: var(--vz-t2); cursor: pointer; }
+.vz-vi-canvas-control:hover { color: var(--vz-t1); background: var(--vz-hover); }
+.vz-vi-camera-zoom { min-width: 38px; color: var(--vz-t2); font-size: 9.5px; text-align: center; font-variant-numeric: tabular-nums; }
+.vz-vi-selection-status { position: absolute; right: 0; bottom: calc(100% + 6px); white-space: nowrap; color: var(--vz-t2); font-size: 10px;
+	padding: 4px 7px; border: 1px solid var(--vz-border); border-radius: 4px; background: var(--vz-body); }
+.vz-vi-selection-status:empty { display: none; }
+.vz-vi-selection-box { position: absolute; z-index: 7; pointer-events: none; border: 1px solid var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 15%, transparent); }
+.vz-vi-canvas.panning { cursor: grabbing; }
+.vz-vi-world { position: absolute; transform-origin: 0 0; }
+.vz-vi-wires { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.vz-vi-wire { pointer-events: stroke; cursor: pointer; }
+.vz-vi-wire:hover { filter: brightness(1.3) saturate(1.2); }
+
+/* ------------------------------------------------------------------ nodes */
+
+.vz-vi-node { position: absolute; background: var(--vz-body); border: 1px solid var(--vz-border);
+	border-radius: 6px; overflow: visible; box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+	transition: border-color .12s ease, outline-color .12s ease; }
+.vz-vi-node:hover { border-color: var(--vscode-focusBorder); }
+.vz-vi-node.selected { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.vz-vi-node.breakpoint::before { content: ''; position: absolute; left: -8px; top: 8px; width: 9px; height: 9px;
+	border-radius: 50%; background: var(--vscode-debugIcon-breakpointForeground, #e51400); box-shadow: 0 0 0 2px var(--vz-canvas); }
+/*
+ * A block's category, at a glance — Unreal colors a node's title bar by what
+ * it does (an event is red, a pure function is green, and so on) rather than
+ * making a reader open it to find out. Four colors from the product's own
+ * palette, the neutral gray held back for anything uncategorized:
+ *   Flow (If/Else, For each, Return)     — Azure Blue
+ * Values (Get/Set, Value, Compute)       — Saffron
+ *   Data (Query, Mutate, Call API)       — Fern
+ *  Event (Start, Call)                   — Carmine
+ */
+.vz-vi {
+	--cat-flow: #3F84E5; --cat-value: #E4BD2F; --cat-data: #3F784C; --cat-event: #B20D30; --cat-debugging: #292929;
+}
+.vz-vi-node.kind-branch .vz-vi-head, .vz-vi-node.kind-loop .vz-vi-head, .vz-vi-node.kind-return .vz-vi-head, .vz-vi-node.kind-boundary .vz-vi-head {
+	background: var(--cat-flow); color: #fff; border-bottom-color: transparent; }
+.vz-vi-node.kind-literal .vz-vi-head, .vz-vi-node.kind-variable .vz-vi-head, .vz-vi-node.kind-compute .vz-vi-head {
+	background: var(--cat-value); color: #292929; border-bottom-color: transparent; }
+.vz-vi-node.kind-data .vz-vi-head, .vz-vi-node.kind-effect .vz-vi-head, .vz-vi-node.kind-external .vz-vi-head {
+	background: var(--cat-data); color: #fff; border-bottom-color: transparent; }
+.vz-vi-node.kind-entry .vz-vi-head, .vz-vi-node.kind-call .vz-vi-head {
+	background: var(--cat-event); color: #fff; border-bottom-color: transparent; }
+.vz-vi-node.kind-group .vz-vi-head, .vz-vi-node.kind-debug .vz-vi-head {
+	background: var(--cat-debugging); color: #fff; border-bottom-color: transparent; }
+.vz-vi-node.kind-entry, .vz-vi-node.kind-return { border-color: var(--vz-accent); }
+
+.vz-vi-head { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
+	background: var(--vz-head); border-bottom: 1px solid var(--vz-border); border-radius: 5px 5px 0 0;
+	cursor: grab; user-select: none; }
+.vz-vi-head svg { flex: none; color: inherit; opacity: .85; }
+.vz-vi-head .name { flex: 1; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vz-vi-runs { font-size: 9px; opacity: .8; font-variant-numeric: tabular-nums; }
+.vz-vi-remove { appearance: none; border: none; background: transparent; color: inherit; opacity: .7; font-size: 14px;
+	line-height: 1; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.vz-vi-remove:hover { opacity: 1; background: rgba(0, 0, 0, .15); }
+
+.vz-vi-body { display: flex; flex-direction: column; padding-bottom: 4px; }
+.vz-vi-row { height: 22px; display: flex; align-items: center; padding: 0 10px; font-size: 11px; color: var(--vz-t2); gap: 6px; }
+.vz-vi-row .left { display: flex; gap: 6px; }
+.vz-vi-row .right { margin-left: auto; display: flex; gap: 6px; }
+
+.vz-vi-fields { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px; }
+.vz-vi-field { font: inherit; font-size: 11px; width: 100%; box-sizing: border-box; border-radius: 3px; padding: 4px 6px; }
+input.vz-vi-field { background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent); }
+input.vz-vi-field::placeholder { color: var(--vscode-input-placeholderForeground); }
+select.vz-vi-field { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground);
+	border: 1px solid var(--vscode-dropdown-border, transparent); }
+.vz-vi-field:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.vz-vi-readonly { font-size: 11px; color: var(--vz-t2); font-family: var(--monaco-monospace-font); padding: 2px 10px 6px; display: block; }
+
+/* Inputs are sockets: recessed, hollow, sitting in the node's edge. */
+.vz-vi-pin.socket { position: absolute; width: 11px; height: 11px; border-radius: 50%;
+	border: 2px solid var(--Unknown); background: var(--vz-canvas); cursor: crosshair; }
+.vz-vi-pin.socket.connected { background: currentColor; }
+.vz-vi-pin.socket:hover { transform: scale(1.3); }
+
+/* Outputs are plugs: solid, on a short stem, sticking out past the edge. */
+.vz-vi-plug { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: currentColor; cursor: crosshair; }
+.vz-vi-plug::after { content: ''; position: absolute; left: 8px; top: 3.5px; width: 5px; height: 2px; background: currentColor; border-radius: 1px; }
+.vz-vi-plug.loose { background: var(--vz-body); box-shadow: inset 0 0 0 2px currentColor; }
+.vz-vi-plug:hover { transform: scale(1.3); }
+
+.vz-vi-exec { position: absolute; cursor: crosshair; }
+.vz-vi-port { z-index: 2; }
+.vz-vi-port.watched { filter: drop-shadow(0 0 4px currentColor); transform: scale(1.25); }
+
+/* ------------------------------------------------------------------ search (styled like the suggest widget) */
+
+.vz-vi-search { position: absolute; width: 260px; max-height: 320px; display: flex; flex-direction: column;
+	background: var(--vscode-editorSuggestWidget-background); color: var(--vscode-editorSuggestWidget-foreground);
+	border: 1px solid var(--vscode-editorSuggestWidget-border); border-radius: 4px;
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .3)); z-index: 20; overflow: hidden; }
+.vz-vi-search-input { font: inherit; font-size: 12.5px; padding: 9px 12px;
+	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+	border: none; border-bottom: 1px solid var(--vz-border); outline: none; }
+.vz-vi-search-input::placeholder { color: var(--vscode-input-placeholderForeground); }
+.vz-vi-search-mode { appearance: none; border: none; border-bottom: 1px solid var(--vz-border); background: transparent;
+	color: var(--vscode-textLink-foreground); text-align: left; padding: 5px 12px; font: inherit; font-size: 10.5px; cursor: pointer; }
+.vz-vi-search-mode:hover { background: var(--vscode-list-hoverBackground); }
+.vz-vi-search-list { overflow-y: auto; padding: 2px; }
+.vz-vi-search-group { padding: 6px 8px 2px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--vz-t3); }
+.vz-vi-search-item { display: flex; flex-direction: column; align-items: flex-start; width: 100%; box-sizing: border-box;
+	appearance: none; border: none; background: transparent; color: var(--vscode-editorSuggestWidget-foreground); text-align: left;
+	padding: 5px 8px; border-radius: 3px; cursor: pointer; }
+.vz-vi-search-item .label { font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.vz-vi-search-item .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.vz-vi-search-item .hint { font-size: 10.5px; color: var(--vz-t3); }
+.vz-vi-search-item.active, .vz-vi-search-item:hover {
+	background: var(--vscode-editorSuggestWidget-selectedBackground); color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vz-t1)); }
+.vz-vi-search-item.active .hint, .vz-vi-search-item:hover .hint { color: var(--vscode-editorSuggestWidget-selectedForeground, var(--vz-t2)); opacity: .75; }
+.vz-vi-search-empty { padding: 14px 10px; font-size: 12px; color: var(--vz-t3); text-align: center; }
+
+/* ------------------------------------------------------------------ context menu */
+
+.vz-vi-menu { position: absolute; min-width: 180px; padding: 4px; display: flex; flex-direction: column; gap: 1px;
+	background: var(--vscode-menu-background); color: var(--vscode-menu-foreground);
+	border: 1px solid var(--vscode-menu-border, var(--vz-border)); border-radius: 5px;
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .35)); z-index: 25; }
+.vz-vi-menu-item { appearance: none; border: none; background: transparent; color: inherit; text-align: left;
+	font: inherit; font-size: 12px; padding: 6px 10px; border-radius: 3px; cursor: pointer; }
+.vz-vi-menu-item:hover, .vz-vi-menu-item:focus { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground, inherit); }
+.vz-vi-menu-item.danger { color: var(--vscode-errorForeground, #E0705B); }
+.vz-vi-menu-item.danger:hover { background: var(--vscode-menu-selectionBackground); }
+
+/* ------------------------------------------------------------------ problem & toast */
+
+.vz-vi-problem { display: none; position: absolute; inset: 0; flex-direction: column; align-items: center;
+	justify-content: center; gap: 8px; background: var(--vz-canvas); color: var(--vz-t2); text-align: center; padding: 24px; }
+.vz-vi-problem.show { display: flex; }
+.vz-vi-problem .title { font-size: 14px; color: var(--vz-t1); }
+.vz-vi-problem .reason { font-size: 12px; max-width: 420px; }
+.vz-vi-btn { appearance: none; border: 1px solid var(--vscode-button-border, transparent);
+	background: var(--vscode-button-secondaryBackground, var(--vz-body)); color: var(--vscode-button-secondaryForeground, var(--vz-t1));
+	font-size: 12px; padding: 6px 12px; border-radius: 3px; cursor: pointer; margin-top: 6px; }
+.vz-vi-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vz-hover)); }
+
+.vz-vi-toast { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+	background: var(--vscode-notifications-background, var(--vz-head)); border: 1px solid var(--vscode-notifications-border, var(--vz-border));
+	color: var(--vscode-notifications-foreground, var(--vz-t1));
+	font-size: 12px; padding: 8px 14px; border-radius: 5px; box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .3)); z-index: 15; }
+
+/* Side panels yield space to the graph when chat or a split editor narrows it.
+ * Existing panel buttons reopen them as bounded drawers at those widths. */
+.vz-vi.compact .vz-vi-details, .vz-vi.narrow .vz-vi-blueprint { display: none; }
+.vz-vi.compact.details-expanded .vz-vi-details,
+.vz-vi.narrow.logic-expanded .vz-vi-blueprint { display: block; position: absolute; top: 0; bottom: 40px; z-index: 9; width: min(285px, calc(100% - 48px)); box-shadow: 0 3px 12px var(--vscode-widget-shadow); }
+.vz-vi.compact.details-expanded .vz-vi-details { right: 0; }
+.vz-vi.narrow.logic-expanded .vz-vi-blueprint { left: 0; }
+.vz-vi.narrow .vz-vi-header { gap: 6px; padding: 8px; }
+.vz-vi.narrow .vz-vi-graph-header { flex-basis: 100%; }
+.vz-vi.narrow .vz-vi-graph-about { display: none; }
+.vz-vi-parameter-row { grid-template-columns: minmax(0, 1fr) minmax(64px, 88px) 24px; }
+.vz-vi-detail-input, .vz-vi-test-result, .vz-vi-role-card { min-width: 0; }
+.vz-vi-role-card, .vz-vi-test-heading, .vz-vi-blueprint-heading-text { overflow-wrap: anywhere; }
+.vz-vi-blueprint, .vz-vi-details { box-sizing: border-box; overflow-x: hidden; }
+.vz-vi-run-dropdown { max-width: calc(100vw - 32px); box-sizing: border-box; }
+.vz-vi-console { max-height: 45%; }
