@@ -245,3 +245,20 @@
 
 /* A branch under a dragged step shows which output it would land on. */
 
+
+/* ------------------------------------------------------------ queue */
+
+/* A file an agent holds: a hatched ring in its colour, and who holds it. */
+.vibez-node.vz-held::before { content: ''; position: absolute; inset: -5px; border-radius: 12px; z-index: -1; pointer-events: none;
+	background: repeating-linear-gradient(135deg, hsla(var(--actor-hue, 212), 70%, 60%, .55) 0 4px, transparent 4px 8px); }
+.vibez-node .vz-held-chip { position: absolute; left: 6px; top: -21px; font-size: 10px; line-height: 15px; padding: 0 7px;
+	border-radius: 8px; white-space: nowrap; pointer-events: auto; color: #fff; background: hsl(var(--actor-hue, 212), 45%, 32%);
+	box-shadow: 0 0 0 1px hsla(var(--actor-hue, 212), 70%, 60%, .6); }
+/* What an agent is doing, as it does it: a sweep for a read, a ring for an edit. */
+.vibez-node.vz-agent-scan { animation: vz-agent-scan .6s ease-out 1; }
+@keyframes vz-agent-scan { 0% { box-shadow: inset 4px 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, .9); }
+	100% { box-shadow: inset 400px 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, 0); } }
+.vibez-node.vz-agent-edit { animation: vz-agent-edit .9s ease-in-out 2; }
+@keyframes vz-agent-edit { 0%, 100% { box-shadow: 0 0 0 0 hsla(var(--actor-hue, 212), 70%, 62%, 0); }
+	50% { box-shadow: 0 0 0 6px hsla(var(--actor-hue, 212), 70%, 62%, .35); border-color: hsl(var(--actor-hue, 212), 70%, 62%); } }
+@media (prefers-reduced-motion: reduce) { .vibez-node.vz-agent-scan, .vibez-node.vz-agent-edit { animation-duration: 1ms; animation-iteration-count: 1; } }

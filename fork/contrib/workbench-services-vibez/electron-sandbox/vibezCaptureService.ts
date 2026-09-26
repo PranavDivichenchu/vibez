@@ -6,6 +6,8 @@
 import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
+// The queue's proxy registers alongside, so the desktop entry point needs no second import.
+import './vibezQueueService.js';
 import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection, IVibezSiteInfo } from '../../../../platform/vibez/common/vibezCapture.js';
 
 /**

@@ -14,3 +14,10 @@ export * from './pages.ts';
 export * from './edit.ts';
 export * from './templates.ts';
 export * from './elements.ts';
+
+export * from './actors.ts';
+export * from './fence.ts';
+export * from './significance.ts';
+export * from './queue.ts';
+export * from './agentStream.ts';
+export * from './replay.ts';

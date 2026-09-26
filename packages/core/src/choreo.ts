@@ -1,4 +1,6 @@
 import type { Graph, SemanticKey } from './types.ts';
+import type { ActorId } from './actors.ts';
+import { LOCAL_ID } from './actors.ts';
 import { diffGraphs, type NodeChange } from './diff.ts';
 
 /**
@@ -11,16 +13,19 @@ import { diffGraphs, type NodeChange } from './diff.ts';
  *
  * It is also the honest option. A timeline derived from real file events and
  * real traces cannot show a change that did not happen. A written summary can.
+ *
+ * Every event says which actor it came from. Several agents run at once, and
+ * each one's work animates in its own colour on its own timeline.
  */
 
 export type AgentEvent =
-  | { kind: 'scope'; files: string[] }
-  | { kind: 'read'; file: string }
-  | { kind: 'grep'; query: string }
-  | { kind: 'edit'; file: string; lines?: [number, number] }
-  | { kind: 'build'; state: 'start' | 'done' | 'failed' }
-  | { kind: 'replay'; run: number; of: number }
-  | { kind: 'trace' };
+  | { kind: 'scope'; files: string[]; actor: ActorId }
+  | { kind: 'read'; file: string; actor: ActorId }
+  | { kind: 'grep'; query: string; actor: ActorId }
+  | { kind: 'edit'; file: string; lines?: [number, number]; actor: ActorId }
+  | { kind: 'build'; state: 'start' | 'done' | 'failed'; actor: ActorId }
+  | { kind: 'replay'; run: number; of: number; actor: ActorId }
+  | { kind: 'trace'; actor: ActorId };
 
 export type Beat =
   | { at: number; ms: number; op: 'scan'; nodes: SemanticKey[] }
@@ -35,6 +40,8 @@ export interface Timeline {
   beats: Beat[];
   /** Total wall time. Capped, because nobody should watch an editor emote. */
   durationMs: number;
+  /** Whose work this animates. */
+  actor: ActorId;
 }
 
 /** A turn's worth of animation is capped; longer work reports on chips instead. */
@@ -67,7 +74,13 @@ type BeatSpec = Beat extends infer B
   ? B extends Beat ? Omit<B, 'at' | 'ms'> & { ms?: number } : never
   : never;
 
-export function choreograph(events: AgentEvent[], before: Graph, after: Graph): Timeline {
+/**
+ * One actor's timeline. Events from anyone else are ignored: interleaving two
+ * agents' work into one sequence would animate neither of them truthfully.
+ * The actor is the first event's unless given.
+ */
+export function choreograph(events: AgentEvent[], before: Graph, after: Graph, actor?: ActorId): Timeline {
+  const who = actor ?? events[0]?.actor ?? LOCAL_ID;
   const beats: Beat[] = [];
   let at = 0;
   const push = (beat: BeatSpec): void => {
@@ -78,6 +91,7 @@ export function choreograph(events: AgentEvent[], before: Graph, after: Graph): 
 
   let desaturated = false;
   for (const event of events) {
+    if (event.actor !== who) { continue; }
     switch (event.kind) {
       case 'scope':
         push({ op: 'fence', files: event.files });
@@ -124,7 +138,13 @@ export function choreograph(events: AgentEvent[], before: Graph, after: Graph): 
       beat.at = Math.round(beat.at * factor);
       beat.ms = Math.round(beat.ms * factor);
     }
-    return { beats, durationMs: MAX_TIMELINE_MS };
+    return { beats, durationMs: MAX_TIMELINE_MS, actor: who };
   }
-  return { beats, durationMs: total };
+  return { beats, durationMs: total, actor: who };
+}
+
+/** One timeline per actor, in the order each first appears. */
+export function choreographEach(events: AgentEvent[], before: Graph, after: Graph): Timeline[] {
+  const actors = [...new Set(events.map((event) => event.actor))];
+  return actors.map((actor) => choreograph(events, before, after, actor));
 }

@@ -22,6 +22,7 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPane.js';
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { Graph } from '../../../../platform/vibez/common/vibezTypes.js';
 import { humanMs, verdict } from '../../../../platform/vibez/common/vibezHeat.js';
@@ -53,6 +54,7 @@ export class VibezFlowsView extends ViewPane {
 		@IFileService private readonly fileService: IFileService,
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
+		@IViewsService private readonly viewsService: IViewsService,
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService,
 			viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -67,6 +69,10 @@ export class VibezFlowsView extends ViewPane {
 		const dashboard = dom.append(container, dom.$('button.vibez-open-dashboard'));
 		dashboard.textContent = 'Open Dashboard';
 		this._register(dom.addDisposableListener(dashboard, 'click', () => void this.editorService.openEditor(new VibezDashboardInput(), { pinned: true })));
+		const agents = dom.append(container, dom.$('button.vibez-open-agents'));
+		agents.textContent = 'Open Agents';
+		agents.title = 'Several agents at once, each in its own copy; one measures at a time';
+		this._register(dom.addDisposableListener(agents, 'click', () => void this.viewsService.openView('workbench.view.vibez.queue', true)));
 		this.list = dom.append(container, dom.$('.vibez-flow-list'));
 
 		const folder = this.contextService.getWorkspace().folders[0];

@@ -27,7 +27,10 @@ import { VibezEditorInput } from './vibezEditorInput.js';
 import { Graph, GNode, GEdge, SemanticKey } from '../../../../platform/vibez/common/vibezTypes.js';
 import { GEO, Layout, PortPoint, layoutGraph } from '../../../../platform/vibez/common/vibezLayout.js';
 import { humanMs } from '../../../../platform/vibez/common/vibezHeat.js';
-import { choreograph } from '../../../../platform/vibez/common/vibezChoreo.js';
+import { choreograph, nodesInFile, AgentEvent } from '../../../../platform/vibez/common/vibezChoreo.js';
+import { IVibezQueueService, IVibezQueueState } from '../../../../platform/vibez/common/vibezQueueService.js';
+import { heldByFile, normalizePath } from '../../../../platform/vibez/common/vibezFence.js';
+import { canvasSelection } from './vibezCanvasSelection.js';
 import { NodeChange } from '../../../../platform/vibez/common/vibezDiff.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -133,6 +136,7 @@ export class VibezEditor extends EditorPane {
 		@IBulkEditService private readonly bulkEditService: IBulkEditService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
+		@IVibezQueueService private readonly queue: IVibezQueueService,
 	) {
 		super(VibezEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -144,6 +148,11 @@ export class VibezEditor extends EditorPane {
 		this.legend = dom.append(this.root, dom.$('.vibez-legend'));
 		this.cardHost = dom.append(this.root, dom.$('.vibez-card-host'));
 		this.installCamera();
+
+		// Agents in the queue: their fences, and their work, drawn in their colour.
+		this._register(this.queue.onDidChange(state => { this.queueState = state; this.applyFences(); }));
+		this._register(this.queue.onDidEvents(events => this.playAgentEvents(events)));
+		this.queue.state().then(state => { this.queueState = state; this.applyFences(); }, () => undefined);
 	}
 
 	override async setInput(
@@ -271,6 +280,7 @@ export class VibezEditor extends EditorPane {
 	private show(graph: Graph): void {
 		this.current = { graph, layout: layoutGraph(graph) };
 		this.render();
+		this.applyFences();
 	}
 
 	private offsetOf(id: SemanticKey): Offset {
@@ -659,7 +669,8 @@ export class VibezEditor extends EditorPane {
 				card.classList.remove('dragging');
 				if (!dragging) {
 					if (event.type === 'pointerup') {
-						this.select(card, node);
+						const pointer = event as PointerEvent;
+						this.select(card, node, pointer.shiftKey || pointer.metaKey || pointer.ctrlKey);
 					}
 					return;
 				}
@@ -1041,6 +1052,86 @@ export class VibezEditor extends EditorPane {
 		}
 	}
 
+	// ------------------------------------------------------------- the queue
+
+	private queueState: IVibezQueueState | undefined;
+
+	/** Your selection is what an agent is scoped to. */
+	private publishSelection(): void {
+		const nodes: GNode[] = [];
+		for (const card of this.world.querySelectorAll<HTMLElement>('.vibez-node.selected')) {
+			const view = this.views.get(card.dataset['vibezId'] ?? '');
+			if (view) {
+				nodes.push(view.node);
+			}
+		}
+		canvasSelection.set(nodes.map(node => ({
+			id: node.id,
+			label: node.label,
+			file: node.anchor?.file ? normalizePath(node.anchor.file) : undefined,
+			line: node.anchor?.line || undefined,
+			ms: node.metrics.totalMs.p50,
+			facts: node.facts.map(fact => fact.strip),
+		})));
+	}
+
+	/**
+	 * A node whose file an agent holds gets a hatched ring in that agent's
+	 * colour and a `held by agent-a` chip. Fences are visible to everyone.
+	 */
+	private applyFences(): void {
+		const state = this.queueState;
+		const held = heldByFile(state?.fences ?? {});
+		for (const view of this.views.values()) {
+			const file = view.node.anchor?.file ? normalizePath(view.node.anchor.file) : undefined;
+			const actor = file ? held.get(file) : undefined;
+			const lane = actor ? state?.lanes.find(l => l.actor.id === actor) : undefined;
+			view.card.querySelector('.vz-held-chip')?.remove();
+			view.card.classList.toggle('vz-held', !!lane);
+			if (lane) {
+				view.card.style.setProperty('--actor-hue', String(lane.actor.hue));
+				const chip = dom.append(view.card, dom.$('span.vz-held-chip'));
+				chip.textContent = `held by ${lane.actor.name}`;
+				chip.title = lane.prompt;
+			}
+		}
+	}
+
+	/** An agent's reads and edits, as they happen, in its colour. Never moves the camera. */
+	private playAgentEvents(events: AgentEvent[]): void {
+		const graph = this.current?.graph;
+		if (!graph) {
+			return;
+		}
+		for (const event of events) {
+			const lane = this.queueState?.lanes.find(l => l.actor.id === event.actor);
+			const hue = lane?.actor.hue ?? 212;
+			let ids: SemanticKey[] = [];
+			let tone = '';
+			if (event.kind === 'read') {
+				ids = nodesInFile(graph, event.file);
+				tone = 'vz-agent-scan';
+			} else if (event.kind === 'edit') {
+				ids = nodesInFile(graph, event.file);
+				tone = 'vz-agent-edit';
+			} else if (event.kind === 'grep') {
+				const needle = event.query.toLowerCase();
+				ids = graph.nodes.filter(n => n.label.toLowerCase().includes(needle) || !!n.anchor?.symbol.toLowerCase().includes(needle)).map(n => n.id);
+				tone = 'vz-agent-scan';
+			}
+			for (const id of ids) {
+				const card = this.views.get(id)?.card;
+				if (!card) {
+					continue;
+				}
+				card.style.setProperty('--actor-hue', String(hue));
+				card.classList.remove('vz-agent-scan', 'vz-agent-edit');
+				void card.offsetWidth;
+				card.classList.add(tone);
+			}
+		}
+	}
+
 	// ----------------------------------------------------------------- beats
 
 	private pulse(ids: SemanticKey[]): void {
@@ -1232,14 +1323,25 @@ export class VibezEditor extends EditorPane {
 			other.classList.remove('selected');
 		}
 		this.views.get(nodeId)?.card.classList.add('selected');
+		this.publishSelection();
 	}
 
-	/** Selecting a node opens the code it came from, beside the graph. */
-	private select(card: HTMLElement, node: GNode): void {
+	/**
+	 * Selecting a node opens the code it came from, beside the graph. With
+	 * Shift or ⌘ it is added to the selection instead, which is how several
+	 * nodes are chosen to scope an agent.
+	 */
+	private select(card: HTMLElement, node: GNode, additive = false): void {
+		if (additive) {
+			card.classList.toggle('selected');
+			this.publishSelection();
+			return;
+		}
 		for (const other of this.world.querySelectorAll('.vibez-node.selected')) {
 			other.classList.remove('selected');
 		}
 		card.classList.add('selected');
+		this.publishSelection();
 		const input = this.input;
 		if (!node.anchor || !(input instanceof VibezEditorInput)) {
 			return;

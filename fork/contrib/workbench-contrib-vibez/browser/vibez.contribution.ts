@@ -28,6 +28,11 @@ import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLo
 import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezFlowsView } from './vibezFlowsView.js';
+import { VibezQueueView } from './vibezQueueView.js';
+import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
+import { IViewsService } from '../../../services/views/common/viewsService.js';
+import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
+import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
 import { VibezUiEditor } from './ui/vibezUiEditor.js';
@@ -257,5 +262,53 @@ registerAction2(class extends Action2 {
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await accessor.get(IEditorService).openEditor(new VibezDashboardInput(), { pinned: true });
+	}
+});
+
+/**
+ * The queue strip lives in the panel, under the canvas: one row per agent,
+ * editing in parallel and measured one at a time.
+ */
+const VIBEZ_QUEUE_CONTAINER_ID = 'workbench.panel.vibezQueue';
+
+const vibezQueueContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
+	id: VIBEZ_QUEUE_CONTAINER_ID,
+	title: localize2('vibez.queueContainer', "Agents"),
+	icon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEZ_QUEUE_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
+	storageId: VIBEZ_QUEUE_CONTAINER_ID,
+	order: 20,
+}, ViewContainerLocation.Panel, { doNotRegisterOpenCommand: true });
+
+Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
+	id: VibezQueueView.ID,
+	name: localize2('vibez.queue', "Agents"),
+	containerIcon: Codicon.circuitBoard,
+	ctorDescriptor: new SyncDescriptor(VibezQueueView),
+	canToggleVisibility: false,
+	canMoveView: true,
+}], vibezQueueContainer);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openQueue', title: localize2('vibez.openQueue', "Vibez: Open Agents"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IViewsService).openView(VibezQueueView.ID, true);
+	}
+});
+
+/** One key ends every run and releases every fence. */
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'vibez.stopAllAgents',
+			title: localize2('vibez.stopAllAgents', "Vibez: Stop All Agents"),
+			f1: true,
+			keybinding: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.Period, weight: KeybindingWeight.WorkbenchContrib },
+		});
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IVibezQueueService).stopAll();
 	}
 });
