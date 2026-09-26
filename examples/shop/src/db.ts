@@ -62,19 +62,19 @@ export const listCustomers = (orgId: number): Promise<Customer[]> =>
     { in: 'orgId:Number', out: 'users:List' }, '.tiles');
 
 /**
- * One round trip for every customer's stats, returned in the same order as
- * the customers passed in.
+ * The planted N+1. One round trip per customer, strictly sequential, which is
+ * exactly the shape an ORM produces when you await inside a loop.
  */
 export async function getUserStats(customers: Customer[]): Promise<Stat[]> {
-  if (customers.length === 0) return [];
-  const ids = customers.map((c) => c.id);
-  const rows = await query<Stat & { userId: number }>(
-    `SELECT userId, orders, value, lastSeen FROM Stat WHERE userId IN (${ids.map(() => '?').join(', ')})`, ids,
-    { file: 'examples/shop/src/db.ts', line: 71, fn: 'getUserStats' },
-    { in: 'userIds:List', out: 'rows:List' }, 'tbody');
-  const byUser = new Map<number, Stat>();
-  for (const { userId, ...stat } of rows) if (!byUser.has(userId)) byUser.set(userId, stat);
-  return ids.flatMap((id) => byUser.get(id) ?? []);
+  const out: Stat[] = [];
+  for (const customer of customers) {
+    const [row] = await query<Stat>(
+      'SELECT orders, value, lastSeen FROM Stat WHERE userId = ?', [customer.id],
+      { file: 'examples/shop/src/db.ts', line: 71, fn: 'getUserStats' },
+      { in: 'userId:Number', out: 'rows:List' }, 'tbody');
+    if (row) out.push(row);
+  }
+  return out;
 }
 
 export const getBilling = (orgId: number): Promise<Plan | undefined> =>
