@@ -1,0 +1,9 @@
+{
+  "name": "@vibez/team",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Several people's agents working on one project: presence, claims, memories, messages and handoffs over Supabase",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts", "./node": "./src/config.ts" }
+}

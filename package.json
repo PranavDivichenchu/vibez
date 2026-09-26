@@ -10,7 +10,7 @@
   "scripts": {
     "test": "node --test 'packages/*/test/*.test.ts'",
     "demo": "node packages/core/src/demo.ts",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/codemod && tsc --noEmit -p packages/ui && tsc --noEmit -p packages/vi && tsc --noEmit -p packages/mcp",
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/codemod && tsc --noEmit -p packages/ui && tsc --noEmit -p packages/vi && tsc --noEmit -p packages/mcp && tsc --noEmit -p packages/team",
     "trace": "node scripts/trace.ts",
     "fork:setup": "node scripts/fork-setup.ts",
     "fork:diff": "node scripts/fork-diff.ts",
@@ -20,7 +20,8 @@
     "sync:contrib": "node scripts/sync-contrib.ts",
     "shop": "node --watch examples/shop/src/server.ts",
     "ui:build": "node scripts/ui-build.ts",
-    "ui:harness": "node scripts/ui-harness.ts"
+    "ui:harness": "node scripts/ui-harness.ts",
+    "team": "node packages/team/src/cli.ts"
   },
   "engines": {
     "node": ">=22.18"
