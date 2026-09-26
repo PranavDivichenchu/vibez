@@ -114,6 +114,24 @@ button,input{font:inherit;color:inherit}
 .edit .note{margin:0;color:var(--muted);font-size:12px}
 .edit .foot{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:var(--muted)}
 .edit .foot .btn{margin-left:auto;font-size:11.5px;padding:3px 8px}
+#addel.on{background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.2));border-color:var(--accent)}
+#lib{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:280px;z-index:6;display:flex;flex-direction:column;border-radius:12px;background:var(--vscode-editorWidget-background,#252526);border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.4)}
+#lib[hidden]{display:none}
+#lib .libtop{display:flex;align-items:center;padding:12px 12px 8px 14px}
+#lib .libtop b{flex:1;font-size:13px}
+#lib .close{border:0;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px;border-radius:6px}
+#lib .close:hover{background:rgba(128,128,128,.2);color:var(--fg)}
+#libsearch{margin:0 12px;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--vscode-input-background,transparent);color:var(--vscode-input-foreground,inherit)}
+#libsearch:focus{outline:1px solid var(--accent)}
+#lib .libhint{margin:8px 14px 4px;color:var(--muted);font-size:11.5px}
+#libbody{overflow:auto;padding:4px 12px 14px;flex:1}
+#libbody h4{margin:12px 2px 6px;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+#libbody .tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.tile{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;border:1px solid var(--line);background:rgba(128,128,128,.06);cursor:grab;text-align:left;font-size:12px;line-height:1.2;user-select:none}
+.tile:hover{border-color:var(--accent);background:rgba(128,128,128,.12)}
+.tile:active{cursor:grabbing}
+.tile i{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:6px;background:rgba(128,128,128,.18);font-style:normal;font-weight:700;font-size:11px;color:var(--fg)}
+.tile span{overflow:hidden;text-overflow:ellipsis}
 #hint.bad{border-color:rgba(229,72,77,.6);color:#ff8589}
 #hint.ok{border-color:rgba(34,197,94,.5);color:#86efac}
 #panel pre{margin:8px 0 0;padding:8px 10px;border-radius:6px;background:var(--vscode-textCodeBlock-background,rgba(0,0,0,.25));font:11.5px/1.5 var(--vscode-editor-font-family,ui-monospace,Menlo,monospace);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
@@ -124,6 +142,7 @@ const BODY = String.raw`
   <div class="seg" id="modes"><button data-mode="inspect" title="Hover to see what things are; double-click to explain (I)">Inspect</button><button data-mode="browse" title="Use the site normally (I)">Browse</button></div>
   <div class="seg" id="drags" title="How dragging works in Inspect mode"><button data-drag="free" title="Drag anything anywhere: it stays exactly where you drop it">Move freely</button><button data-drag="layout" title="Drag to reorder: it slots in before or after other elements">Reorder</button></div>
   <div class="seg" id="devices"><button data-dev="desktop">Desktop</button><button data-dev="tablet">Tablet</button><button data-dev="phone">Phone</button></div>
+  <button class="btn" id="addel" title="Add text, buttons, pictures, forms and more">+ Element</button>
   <button class="btn primary" id="addpage" title="Add a page from a template">+ Add page</button>
   <button class="btn" id="fit" title="Show every page (F)">Fit</button><span id="zoom"></span>
   <button class="btn" id="reload" title="Reload every page">Reload</button>
@@ -135,6 +154,12 @@ const BODY = String.raw`
 <div id="labels"></div>
 <div id="hint"></div>
 <aside id="panel" hidden></aside>
+<aside id="lib" hidden>
+  <div class="libtop"><b>Add an element</b><button class="close" id="libclose" title="Close">×</button></div>
+  <input id="libsearch" placeholder="Search: button, image, form…" spellcheck="false">
+  <p class="libhint">Drag onto a page, or click to add it after the selected element.</p>
+  <div id="libbody"></div>
+</aside>
 <datalist id="vz-pages"></datalist>
 `;
 
@@ -538,6 +563,8 @@ window.addEventListener('message', function(e){
     else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); drawWires(); }
     else if (m.type === 'move') { move(c, m); }
     else if (m.type === 'place') { place(c, m); }
+    else if (m.type === 'insertDrop') { insertDrop(c, m); }
+    else if (m.type === 'selected') { S.activeCard = c; }
     else if (m.type === 'nudge') { nudgeSave(c, m); }
     else if (m.type === 'reselected') { reselected(c, m.info); }
     else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
@@ -552,6 +579,8 @@ window.addEventListener('message', function(e){
   }
   if (m.type === 'init') {
     S.pages = m.pages || [];
+    LIB = m.elements || LIB;
+    if (!$('lib').hidden) { renderLib(); }
     var dl = $('vz-pages'); dl.innerHTML = '';
     S.pages.forEach(function(p){ var o = document.createElement('option'); o.value = p.file; dl.appendChild(o); });
     app.value = m.appUrl || ''; app.setAttribute('data-was', app.value);
@@ -622,6 +651,14 @@ function edited(m){
   S.saveTimer = setTimeout(function(){ if (S.saving) { S.saving = false; flushWaiting(); } }, 5000);
 }
 function reselected(c, info){
+  if (S.openAfter && info) {
+    S.openAfter = false;
+    S.saving = false;
+    openPanel(c, info);
+    notice('Added. Double-click it any time to edit, or drag it to move it.', false);
+    return;
+  }
+  S.openAfter = false;
   if (S.cur && S.cur.c === c && info) {
     var keep = S.cur.info;
     for (var k in info) { if (k !== 'page') { keep[k] = info[k]; } }
@@ -689,6 +726,76 @@ function nudgeSave(c, m){
   if (!info) { info = { at: m.at, tag: m.tag }; S.nudging = { c: c, at: m.at, info: info }; }
   for (var k in m.props) { queue(c, info, 'style', k, m.props[k]); }
 }
+
+var LIB = [];
+function renderLib(){
+  var body = $('libbody'), q = $('libsearch').value.trim().toLowerCase();
+  body.innerHTML = '';
+  var groups = [];
+  LIB.forEach(function(e){
+    if (q && (e.name + ' ' + e.description + ' ' + e.group).toLowerCase().indexOf(q) < 0) { return; }
+    var g = groups.filter(function(x){ return x.name === e.group; })[0];
+    if (!g) { g = { name: e.group, items: [] }; groups.push(g); }
+    g.items.push(e);
+  });
+  if (!groups.length) { body.appendChild(el('p', 'libhint', 'Nothing matches “' + q + '”.')); return; }
+  groups.forEach(function(g){
+    body.appendChild(el('h4', '', g.name));
+    var tiles = el('div', 'tiles');
+    g.items.forEach(function(e){
+      var t = el('div', 'tile');
+      t.setAttribute('draggable', 'true');
+      t.setAttribute('role', 'button');
+      t.tabIndex = 0;
+      t.title = e.description + ' Drag onto a page, or click to add after the selected element.';
+      t.appendChild(el('i', '', e.glyph));
+      t.appendChild(el('span', '', e.name));
+      t.addEventListener('dragstart', function(ev){
+        ev.dataTransfer.setData('application/x-vibez-element', e.id);
+        ev.dataTransfer.setData('text/plain', e.name);
+        ev.dataTransfer.effectAllowed = 'copy';
+      });
+      t.addEventListener('click', function(){ addHere(e.id); });
+      t.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); addHere(e.id); } });
+      tiles.appendChild(t);
+    });
+    body.appendChild(tiles);
+  });
+}
+function toggleLib(show){
+  var lib = $('lib');
+  lib.hidden = show === undefined ? !lib.hidden : !show;
+  $('addel').classList.toggle('on', !lib.hidden);
+  if (!lib.hidden) {
+    renderLib();
+    setTimeout(function(){ $('libsearch').focus(); }, 20);
+    // Slide the pages over so the drawer does not cover the one being worked on.
+    var c = activeCard();
+    if (c) { var left = S.tx + c.x * S.z; if (left < 304) { S.tx += 304 - left; apply(); drawWires(); } }
+  }
+}
+/** The page a click on a tile adds to: the one being edited, else the one last clicked, else the one in the middle of the view. */
+function activeCard(){
+  if (S.cur && S.cur.c) { return S.cur.c; }
+  if (S.activeCard && S.cards.indexOf(S.activeCard) >= 0) { return S.activeCard; }
+  var b = board.getBoundingClientRect(), mid = b.width / 2, best = null, bestD = Infinity;
+  S.cards.forEach(function(c){ var cx = S.tx + (c.x + c.w / 2) * S.z; var d = Math.abs(cx - mid); if (d < bestD) { bestD = d; best = c; } });
+  return best;
+}
+function addHere(id){
+  var c = activeCard();
+  if (!c) { notice('Open a page first.', true); return; }
+  tell(c, { type: 'insertHere', element: id });
+}
+function insertDrop(c, m){
+  flush();
+  if (S.saving) { notice('Still saving the last change. Try again in a moment.', true); return; }
+  S.saving = true; S.editCard = c; S.openAfter = true; S.activeCard = c;
+  vscode.postMessage({ type: 'edit', file: fileOf(c), at: m.target, tag: m.targetTag || '', ops: [{ op: 'insert', element: m.element, where: m.where, accent: m.accent }] });
+}
+$('addel').addEventListener('click', function(){ toggleLib(); });
+$('libclose').addEventListener('click', function(){ toggleLib(false); });
+$('libsearch').addEventListener('input', renderLib);
 
 var FONTS = [['Georgia', 'Georgia, serif'], ['Times', '"Times New Roman", Times, serif'], ['Palatino', 'Palatino, "Palatino Linotype", serif'],
   ['System', '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'], ['Helvetica', '"Helvetica Neue", Helvetica, Arial, sans-serif'],
@@ -761,6 +868,8 @@ function editSection(c, info){
   if (tag === 'a') { attr('href', 'Links to', true, 'vz-pages'); }
   if (tag === 'img') { attr('src', 'Picture file', true); attr('alt', 'Description (for screen readers)', true); }
   if (tag === 'input' || tag === 'textarea') { attr('placeholder', 'Placeholder', true); }
+  if (tag === 'video' || tag === 'audio') { attr('src', tag === 'video' ? 'Video file' : 'Audio file', true); }
+  if (tag === 'iframe') { attr('src', 'Address shown inside (a YouTube embed link, a map link…)', true); }
 
   if (words || (info.text && !media)) {
     var family = own['font-family'] || '';
@@ -781,6 +890,7 @@ function editSection(c, info){
   style(field('Corner radius (px)', input('number', num(st.borderRadius), { min: 0, step: 1 })), 'border-radius', 'px');
   style(field('Padding (px)', input('number', num(st.paddingTop), { min: 0, step: 1 })), 'padding', 'px');
   style(field('Width', input('text', own.width || '', { placeholder: 'auto, 320px, 50%' })), 'width', 'px');
+  style(field('Height', input('text', own.height || '', { placeholder: 'auto, 200px' })), 'height', 'px');
 
   if (own.left || own.top || own.translate) {
     var home = el('button', 'btn', 'Put back in its place');

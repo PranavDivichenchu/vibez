@@ -13,3 +13,4 @@ export * from './fixture.ts';
 export * from './pages.ts';
 export * from './edit.ts';
 export * from './templates.ts';
+export * from './elements.ts';

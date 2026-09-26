@@ -27,6 +27,7 @@ const FILES: Record<string, string> = {
   'pages.ts': 'vibezPages.ts',
   'edit.ts': 'vibezEdit.ts',
   'templates.ts': 'vibezTemplates.ts',
+  'elements.ts': 'vibezElements.ts',
   'types.ts': 'vibezTypes.ts',
   'spans.ts': 'vibezSpans.ts',
   'keys.ts': 'vibezKeys.ts',

@@ -89,7 +89,7 @@ function short(el){
   if (!el || !el.tagName) { return ''; }
   var s = el.tagName.toLowerCase();
   if (el.id) { return s + '#' + el.id; }
-  var c = (typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(function(x){ return x && x.indexOf('vz-') !== 0; });
+  var c = (typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(function(x){ return x && !/^vz-(el|hit|dragging|lifted|sel|ov|flash)$/.test(x); });
   return c.length ? s + '.' + c[0] : s;
 }
 function words(el){
@@ -154,7 +154,7 @@ function info(el){
   var r = {};
   r.tag = el.tagName.toLowerCase();
   r.id = el.id || '';
-  r.classes = (typeof el.className === 'string' ? el.className : (el.getAttribute('class') || '')).split(/\s+/).filter(function(c){ return c && c.indexOf('vz-') !== 0; }).slice(0, 6);
+  r.classes = (typeof el.className === 'string' ? el.className : (el.getAttribute('class') || '')).split(/\s+/).filter(function(c){ return c && !/^vz-(hit|dragging|lifted|sel|ov|flash)$/.test(c); }).slice(0, 6);
   r.text = String(el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160);
   r.label = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt') || el.getAttribute('placeholder') || '';
   var ln = el.getAttribute('data-vz-line');
@@ -328,6 +328,7 @@ on(document, 'click', function(e){
   e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
   selected = el; refresh();
   try { window.focus(); } catch (x) {}
+  if (el && mode === 'inspect') { post({ type: 'selected', at: el.getAttribute('data-vz-at') ? Number(el.getAttribute('data-vz-at')) : null }); }
   if (e.altKey && mode !== 'inspect' && el) { post({ type: 'inspect', info: info(el) }); }
 }, true);
 on(document, 'submit', function(e){ if (mode === 'inspect') { e.preventDefault(); e.stopPropagation(); } }, true);
@@ -502,6 +503,86 @@ function freeDrop(){
   post({ type: 'place', at: Number(el.getAttribute('data-vz-at')), tag: el.tagName.toLowerCase(),
     container: home ? Number(home.getAttribute('data-vz-at')) : null, containerTag: home ? home.tagName.toLowerCase() : null, props: props });
 }
+/** The site's own button colour, so added elements match it. Greys, whites and blacks do not count. */
+function siteAccent(){
+  var all = document.querySelectorAll('a.btn,button,.btn,.button,[class*="btn"],[class*="button"],input[type=submit]');
+  for (var i = 0; i < all.length && i < 200; i++) {
+    if (all[i].closest('.vz-el')) { continue; }
+    var m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s\/]+([\d.]+))?/.exec(getComputedStyle(all[i]).backgroundColor);
+    if (!m || (m[4] !== undefined && Number(m[4]) < 0.5)) { continue; }
+    var r = Math.round(Number(m[1])), g = Math.round(Number(m[2])), b = Math.round(Number(m[3]));
+    if (Math.max(r, g, b) - Math.min(r, g, b) < 30) { continue; }
+    return 'rgb(' + r + ', ' + g + ', ' + b + ')';
+  }
+  return null;
+}
+function isContainer(n){ return !NOT_CONTAINER.test(n.tagName) && !/^inline/.test(getComputedStyle(n).display) && !/^(ul|ol|table|thead|tbody|tr|select|details|fieldset)$/i.test(n.tagName); }
+/** Where a new element dropped at (x, y) should go, and a rectangle to show it. */
+function placeFor(x, y){
+  var hit = document.elementFromPoint(x, y);
+  var cands = [];
+  for (var n = hit; n && n !== document.documentElement; n = n.parentElement) {
+    if (n.hasAttribute && n.hasAttribute('data-vz-at') && !n.closest('head')) { cands.push(n); }
+    if (n === document.body) { break; }
+  }
+  var target = null;
+  for (var i = 0; i < cands.length && !target; i++) {
+    var c = cands[i];
+    if (c === document.body) { continue; }
+    if (getComputedStyle(c).display === 'inline' && c.parentElement && c.parentElement !== document.body) { continue; }
+    target = c;
+  }
+  if (!target) { target = cands[cands.length - 1] || null; }
+  if (!target) { return null; }
+  if (isContainer(target)) {
+    var kids = [];
+    for (var k = 0; k < target.children.length; k++) { if (target.children[k].hasAttribute('data-vz-at')) { kids.push(target.children[k]); } }
+    if (!kids.length) { return { el: target, where: 'inside', r: target.getBoundingClientRect() }; }
+    var over = null;
+    for (var q = 0; q < kids.length && !over; q++) { var kr = kids[q].getBoundingClientRect(); if (x >= kr.left && x <= kr.right && y >= kr.top && y <= kr.bottom) { over = kids[q]; } }
+    if (!over) {
+      var best = null, bestD = Infinity;
+      kids.forEach(function(kid){ var r = kid.getBoundingClientRect(); var d = Math.abs(y - Math.max(r.top, Math.min(y, r.bottom))) + Math.abs(x - Math.max(r.left, Math.min(x, r.right))) * 0.3; if (d < bestD) { bestD = d; best = kid; } });
+      target = best;
+    } else if (target === document.body || target.tagName === 'MAIN' || target.tagName === 'SECTION') {
+      target = over;
+    }
+  }
+  var rr = target.getBoundingClientRect();
+  var across = target.parentElement ? flows(target.parentElement, target) : false;
+  var where = across ? (x < rr.left + rr.width / 2 ? 'before' : 'after') : (y < rr.top + rr.height / 2 ? 'before' : 'after');
+  return { el: target, where: where, across: across, r: rr };
+}
+function showPlace(p){
+  if (!p) { showDrop(null); into.style.display = 'none'; return; }
+  if (p.where === 'inside') {
+    showDrop(null);
+    into.style.display = 'block'; into.style.left = p.r.left + 'px'; into.style.top = p.r.top + 'px'; into.style.width = p.r.width + 'px'; into.style.height = Math.max(24, p.r.height) + 'px';
+  } else {
+    into.style.display = 'none';
+    showDrop(p);
+  }
+}
+function isLibraryDrag(e){ var t = e.dataTransfer && e.dataTransfer.types; if (!t) { return false; } for (var i = 0; i < t.length; i++) { if (t[i] === 'application/x-vibez-element') { return true; } } return false; }
+var libPlace = null;
+on(document, 'dragover', function(e){
+  if (!isLibraryDrag(e) || !FROM_DISK) { return; }
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  libPlace = placeFor(e.clientX, e.clientY);
+  showPlace(libPlace);
+}, true);
+on(document, 'dragleave', function(e){ if (!e.relatedTarget) { libPlace = null; showPlace(null); } }, true);
+on(document, 'drop', function(e){
+  if (!isLibraryDrag(e)) { return; }
+  e.preventDefault(); e.stopPropagation();
+  var id = e.dataTransfer.getData('application/x-vibez-element');
+  var p = placeFor(e.clientX, e.clientY);
+  showPlace(null); libPlace = null;
+  if (!id || !FROM_DISK) { return; }
+  post({ type: 'insertDrop', element: id, target: p ? Number(p.el.getAttribute('data-vz-at')) : null, targetTag: p ? p.el.tagName.toLowerCase() : null, where: p ? p.where : 'inside', accent: siteAccent() });
+}, true);
+
 var nudged = null;
 function nudge(dx, dy){
   var el = selected, r = el.getBoundingClientRect();
@@ -599,8 +680,19 @@ on(window, 'message', function(e){
   if (m.type === 'restore') {
     if (m.sy) { scrollTo(0, m.sy); }
     var se = byAt(m.at);
-    if (se) { selected = se; refresh(); try { window.focus(); } catch (x) {} }
+    if (se) {
+      selected = se;
+      var sr = se.getBoundingClientRect();
+      if (sr.top < 0 || sr.bottom > innerHeight) { se.scrollIntoView({ block: 'center' }); }
+      refresh();
+      try { window.focus(); } catch (x) {}
+    }
     if (m.report) { post({ type: 'reselected', info: se ? info(se) : null }); }
+  }
+  if (m.type === 'insertHere') {
+    var after = selected && movable(selected) && selected !== document.body ? selected : null;
+    if (!FROM_DISK) { return; }
+    post({ type: 'insertDrop', element: m.element, target: after ? Number(after.getAttribute('data-vz-at')) : null, targetTag: after ? after.tagName.toLowerCase() : null, where: 'after', accent: siteAccent() });
   }
   if (m.type === 'nudgeKey' && selected && movable(selected) && FROM_DISK && mode === 'inspect') { nudge(m.dx, m.dy); }
   if (m.type === 'ancestor') {

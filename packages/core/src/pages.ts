@@ -241,6 +241,17 @@ export interface Explanation {
   breadcrumb: string[];
 }
 
+/** Class → name for the element library's pieces (see elements.ts); kept here so pages.ts stays standalone. */
+const LIBRARY_NAMES: Record<string, string> = {
+  'vz-title': 'Title', 'vz-heading': 'Heading', 'vz-subheading': 'Subheading', 'vz-text': 'Text box', 'vz-lead': 'Intro text',
+  'vz-quote': 'Quote', 'vz-list': 'List', 'vz-small': 'Small print', 'vz-button': 'Button', 'vz-actions': 'Two buttons',
+  'vz-image': 'Image', 'vz-figure': 'Image with caption', 'vz-gallery': 'Gallery', 'vz-video': 'Video', 'vz-map': 'Map',
+  'vz-embed': 'Embed', 'vz-divider': 'Divider', 'vz-spacer': 'Spacer', 'vz-section': 'Section', 'vz-price': 'Price box', 'vz-card': 'Card',
+  'vz-columns': 'Two columns', 'vz-cards': 'Three cards', 'vz-callout': 'Callout', 'vz-hero': 'Hero banner', 'vz-form': 'Contact form',
+  'vz-inline-form': 'Newsletter signup', 'vz-field': 'Form field', 'vz-check': 'Checkbox', 'vz-choices': 'Choices', 'vz-table': 'Table',
+  'vz-faq': 'Question & answer', 'vz-stats': 'Numbers', 'vz-testimonial': 'Testimonial', 'vz-code': 'Code block', 'vz-social': 'Social links', 'vz-links': 'Link row',
+};
+
 const NAV_CALL = /(?:\brouter\.(?:push|replace)|\bnavigate|\blocation\.(?:assign|replace)|\blocation\.href\s*=|\bwindow\.location\s*=)\s*\(?\s*(["'`])([^"'`]+)\1/;
 
 /** The literal URL a handler navigates to, if it names one. */
@@ -347,7 +358,12 @@ function capital(text: string): string { return text.charAt(0).toUpperCase() + t
 /** The plain-words answer to “what is this and what does it do?”. */
 export function explainElement(el: ElementInfo, ctx: ExplainContext): Explanation {
   const page = ctx.pages.find(p => p.id === el.page) ?? null;
-  const { kind, title } = describeElement(el);
+  const described = describeElement(el);
+  const { kind } = described;
+  // Pieces added from the element library say what they are by name.
+  const library = el.classes.includes('vz-el') ? el.classes.map(c => LIBRARY_NAMES[c]).find(Boolean) : undefined;
+  const quoted = library && /^(Title|Heading|Subheading|Text box|Intro text|Quote|Small print|Button)$/.test(library) && el.text && el.text.length < 40;
+  const title = library ? `${library}${quoted ? ` “${el.text}”` : ''}` : described.title;
   const code: CodeRef[] = [];
   const actions: Explanation['actions'] = [];
   const data: Explanation['data'] = [];

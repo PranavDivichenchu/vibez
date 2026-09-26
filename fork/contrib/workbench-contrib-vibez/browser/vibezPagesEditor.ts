@@ -17,6 +17,7 @@ import { IThemeService } from '../../../../platform/theme/common/themeService.js
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { EditError, moveElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
+import { ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
 import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
@@ -47,7 +48,8 @@ type EditOp =
 	| { op: 'style'; props: Record<string, string | null> }
 	| { op: 'text'; text: string }
 	| { op: 'attr'; name: string; value: string | null }
-	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' | 'inside' };
+	| { op: 'move'; target: number; targetTag: string; where: 'before' | 'after' | 'inside' }
+	| { op: 'insert'; element: string; where: 'before' | 'after' | 'inside'; accent?: string | null };
 
 /** Attributes the edit panel may change. Anything else is edited in code. */
 const EDITABLE_ATTRIBUTES = /^(href|src|alt|title|placeholder|style)$/;
@@ -197,7 +199,7 @@ export class VibezPagesEditor extends EditorPane {
 				return;
 			}
 			case 'edit':
-				return this.edit(String(message.file), Number(message.at), String(message.tag), (message.ops ?? []) as EditOp[]);
+				return this.edit(String(message.file), message.at === null || message.at === undefined ? null : Number(message.at), String(message.tag ?? ''), (message.ops ?? []) as EditOp[]);
 			case 'undo':
 				return this.undo(false);
 			case 'redo':
@@ -234,7 +236,7 @@ export class VibezPagesEditor extends EditorPane {
 	 * moved on since, nothing is written and the page reloads. A file with
 	 * unsaved changes in an editor is left alone, so nobody's typing is lost.
 	 */
-	private async edit(file: string, at: number, tag: string, ops: EditOp[]): Promise<void> {
+	private async edit(file: string, at: number | null, tag: string, ops: EditOp[]): Promise<void> {
 		const fail = (reason: string, reload = false) => this.post({ type: 'editFailed', file, reason, reload });
 		if (!this.folder || !/\.html?$/i.test(file) || !this.sources.has(file)) {
 			return fail('Only the HTML files in this folder can be edited on the canvas.');
@@ -250,7 +252,10 @@ export class VibezPagesEditor extends EditorPane {
 			return fail(`Could not read ${file}: ${error}`);
 		}
 		let html = before;
-		let where = at;
+		let where = at ?? -1;
+		if (at === null && !ops.every(op => op.op === 'insert')) {
+			return fail('Choose an element on the page first.');
+		}
 		try {
 			for (const op of ops) {
 				switch (op.op) {
@@ -265,6 +270,10 @@ export class VibezPagesEditor extends EditorPane {
 							throw new EditError(`“${op.name}” is changed in code, not on the canvas.`);
 						}
 						html = setAttribute(html, where, op.name, op.value === null ? null : String(op.value), tag);
+						break;
+					case 'insert':
+						({ html, at: where } = insertElement(html, String(op.element), at === null ? null : where, op.where === 'before' || op.where === 'inside' ? op.where : 'after', tag || undefined, op.accent ?? null));
+						at = where;
 						break;
 					case 'move':
 						({ html, at: where } = moveElement(html, where, Number(op.target), op.where === 'after' || op.where === 'inside' ? op.where : 'before', tag, op.targetTag));
@@ -371,6 +380,7 @@ export class VibezPagesEditor extends EditorPane {
 		VibezPagesEditor.focusNext = undefined;
 		this.post({
 			type: 'init', pages, fresh, appUrl, suggest, status, focus,
+			elements: ELEMENTS.map(({ id, name, group, description, glyph }) => ({ id, name, group, description, glyph })),
 			emptyTitle: framework.length && !appUrl ? 'Start the app to see its pages' : 'No pages found',
 			note: notes.join(' ') || 'Open a folder with .html pages, or a Next.js app with its dev server running.',
 		});
