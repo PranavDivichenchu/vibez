@@ -31,6 +31,8 @@ const FILES: Record<string, string> = {
   'detect.ts': 'vibezDetect.ts',
   'build.ts': 'vibezBuild.ts',
   'layout.ts': 'vibezLayout.ts',
+  'diff.ts': 'vibezDiff.ts',
+  'choreo.ts': 'vibezChoreo.ts',
 };
 
 const target = join(forkDir(), 'src/vs/platform/vibez/common');
