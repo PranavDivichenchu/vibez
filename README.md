@@ -115,6 +115,26 @@ of the page is hidden.
 - Scroll over a page to scroll it; scroll or drag the space between pages to
   move around; pinch or ⌘-scroll to zoom; `F` fits every page.
 
+### Editing on the canvas
+
+- **Change how something looks**: double-click it and use the **Edit** section
+  of the inspector: text, font, size, weight, colour, italic, alignment, line
+  height, letter spacing, background, corner radius, padding and width, plus
+  where a link goes and an image's file and description. Changes show on the
+  page as you make them and save to that element's own `style` attribute in
+  the HTML file, so nothing else on the site changes.
+- **Move something**: in Inspect mode, press on it and drag. A blue line shows
+  where it will land (before or after another element, in any container). The
+  element moves in the HTML, so the layout still works on phones. To move a
+  whole card or section, click the larger element in the inspector's
+  breadcrumb first, then drag.
+- **Undo / Redo** (`⌘Z`, `⇧⌘Z`, or the toolbar) cover every canvas change.
+  A file with unsaved changes in an editor is never written, and a change is
+  refused if the file no longer matches the page on screen.
+
+Editing works on pages served from the folder's HTML files; pages from a
+running app (App URL) are read-only for now.
+
 Static sites are served straight from the folder. For an app that needs a
 server (Next.js, Vite…), start its dev server and put its address in
 **App URL**; pages are then loaded through it. Either way the pages are served
