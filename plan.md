@@ -156,8 +156,18 @@ an edit with no model involved.
 |---|---|---|---|
 | Drag a step onto a sibling | "these should overlap" | one `Promise.all` | shipped |
 | **if** on a step | "only do this when…" | `cond ? await f() : EMPTY`, or an `if` block | shipped |
+| Drag a step onto a Branch's True/False | "only on this side" | an `if/else` with the step in that block | shipped |
+| **Start all at once** on a repeated step | "stop waiting on each one" | lookups started together, used in order | shipped |
+| Collapse a repeated step to one query | "ask once for all of them" | `findMany` / `IN (...)` | planned, library-specific |
 | Drop a node on the cache target | "stop asking twice" | memoised call | planned |
-| Collapse a repeated node's `12×` | "ask once for all of them" | batched query | planned |
+
+**Start all at once is not the same as one query.** Merging N lookups into one
+depends on the database library, so it cannot be done deterministically for any
+code. Starting them together and consuming them in order can, and it is where
+the latency goes. Order is kept on purpose: pushing results as they finish would
+silently scramble anything that pairs results with inputs by position. On the
+demo it takes the dashboard from 350 ms to 183 ms. A one-query rewrite for
+Prisma is the natural follow-up and is library-specific by nature.
 
 Every one previews its diff before anything changes, lands through the
 workbench's own edit pipeline so ⌘Z works, and is re-measured against the running
@@ -176,6 +186,13 @@ traced calls and laid onto the graph:
   **ghost** steps — dashed, no timing, "in the code, not in any run".
 - A value the condition reads, like `plan` in `plan?.tier === 'Pro'`, is wired
   into the condition input, so you can see what the decision depends on.
+
+**Filling either side.** Drag a step onto a Branch's True or False output and it
+moves into that block. A ternary is rebuilt as an `if/else`: the value it made is
+hoisted into a `let` and assigned in whichever side produces it, and the moved
+step gets an empty value of its type for the side it does not run on. It refuses
+if the step reads what the branch sets, if the branch reads the step's value, or
+if an await sits between them.
 
 That is also what makes creating one coherent. The **if** button on a step writes
 the conditional, the source reader finds it on the next measure, and the new

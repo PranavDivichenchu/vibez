@@ -1,5 +1,5 @@
 import type { Anchor, Fact, GEdge, GNode, Graph, NodeKind, Port, PortType, SemanticKey } from './types.ts';
-import { type RawSpan, type SpanNode, durMs, selfMs, toTrees } from './spans.ts';
+import { type RawSpan, type SpanNode, coveredNs, durMs, selfMs, toTrees } from './spans.ts';
 import { classify, normalizedName, semanticKey } from './keys.ts';
 import { bandOf, heatOf, stats } from './heat.ts';
 import { detect } from './detect.ts';
@@ -15,9 +15,14 @@ interface Acc {
   kind: NodeKind;
   label: string;
   anchor: Anchor | null;
-  /** Self time SUMMED WITHIN each trace, then sampled across traces. */
-  selfByTrace: Map<string, number>;
-  totalByTrace: Map<string, number>;
+  /**
+   * Per trace, the intervals this step's calls covered and the intervals its
+   * children covered. A step's time within one request is the UNION of its
+   * calls, not their sum: twelve sequential 15 ms queries cover 180 ms, twelve
+   * concurrent ones cover about 15. Summing reported the second as the first.
+   */
+  spansByTrace: Map<string, Array<readonly [number, number]>>;
+  childSpansByTrace: Map<string, Array<readonly [number, number]>>;
   /** Duration of one individual call, for "12 × 173 ms". */
   perCall: number[];
   occurrences: number;
@@ -103,8 +108,8 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
         kind,
         label: displayLabel(kind, node.span, normalized),
         anchor: anchorOf(node.span),
-        selfByTrace: new Map<string, number>(),
-        totalByTrace: new Map<string, number>(),
+        spansByTrace: new Map<string, Array<readonly [number, number]>>(),
+        childSpansByTrace: new Map<string, Array<readonly [number, number]>>(),
         perCall: [],
         occurrences: 0,
         facts: new Map<string, Fact>(),
@@ -114,8 +119,12 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       };
       const trace = node.span.traceId;
       const own = selfMs(node);
-      acc.selfByTrace.set(trace, (acc.selfByTrace.get(trace) ?? 0) + own);
-      acc.totalByTrace.set(trace, (acc.totalByTrace.get(trace) ?? 0) + durMs(node.span));
+      const own_ = acc.spansByTrace.get(trace) ?? [];
+      own_.push([node.span.startNs, node.span.endNs]);
+      acc.spansByTrace.set(trace, own_);
+      const kids = acc.childSpansByTrace.get(trace) ?? [];
+      for (const child of node.children) kids.push([child.span.startNs, child.span.endNs]);
+      acc.childSpansByTrace.set(trace, kids);
       acc.perCall.push(own);
       acc.occurrences += 1;
       if (acc.anchor === null) acc.anchor = anchorOf(node.span);
@@ -154,7 +163,15 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
   const hasParent = new Set([...edges.values()].map((e) => e.to));
 
   const gnodes: GNode[] = [...nodes.values()].map((acc) => {
-    const self = stats([...acc.selfByTrace.values()]);
+    const totals: number[] = [];
+    const selves: number[] = [];
+    for (const [trace, spans] of acc.spansByTrace) {
+      const covered = coveredNs(spans);
+      const children = coveredNs(acc.childSpansByTrace.get(trace) ?? []);
+      totals.push(covered / 1e6);
+      selves.push(Math.max(0, covered - children) / 1e6);
+    }
+    const self = stats(selves);
     const heat = heatOf(self.p50, rootTotalMs);
     const execOut: Port[] = [...(outPortsByNode.get(acc.key) ?? [])].map((child) => ({
       id: `exec:${child}`,
@@ -180,7 +197,7 @@ export function buildGraph(spans: RawSpan[], options: BuildOptions = {}): Graph 
       metrics: {
         calls: Math.max(1, Math.round(acc.occurrences / runs)),
         selfMs: self,
-        totalMs: stats([...acc.totalByTrace.values()]),
+        totalMs: stats(totals),
         perCallMs: stats(acc.perCall),
       },
       heat,

@@ -386,6 +386,10 @@ export class VibezEditor extends EditorPane {
 			if (node.kind === 'branch') {
 				card.classList.add('branch');
 			}
+			if (node.metrics.calls > 1 && !node.ghost) {
+				// Drawn as a deck: the same step, many times over.
+				card.classList.add('stack');
+			}
 			card.style.left = `${box.x + offset.dx}px`;
 			card.style.top = `${box.y + offset.dy}px`;
 			card.style.width = `${box.w}px`;
@@ -539,8 +543,11 @@ export class VibezEditor extends EditorPane {
 						const side = port.id === 'exec:true' ? 'true' : 'false';
 						const ran = node.branch.taken[side];
 						const note = dom.append(right, dom.$('span.vibez-taken'));
-						note.textContent = ran ? localize('vibez.side.ran', "ran") : localize('vibez.side.never', "never ran");
-						note.classList.toggle('never', !ran);
+						// A side with nothing on it did not "never run"; it is just empty.
+						note.textContent = !port.connected
+							? localize('vibez.side.empty', "empty")
+							: ran ? localize('vibez.side.ran', "ran") : localize('vibez.side.never', "never ran");
+						note.classList.toggle('never', port.connected && !ran);
 						line.classList.add(`side-${side}`);
 					}
 					dom.append(right, dom.$('span')).textContent = port.name;
@@ -557,6 +564,18 @@ export class VibezEditor extends EditorPane {
 			dom.append(cond, dom.$('span.kw')).textContent = 'if';
 			dom.append(cond, dom.$('span.expr')).textContent = node.branch.condition;
 			cond.title = node.branch.condition;
+		} else if (this.isRepeated(node)) {
+			const fact = dom.append(body, dom.$<HTMLButtonElement>('button.vibez-fact.action'));
+			fact.type = 'button';
+			dom.append(fact, dom.$('span.what')).textContent = node.facts[0].strip;
+			dom.append(fact, dom.$('span.go')).textContent = localize('vibez.batch.go', "Start all at once");
+			fact.title = node.facts[0].technique;
+			this.rendered.add(dom.addDisposableListener(fact, dom.EventType.CLICK, (event: MouseEvent) => {
+				event.stopPropagation();
+				if (!this.busy) {
+					void this.runBatch(node);
+				}
+			}));
 		} else if (node.facts.length) {
 			dom.append(body, dom.$('.vibez-fact')).textContent = node.facts[0].strip;
 		}
@@ -620,9 +639,42 @@ export class VibezEditor extends EditorPane {
 			});
 	}
 
+	private isRepeated(node: GNode): boolean {
+		return node.metrics.calls > 1 && node.facts.some(fact => fact.code === 'n+1');
+	}
+
+	/** Branches under the same parent: dropping a step on one moves it into a side. */
+	private branchTargetsOf(id: SemanticKey): SemanticKey[] {
+		if (!this.current) {
+			return [];
+		}
+		const self = this.views.get(id)?.node;
+		if (!self || self.ghost || self.kind === 'branch') {
+			return [];
+		}
+		const exec = this.current.graph.edges.filter(edge => edge.wire === 'exec');
+		const parent = exec.find(edge => edge.to.node === id)?.from.node;
+		if (parent === undefined || this.views.get(parent)?.node.kind === 'branch') {
+			return [];
+		}
+		return exec.filter(edge => edge.from.node === parent).map(edge => edge.to.node)
+			.filter(other => this.views.get(other)?.node.kind === 'branch');
+	}
+
+	/** Which output of a branch the pointer is over: the nearer of its True and False rows. */
+	private sideAt(card: HTMLElement, clientY: number): 'true' | 'false' {
+		const yes = card.querySelector('.side-true')?.getBoundingClientRect();
+		const no = card.querySelector('.side-false')?.getBoundingClientRect();
+		if (!yes || !no) {
+			const rect = card.getBoundingClientRect();
+			return clientY < rect.top + rect.height / 2 ? 'true' : 'false';
+		}
+		return Math.abs(clientY - (yes.top + yes.height / 2)) <= Math.abs(clientY - (no.top + no.height / 2)) ? 'true' : 'false';
+	}
+
 	private installDrag(card: HTMLElement, node: GNode): void {
 		this.rendered.add(dom.addDisposableListener(card, dom.EventType.POINTER_DOWN, (down: PointerEvent) => {
-			if (down.button !== 0 || this.busy || (down.target as HTMLElement | null)?.closest?.('.vibez-node-action')) {
+			if (down.button !== 0 || this.busy || (down.target as HTMLElement | null)?.closest?.('.vibez-node-action, .vibez-fact.action')) {
 				return;
 			}
 			down.stopPropagation();
@@ -630,7 +682,9 @@ export class VibezEditor extends EditorPane {
 			const start = this.offsetOf(node.id);
 			let dragging = false;
 			let target: SemanticKey | undefined;
+			let side: 'true' | 'false' | undefined;
 			const candidates = this.siblingsOf(node.id);
+			const branches = this.branchTargetsOf(node.id);
 			const hint = dom.$('.vibez-drop-hint');
 			try {
 				card.setPointerCapture(down.pointerId);
@@ -648,31 +702,51 @@ export class VibezEditor extends EditorPane {
 					dragging = true;
 					this.root.classList.add('dragging');
 					card.classList.add('dragging');
-					for (const id of candidates) {
+					for (const id of [...candidates, ...branches]) {
 						this.views.get(id)?.card.classList.add('drop-candidate');
 					}
 				}
 				this.offsets.set(node.id, { dx: start.dx + dx, dy: start.dy + dy });
 				this.reposition(node.id);
 
-				const next = candidates.find(id => {
+				const over = (id: SemanticKey) => {
 					const rect = this.views.get(id)?.card.getBoundingClientRect();
-					return rect && event.clientX >= rect.left && event.clientX <= rect.right
+					return rect !== undefined && event.clientX >= rect.left && event.clientX <= rect.right
 						&& event.clientY >= rect.top && event.clientY <= rect.bottom;
-				});
-				if (next !== target) {
+				};
+				const overBranch = branches.find(over);
+				const next = overBranch ?? candidates.find(over);
+				const nextSide = overBranch ? this.sideAt(this.views.get(overBranch)!.card, event.clientY) : undefined;
+				if (next !== target || nextSide !== side) {
 					if (target) {
-						this.views.get(target)?.card.classList.remove('drop-target');
+						const previous = this.views.get(target)?.card;
+						previous?.classList.remove('drop-target');
+						previous?.querySelectorAll('.drop-side').forEach(row => row.classList.remove('drop-side'));
 					}
 					target = next;
+					side = nextSide;
 					if (target) {
 						const view = this.views.get(target)!;
 						view.card.classList.add('drop-target');
-						hint.textContent = localize('vibez.drop.hint', "Run together");
-						view.card.appendChild(hint);
+						if (side) {
+							view.card.querySelector(`.side-${side}`)?.classList.add('drop-side');
+							hint.textContent = side === 'true'
+								? localize('vibez.drop.true', "Run when True")
+								: localize('vibez.drop.false', "Run when False");
+						} else {
+							hint.textContent = localize('vibez.drop.hint', "Run together");
+						}
+						// The hint lives in the world, not the card: cards clip their contents.
+						const box = view.card;
+						hint.style.left = `${box.offsetLeft + box.offsetWidth / 2}px`;
+						hint.style.top = `${box.offsetTop - 30}px`;
+						this.world.appendChild(hint);
 					} else {
 						hint.remove();
 					}
+					// Over a target, the dragged step goes see-through, so the row it
+					// would land on is visible underneath it.
+					card.classList.toggle('over-target', target !== undefined);
 				}
 			};
 
@@ -683,9 +757,11 @@ export class VibezEditor extends EditorPane {
 				keyListener.dispose();
 				hint.remove();
 				this.root.classList.remove('dragging');
-				card.classList.remove('dragging');
-				for (const id of candidates) {
-					this.views.get(id)?.card.classList.remove('drop-candidate', 'drop-target');
+				card.classList.remove('dragging', 'over-target');
+				for (const id of [...candidates, ...branches]) {
+					const other = this.views.get(id)?.card;
+					other?.classList.remove('drop-candidate', 'drop-target');
+					other?.querySelectorAll('.drop-side').forEach(row => row.classList.remove('drop-side'));
 				}
 
 				if (!dragging) {
@@ -706,7 +782,11 @@ export class VibezEditor extends EditorPane {
 					this.offsets.set(node.id, start);
 					this.reposition(node.id);
 					const other = this.views.get(target)!.node;
-					void this.runTogether(node, other);
+					if (other.kind === 'branch' && side) {
+						void this.runIntoBranch(node, other, side);
+					} else {
+						void this.runTogether(node, other);
+					}
 					return;
 				}
 				void this.saveLayout();
@@ -770,6 +850,9 @@ export class VibezEditor extends EditorPane {
 
 		const branchable = !node.ghost && node.kind !== 'branch' && node.kind !== 'entry';
 		item(localize('vibez.menu.branch', "Only run when…"), 'if', branchable, () => this.askCondition(node));
+		if (this.isRepeated(node)) {
+			item(localize('vibez.menu.batch', "Start all at once"), `${node.metrics.calls}×`, true, () => void this.runBatch(node));
+		}
 		item(localize('vibez.menu.source', "Open source"), undefined, node.anchor !== null, () => {
 			const card = this.views.get(node.id)?.card;
 			if (card) {
@@ -864,6 +947,86 @@ export class VibezEditor extends EditorPane {
 				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
 				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [node.id],
 					localize('vibez.branch.undoLabel', "Only run {0} when {1}", node.label, condition), before, title) },
+			]
+		});
+	}
+
+	private async runIntoBranch(node: GNode, branch: GNode, side: 'true' | 'false'): Promise<void> {
+		const before = this.current?.graph;
+		if (!before || !branch.branch) {
+			return;
+		}
+		this.clearMarks();
+		const sideName = side === 'true' ? 'True' : 'False';
+		const title = localize('vibez.move.title', "Run {0} when {1}", node.label, sideName);
+		const output = node.ports.out.find(port => port.kind === 'data');
+		const empty = EMPTY_FOR[output?.type ?? 'Unknown'] ?? 'undefined';
+		this.card({ title, body: localize('vibez.merge.working', "Working out the change…") });
+
+		let plan: IVibezGesturePlan;
+		try {
+			plan = await this.captureService.planMove(
+				{ file: branch.branch.file, line: branch.branch.line, condition: branch.branch.condition },
+				this.symbolOf(node), side, empty);
+		} catch (error) {
+			this.refuse(localize('vibez.merge.failed', "Could not plan that: {0}", String(error)), localize('vibez.move.cannot', "Can't move that into the branch"));
+			return;
+		}
+		if (!plan.ok) {
+			this.refuse(plan.reason ?? '', localize('vibez.move.cannot', "Can't move that into the branch"));
+			return;
+		}
+		this.card({
+			title,
+			body: plan.summary,
+			where: plan.relative && plan.line ? `${plan.relative}:${plan.line}` : undefined,
+			diff: plan.original !== undefined && plan.replacement !== undefined
+				? previewText(plan.original, plan.replacement, plan.fileText, plan.start)
+				: undefined,
+			note: output
+				? localize('vibez.move.note', "When the branch goes the other way, {0} is {1}.", output.name, empty)
+				: undefined,
+			actions: [
+				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
+				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [node.id, branch.id],
+					localize('vibez.move.undoLabel', "Run {0} when {1}", node.label, sideName), before, title) },
+			]
+		});
+	}
+
+	private async runBatch(node: GNode): Promise<void> {
+		const before = this.current?.graph;
+		if (!before) {
+			return;
+		}
+		this.clearMarks();
+		const calls = node.metrics.calls;
+		const title = localize('vibez.batch.title', "Start all {0} at once", calls);
+		this.card({ title, body: localize('vibez.merge.working', "Working out the change…") });
+
+		let plan: IVibezGesturePlan;
+		try {
+			plan = await this.captureService.planBatch(this.symbolOf(node), calls);
+		} catch (error) {
+			this.refuse(localize('vibez.merge.failed', "Could not plan that: {0}", String(error)), localize('vibez.batch.cannot', "Can't start those at once"));
+			return;
+		}
+		if (!plan.ok) {
+			this.refuse(plan.reason ?? '', localize('vibez.batch.cannot', "Can't start those at once"));
+			return;
+		}
+		this.card({
+			title,
+			body: plan.summary,
+			where: plan.relative && plan.line ? `${plan.relative}:${plan.line}` : undefined,
+			diff: plan.original !== undefined && plan.replacement !== undefined
+				? previewText(plan.original, plan.replacement, plan.fileText, plan.start)
+				: undefined,
+			note: localize('vibez.batch.note', "Every lookup is in flight at the same time. That is what removes the waiting; for very long lists it also means that many queries at once."),
+			actions: [
+				{ label: localize('vibez.cancel', "Cancel"), run: () => this.closeCard() },
+				{ label: localize('vibez.apply', "Apply"), primary: true, run: () => void this.apply(plan, [node.id],
+					localize('vibez.batch.undoLabel', "Start all of {0} at once", node.label), before, title) },
 			]
 		});
 	}

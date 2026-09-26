@@ -98,8 +98,7 @@ function readAwaited(ts: TS, statement: Statement, file: SourceFile): Awaited | 
   };
 }
 
-const mentions = (text: string, name: string): boolean =>
-  new RegExp(`(^|[^A-Za-z0-9_$.])${name.replace(/\$/g, '\\$')}(?![A-Za-z0-9_$])`).test(text);
+import { referencedNames } from './edits.ts';
 
 /** Names a statement introduces or reassigns, which anything after it may depend on. */
 function namesTouchedBy(ts: TS, statement: Statement): string[] {
@@ -170,7 +169,8 @@ export function planMerge(ts: TS, source: string, fileName: string, a: string, b
     const [early, late] = ia < ib ? [a, b] : [b, a];
 
     // The later call must not need anything the earlier one produced.
-    const needed = first.bindings.find((name) => second.calls.some((call) => mentions(call, name)));
+    const reads = new Set(second.calls.flatMap((call) => [...referencedNames(ts, call)]));
+    const needed = first.bindings.find((name) => reads.has(name));
     if (needed !== undefined) {
       consider({
         ok: false,
@@ -193,7 +193,7 @@ export function planMerge(ts: TS, source: string, fileName: string, a: string, b
         });
         return;
       }
-      const touched = namesTouchedBy(ts, statement).find((name) => second.calls.some((call) => mentions(call, name)));
+      const touched = namesTouchedBy(ts, statement).find((name) => reads.has(name));
       if (touched !== undefined) {
         consider({ ok: false, reason: `${late} uses ${touched}, which is set between the two, so it cannot move up.` });
         return;

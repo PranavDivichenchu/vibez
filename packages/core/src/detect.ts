@@ -1,5 +1,5 @@
 import type { Fact } from './types.ts';
-import { type SpanNode, durMs, selfMs } from './spans.ts';
+import { type SpanNode, coveredNs, durMs, selfMs } from './spans.ts';
 import { classify, normalizeSql, normalizeUrl } from './keys.ts';
 
 /**
@@ -30,12 +30,23 @@ function nPlusOne(node: SpanNode, out: FactsBySpan): boolean {
     if (group.length < 3) continue;
     fired = true;
     const total = group.reduce((acc, g) => acc + durMs(g.span), 0);
-    add(out, group[0]!.span.spanId, {
+    const wall = coveredNs(group.map((g) => [g.span.startNs, g.span.endNs] as const)) / 1e6;
+    // Twelve queries one after another is a latency problem. Twelve at once is
+    // not, though it is still one query per row. Saying "each waits for the one
+    // before" about concurrent queries would be a lie.
+    const concurrent = wall < total * 0.6;
+    add(out, group[0]!.span.spanId, concurrent ? {
+      code: 'fan-out',
+      strip: cap(`${group.length} queries at once`),
+      lesson: 'These run together now, but it is still one query per row.',
+      technique: 'Fetch them all in one query to take the load off your database.',
+      evidence: { count: group.length, sql, totalMs: Math.round(total), wallMs: Math.round(wall) },
+    } : {
       code: 'n+1',
       strip: cap(`${group.length} identical queries`),
       lesson: 'Every pass of this loop waits for the one before it.',
-      technique: 'One query for all rows, then match them up in memory.',
-      evidence: { count: group.length, sql, totalMs: Math.round(total) },
+      technique: 'Start every lookup at once instead of one after another.',
+      evidence: { count: group.length, sql, totalMs: Math.round(total), wallMs: Math.round(wall) },
     });
   }
   return fired;

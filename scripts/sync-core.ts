@@ -56,8 +56,18 @@ console.log(`  synced ${Object.keys(FILES).length} core files -> platform/vibez/
 // node layer and are loaded lazily by the main process, never at startup.
 const nodeTarget = join(forkDir(), 'src/vs/platform/vibez/node');
 mkdirSync(nodeTarget, { recursive: true });
-for (const [from, to] of [['merge.ts', 'vibezMerge.ts'], ['branches.ts', 'vibezBranchCodemod.ts']]) {
-  writeFileSync(join(nodeTarget, to!),
-    HEADER.replace('packages/core', 'packages/codemod') + readFileSync(join('packages/codemod/src', from!), 'utf8'));
+const CODEMODS: Record<string, string> = {
+  'edits.ts': 'vibezEdits.ts',
+  'merge.ts': 'vibezMerge.ts',
+  'branches.ts': 'vibezBranchCodemod.ts',
+  'move.ts': 'vibezMove.ts',
+  'batch.ts': 'vibezBatch.ts',
+};
+for (const [from, to] of Object.entries(CODEMODS)) {
+  let text = readFileSync(join('packages/codemod/src', from), 'utf8');
+  for (const [a, b] of Object.entries(CODEMODS)) {
+    text = text.replaceAll(`'./${a}'`, `'./${b.replace(/\.ts$/, '.js')}'`);
+  }
+  writeFileSync(join(nodeTarget, to), HEADER.replace('packages/core', 'packages/codemod') + text);
 }
 console.log('  synced codemods -> platform/vibez/node');

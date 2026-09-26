@@ -34,7 +34,7 @@ export interface Stats {
 }
 
 export type FactCode =
-  | 'n+1' | 'sequential-awaits' | 'waterfall' | 'uncached' | 'cold-render';
+  | 'n+1' | 'fan-out' | 'sequential-awaits' | 'waterfall' | 'uncached' | 'cold-render';
 
 export interface Fact {
   code: FactCode;

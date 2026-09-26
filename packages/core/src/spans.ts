@@ -68,3 +68,18 @@ export function walk(node: SpanNode, visit: (n: SpanNode, depth: number) => void
   visit(node, depth);
   for (const child of node.children) walk(child, visit, depth + 1);
 }
+
+/** Total length covered by a set of [start, end] intervals, overlaps counted once. */
+export function coveredNs(intervals: Array<readonly [number, number]>): number {
+  const sorted = intervals.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+  let covered = 0;
+  let cursor = -Infinity;
+  for (const [start, end] of sorted) {
+    const from = Math.max(start, cursor);
+    if (end > from) {
+      covered += end - from;
+      cursor = end;
+    }
+  }
+  return covered;
+}

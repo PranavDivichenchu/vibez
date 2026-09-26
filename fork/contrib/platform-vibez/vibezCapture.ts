@@ -54,6 +54,13 @@ export interface IVibezGesturePlan {
 	fileText?: string;
 }
 
+/** Where a branch is, as the graph last read it: workspace-relative file, line and condition. */
+export interface IVibezBranchRef {
+	file: string;
+	line: number;
+	condition: string;
+}
+
 export interface IVibezReplayResult {
 	ok: boolean;
 	runs: number;
@@ -77,4 +84,8 @@ export interface IVibezCaptureService {
 	replay(runs: number): Promise<IVibezReplayResult>;
 	/** Work out what putting `symbol` behind `condition` would change. Reads, never writes. */
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan>;
+	/** Work out what moving `symbol` into one side of a branch would change. */
+	planMove(branch: IVibezBranchRef, symbol: string, side: 'true' | 'false', empty: string): Promise<IVibezGesturePlan>;
+	/** Work out what starting every lookup in `symbol`'s loop at once would change. */
+	planBatch(symbol: string, count: number): Promise<IVibezGesturePlan>;
 }

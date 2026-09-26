@@ -5,11 +5,11 @@
 
 import { createServer, request as httpRequest, get as httpGet, IncomingMessage, Server } from 'http';
 import { gunzipSync } from 'zlib';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, promises as fsp } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, promises as fsp, watch as fsWatch, FSWatcher } from 'fs';
 import { join, relative, extname } from '../../../base/common/path.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
+import { IVibezBranchRef, IVibezCaptureService, IVibezCaptureStatus, IVibezGesturePlan, IVibezPreviewInfo, IVibezReplayResult, IVibezSelection } from '../common/vibezCapture.js';
 import { bridgeScript } from './vibezBridge.js';
 import { buildGraph } from '../common/vibezBuild.js';
 import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
@@ -45,8 +45,36 @@ export class VibezCaptureMainService extends Disposable implements IVibezCapture
 		super();
 	}
 
+	private sourceWatcher: FSWatcher | undefined;
+
+	/**
+	 * A flow describes the code as it is now. When a source file changes, every
+	 * trace recorded so far describes code that no longer exists, and mixing them
+	 * with new ones produced a "before" of 124 ms for a page that took 184 — two
+	 * versions of the app averaged together. So they are dropped.
+	 */
+	private watchSources(workspacePath: string): void {
+		this.sourceWatcher?.close();
+		try {
+			this.sourceWatcher = fsWatch(workspacePath, { recursive: true }, (_event, name) => {
+				const file = String(name ?? '');
+				const top = file.split(/[\\/]/)[0] ?? '';
+				if (SKIP.has(top) || top.startsWith('.') || !SOURCE.has(extname(file)) || file.endsWith('.d.ts')) {
+					return;
+				}
+				if (this.traces.size > 0) {
+					this.logService.info(`[vibez] ${file} changed; dropping traces of the old code`);
+					this.traces.clear();
+				}
+			});
+		} catch (error) {
+			this.logService.warn(`[vibez] could not watch sources: ${error}`);
+		}
+	}
+
 	async start(workspacePath: string): Promise<IVibezCaptureStatus> {
 		this.workspacePath = workspacePath;
+		this.watchSources(workspacePath);
 		if (this.server) {
 			return this.status();
 		}
@@ -265,6 +293,63 @@ font:13px/1.6 system-ui;text-align:center">
 		return refusal ?? { ok: false, reason: `Could not find anywhere that awaits ${symbol}.` };
 	}
 
+	/** A branch lives in one known file, so this reads that file rather than searching. */
+	async planMove(branch: IVibezBranchRef, symbol: string, side: 'true' | 'false', empty: string): Promise<IVibezGesturePlan> {
+		if (!this.workspacePath) {
+			return { ok: false, reason: 'Open a folder first.' };
+		}
+		const file = join(this.workspacePath, branch.file);
+		if (relative(this.workspacePath, file).startsWith('..')) {
+			return { ok: false, reason: 'That branch is outside this folder.' };
+		}
+		let text: string;
+		try {
+			text = await fsp.readFile(file, 'utf8');
+		} catch {
+			return { ok: false, reason: `Could not read ${branch.file}.` };
+		}
+		const ts = await loadTypeScript();
+		const { planMoveIntoBranch } = await import('../node/vibezMove.js');
+		const plan = planMoveIntoBranch(ts, text, file, { condition: branch.condition, line: branch.line }, symbol, side, empty);
+		return { ...plan, file, relative: branch.file, fileText: text };
+	}
+
+	/** Find the function by name across the workspace, and the one loop in it that waits. */
+	async planBatch(symbol: string, count: number): Promise<IVibezGesturePlan> {
+		if (!this.workspacePath) {
+			return { ok: false, reason: 'Open a folder first.' };
+		}
+		const ts = await loadTypeScript();
+		const { planBatch } = await import('../node/vibezBatch.js');
+		const hits: IVibezGesturePlan[] = [];
+		let refusal: IVibezGesturePlan | undefined;
+		for (const file of await sourceFiles(this.workspacePath)) {
+			let text: string;
+			try {
+				text = await fsp.readFile(file, 'utf8');
+			} catch {
+				continue;
+			}
+			if (!text.includes(symbol)) {
+				continue;
+			}
+			const plan = planBatch(ts, text, file, symbol, count);
+			const located = { ...plan, file, relative: relative(this.workspacePath, file), fileText: text };
+			if (plan.ok) {
+				hits.push(located);
+			} else if (!plan.reason?.startsWith('Could not find a function') && !refusal) {
+				refusal = located;
+			}
+		}
+		if (hits.length === 1) {
+			return hits[0];
+		}
+		if (hits.length > 1) {
+			return { ok: false, reason: `There are ${hits.length} functions called ${symbol}. Vibez will not guess which one you meant.` };
+		}
+		return refusal ?? { ok: false, reason: `Could not find a function called ${symbol}.` };
+	}
+
 	/**
 	 * Re-measure after an edit.
 	 *
@@ -421,6 +506,7 @@ font:13px/1.6 system-ui;text-align:center">
 		}
 		this.server?.close();
 		this.server = undefined;
+		this.sourceWatcher?.close();
 		super.dispose();
 	}
 }

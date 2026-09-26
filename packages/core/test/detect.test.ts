@@ -35,3 +35,23 @@ test('a lesson is one sentence', () => {
     assert.equal(sentences.length, 1, `"${fact.lesson}" is not one sentence`);
   }
 });
+
+test('repeats that already run together are not called an N+1', () => {
+  const MS = 1e6;
+  const spans = Array.from({ length: 3 }, (_, run) => {
+    const t = `f${run}`;
+    return [
+      { traceId: t, spanId: `${t}-r`, name: 'GET /x', startNs: 0, endNs: 20 * MS, attributes: { 'http.route': '/x', 'http.method': 'GET' } },
+      ...Array.from({ length: 8 }, (_, i) => ({
+        traceId: t, spanId: `${t}-q${i}`, parentSpanId: `${t}-r`, name: 'q',
+        startNs: 1 * MS, endNs: 16 * MS,
+        attributes: { 'db.statement': `SELECT * FROM s WHERE id = ${i}`, 'code.function': 'getStats' },
+      })),
+    ];
+  }).flat();
+  const facts = buildGraph(spans).nodes.flatMap((n) => n.facts);
+  assert.ok(!facts.some((f) => f.code === 'n+1'), 'no longer a waiting problem');
+  const fan = facts.find((f) => f.code === 'fan-out');
+  assert.ok(fan, 'but still one query per row');
+  assert.equal(fan.strip, '8 queries at once');
+});

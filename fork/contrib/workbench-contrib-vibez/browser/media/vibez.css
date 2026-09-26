@@ -103,7 +103,7 @@
 .vibez-graph.dragging .vibez-wires { opacity: .5; }
 .vibez-node.drop-candidate { outline: 1px dashed rgba(91,141,239,.55); outline-offset: 4px; }
 .vibez-node.drop-target { outline: 2px solid var(--vz-select); outline-offset: 4px; }
-.vibez-drop-hint { position: absolute; left: 50%; top: -30px; transform: translateX(-50%);
+.vibez-drop-hint { position: absolute; z-index: 8; transform: translateX(-50%);
 	display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border-radius: 11px;
 	background: var(--vz-select); color: #fff; font-size: 11px; font-weight: 500; white-space: nowrap;
 	pointer-events: none; }
@@ -238,3 +238,23 @@
 .vibez-node:hover .vibez-node-action, .vibez-node-action:focus-visible { opacity: 1; }
 .vibez-node-action:hover { border-color: #C08497; }
 @media (hover: none) { .vibez-node-action { opacity: 1; } }
+
+/* ---------------------------------------------------------- stack */
+
+/* A step that ran many times is drawn as a deck of itself. */
+.vibez-node.stack { overflow: visible; box-shadow:
+	3px 3px 0 -1px var(--vz-canvas), 3px 3px 0 0 #3A2721,
+	6px 6px 0 -1px var(--vz-canvas), 6px 6px 0 0 #2C1F1B; }
+.vibez-node.stack > .vibez-head { border-radius: 8px 8px 0 0; }
+.vibez-fact.action { display: flex; align-items: center; gap: 8px; width: calc(100% - 20px); box-sizing: border-box;
+	font: inherit; font-size: 10.5px; font-weight: 500; text-align: left; cursor: pointer;
+	border: 1px solid transparent; }
+.vibez-fact.action .what { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.vibez-fact.action .go { flex: none; color: #F3B3A6; }
+.vibez-fact.action .go::after { content: ' ›'; }
+.vibez-fact.action:hover { border-color: rgba(224,112,91,.55); background: rgba(208,98,78,.2); }
+
+/* A branch under a dragged step shows which output it would land on. */
+.vibez-node.branch .vibez-row.drop-side { background: rgba(91,141,239,.16); box-shadow: inset 2px 0 0 var(--vz-select); }
+
+.vibez-node.dragging.over-target { opacity: .3; }

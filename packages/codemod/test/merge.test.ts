@@ -182,3 +182,23 @@ test('the reported line points at the change', () => {
   const { plan } = merge(`\n\n\nasync function p() {\n  const a = await one();\n  const b = await two();\n}\n`, 'one', 'two');
   assert.equal(plan.line, 5);
 });
+
+test('an object key with the same name is not a dependency', () => {
+  const { plan } = merge(`
+async function page() {
+  const plan = await getPlan(1);
+  const alerts = await getAlerts({ plan: 'x', out: 1 });
+}
+`, 'getPlan', 'getAlerts');
+  assert.equal(plan.ok, true, 'the key `plan:` reads nothing');
+});
+
+test('shorthand properties really do read the variable', () => {
+  const { plan } = merge(`
+async function page() {
+  const plan = await getPlan(1);
+  const alerts = await getAlerts({ plan });
+}
+`, 'getPlan', 'getAlerts');
+  assert.equal(plan.ok, false);
+});

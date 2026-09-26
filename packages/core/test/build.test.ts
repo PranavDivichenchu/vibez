@@ -69,3 +69,24 @@ test('a request continued from another service is still a request', () => {
   assert.equal(graph.runs, 1);
   assert.ok(graph.nodes.some(node => node.kind === 'entry'));
 });
+
+test('concurrent repeats cost their wall time, not their sum', () => {
+  // Twelve 15 ms queries, all started together: about 15 ms of the request.
+  const MS = 1e6;
+  const spans = Array.from({ length: 5 }, (_, run) => {
+    const t = `c${run}`;
+    return [
+      { traceId: t, spanId: `${t}-r`, name: 'GET /x', startNs: 0, endNs: 20 * MS, attributes: { 'http.route': '/x', 'http.method': 'GET' } },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        traceId: t, spanId: `${t}-q${i}`, parentSpanId: `${t}-r`, name: 'q',
+        startNs: (1 + i * 0.1) * MS, endNs: (16 + i * 0.1) * MS,
+        attributes: { 'db.statement': `SELECT * FROM s WHERE id = ${i}`, 'code.function': 'getStats' },
+      })),
+    ];
+  }).flat();
+  const graph = buildGraph(spans);
+  const stats = graph.nodes.find((n) => n.label === 'getStats')!;
+  assert.equal(stats.metrics.calls, 12);
+  assert.ok(stats.metrics.selfMs.p50 < 20, `expected about 16 ms, got ${stats.metrics.selfMs.p50}`);
+  assert.ok(stats.heat < 1);
+});
