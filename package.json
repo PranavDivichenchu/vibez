@@ -12,7 +12,11 @@
     "demo": "node packages/core/src/demo.ts",
     "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p packages/capture && tsc --noEmit -p packages/vibez-core",
     "trace": "node scripts/trace.ts",
-    "view": "node scripts/view.ts"
+    "view": "node scripts/view.ts",
+    "fork:setup": "node scripts/fork-setup.ts",
+    "fork:build": "node scripts/bundle-extension.ts && node fork/apply.ts",
+    "fork:diff": "node scripts/fork-diff.ts",
+    "fork:run": "cd vscode && ./scripts/code.sh"
   },
   "engines": {
     "node": ">=22.18"
@@ -21,6 +25,7 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/vscode": "^1.138.0",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
   }
 }

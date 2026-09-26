@@ -1,0 +1,24 @@
+{
+  "nameShort": "Vibez",
+  "nameLong": "Vibez",
+  "applicationName": "vibez",
+  "dataFolderName": ".vibez-ide",
+  "serverApplicationName": "vibez-server",
+  "serverDataFolderName": ".vibez-server",
+  "tunnelApplicationName": "vibez-tunnel",
+  "urlProtocol": "vibez",
+  "darwinBundleIdentifier": "dev.vibez.Vibez",
+  "win32AppUserModelId": "Vibez.Vibez",
+  "win32MutexName": "vibez",
+  "win32DirName": "Vibez",
+  "win32NameVersion": "Vibez",
+  "win32RegValueName": "Vibez",
+  "win32ShellNameShort": "Vibez",
+  "linuxIconName": "vibez",
+  "reportIssueUrl": "https://github.com/PranavDivichenchu/vibez/issues/new",
+  "licenseUrl": "https://github.com/PranavDivichenchu/vibez/blob/main/LICENSE",
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item"
+  }
+}

@@ -57,7 +57,24 @@ open in any browser to see the canvas.
 | `packages/capture` | OTLP receiver, SQLite store, graph endpoint |
 | `packages/vibez-core` | the VS Code extension and its canvas webview |
 | `examples/shop` | a real instrumented app with a planted N+1 |
+| `fork/` | the Code – OSS overlay: branding only, 42 lines against upstream |
 | `vscode/` | the Code – OSS fork *(phase 3)* |
+
+## The fork
+
+`vscode/` is a clone of Code – OSS, gitignored and never committed. `fork/`
+holds an overlay that is merged into it. Everything that makes Vibez what it is
+lives in `packages/vibez-core`, an ordinary extension the fork ships as a
+built-in, so divergence from upstream stays near zero.
+
+```bash
+npm run fork:setup    # clone Code - OSS at the pinned tag
+npm run fork:build    # bundle the extension, apply the overlay
+npm run fork:diff     # measure divergence against the 2000-line budget
+npm run fork:run      # launch it
+```
+
+See [fork/README.md](fork/README.md) for why the budget exists.
 
 ## Design notes worth knowing
 

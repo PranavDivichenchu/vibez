@@ -92,3 +92,26 @@ test('the receiver accepts gzipped OTLP and serves a graph', async () => {
   assert.ok(graph.nodes.some((n: { kind: string }) => n.kind === 'data'));
   await capture.close();
 });
+
+test('the store still works where node:sqlite is missing', () => {
+  // VS Code 1.99's extension host is Node 20, which has no node:sqlite.
+  // Degrading to memory beats refusing to start.
+  const store = new SpanStore(':memory:', { forceMemory: true });
+  assert.equal(store.durable, false);
+  store.insert(decodeOtlp(otlpPayload('t1')));
+  store.insert(decodeOtlp(otlpPayload('t2')));
+  assert.equal(store.count(), 4);
+  assert.deepEqual(store.traceIds(10).sort(), ['t1', 't2']);
+  const spans = store.read(['t1']);
+  assert.equal(spans.length, 2);
+  assert.equal(spans[0]!.startNs, 0, 'rebasing works the same way');
+  store.close();
+});
+
+test('the memory store refuses a query shape it does not really implement', () => {
+  const store = new SpanStore(':memory:', { forceMemory: true });
+  // Better a loud throw than a plausible wrong answer.
+  assert.throws(() => (store as unknown as { db: { prepare(s: string): { all(): unknown } } })
+    .db.prepare('SELECT name FROM spans WHERE name LIKE ?').all());
+  store.close();
+});

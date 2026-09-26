@@ -7,3 +7,5 @@ out/
 .env
 packages/vibez-core/webview/view.json
 packages/vibez-core/webview/preview.html
+vscode/
+packages/vibez-core/dist/

@@ -1,0 +1,5 @@
+{
+  "repo": "https://github.com/microsoft/vscode.git",
+  "tag": "1.99.3",
+  "note": "Extension host is Node 20.18 at this tag: no node:sqlite, no type stripping. Bump to an Electron carrying Node 22 to turn persistence back on."
+}
