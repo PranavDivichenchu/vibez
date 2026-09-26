@@ -1,8 +1,9 @@
 # Vibez MCP server
 
 Lets Claude, or any agent that speaks MCP, read and edit a Vibez app in Vibez's
-own terms: pages as outlines, changes as the same moves a person makes in the
-editor, links to `.vi` files as `dashboard.vi#orders`.
+own terms: `.ui` pages as outlines, `.vi` logic as graphs of blocks, plain HTML
+sites as elements with addresses, and every change as the same move a person
+makes in the matching editor.
 
 Every change is checked the way the editor checks it. An agent cannot add a
 property an element does not have, put a list in a heading, or wire a button to
@@ -14,16 +15,28 @@ change appears on the canvas as it is written and is one ⌘Z away.
 
 | Tool | What it does |
 |---|---|
-| `vibez_overview` | every page, every `.vi` file and what it offers, every recorded flow |
-| `vibez_reference` | the vocabulary: elements, properties, tokens, themes, link syntax, operations |
+| `vibez_overview` | every page, every `.vi` file (what it offers, whether it is ready), every HTML page, every recorded flow |
+| `vibez_reference` | the vocabulary: elements, properties, tokens, themes, link syntax, logic blocks, site edits |
+| **Pages (.ui)** | |
 | `ui_read` | a page as an outline, one element per line with its id and links (with sample values) |
 | `ui_create` | a new page from a template (blank, landing, signup, gallery, dashboard) |
 | `ui_edit` | a batch of add / set / move / remove / duplicate / wrap / page operations |
 | `ui_options` | what one element can show, repeat over, or run |
 | `ui_build` | compile a page to `.vibez/build/<page>.html`, report broken links |
-| `vi_read` | the values and actions a `.vi` file exports |
-| `vi_declare` | add, replace or remove exports (only the exports block is touched) |
-| `vi_run` | compile and test one value, action or function in a fresh process, with logs and a 10-second timeout |
+| **Logic (.vi)** | |
+| `vi_read` | every value, action, function and variable and whether each is ready; or one graph block by block with ports, wiring and problems |
+| `vi_blocks` | the blocks a graph can use (the logic editor's own search), with their ports |
+| `vi_edit` | declare / rename / remove items; add, set, connect, disconnect and delete blocks; all or nothing |
+| `vi_declare` | shortcut for declaring page values and actions, each with a starting Start → Return graph |
+| `vi_run` | compile and run one value, action or function in a fresh process, with logs and a 10-second timeout |
+| **Sites (plain HTML)** | |
+| `site_map` | every HTML page, its address, and every link on it, including the ones that go nowhere |
+| `site_read` | one page as its visible elements, each addressed by `@offset` |
+| `site_edit` | change an element's words, style or one attribute; remove, move, or add a library element |
+| `site_add_page` | a new page from a template, with the site's own header and footer, linked from the navigation |
+| `site_delete_page` | delete a page and its navigation links; a copy is kept in `.vibez/trash` |
+| `site_library` | the elements and page templates to choose from |
+| **Measured runs** | |
 | `flow_read` | what actually ran: steps, timings, the critical path, problems noticed |
 
 The same vocabulary is available as the resource `vibez://reference`.

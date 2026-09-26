@@ -263,8 +263,15 @@ and a refusal lists what would fit. `vi_declare` lets an agent add the values
 and actions a page needs to a `.vi` file's exports; `flow_read` gives it the
 measured flow, so "why is this slow" is answered from traces.
 
-The editor watches the files, so an agent's change lands on the canvas live and
-is one undo away. The agent panel in the IDE will run the same server.
+It covers all three editors: `.ui` pages (`ui_*`), `.vi` logic graphs through
+the logic editor's own operations (`vi_read`, `vi_blocks`, `vi_edit`, `vi_run`),
+and plain HTML sites through the site canvas's own edit functions (`site_*`).
+
+The editors watch the files, so an agent's change lands on the canvas live and
+is one undo away. Every agent the Agents panel starts gets the server, rooted in
+its own worktree, and inside a lane each write is checked against the lane's
+fence first, so agents using the tools stay off each other's files the same way
+their own edits do.
 
 ### 4.3 The panel, when it is there
 

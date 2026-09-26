@@ -124,9 +124,13 @@ export class Workspace {
       }
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          // .vibez holds the recorded flows, which are worth finding.
           if (skip.has(entry.name) || (entry.name.startsWith('.') && entry.name !== '.vibez')) continue;
-          if (entry.name === 'build' && dir.endsWith('.vibez')) continue;
+          // Inside .vibez only the recorded flows are worth finding: the rest
+          // is build output, trash, and agents' own copies of the project.
+          if (entry.name === '.vibez') {
+            await walk(join(dir, entry.name, 'flows'), depth + 2);
+            continue;
+          }
           await walk(join(dir, entry.name), depth + 1);
         } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
           out.push(this.rel(join(dir, entry.name)));

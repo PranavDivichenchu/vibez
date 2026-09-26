@@ -203,6 +203,15 @@ test('an element from the library is added, and a page is added and deleted with
   assert.match(home.text, /cannot be deleted/);
 });
 
+test('agents\' copies of the project under .vibez are never mistaken for its files', async () => {
+  mkdirSync(join(root, '.vibez', 'worktrees', 'a', 'logic'), { recursive: true });
+  cpSync(join(root, 'logic', 'pricing.vi'), join(root, '.vibez', 'worktrees', 'a', 'logic', 'pricing.vi'));
+  const overview = await call('vibez_overview');
+  assert.doesNotMatch(overview.text, /worktrees/);
+  const ran = await call('vi_run', { path: 'logic/pricing.vi', export: 'currency' });
+  assert.match(ran.text, /currency -> "USD"/);
+});
+
 // ------------------------------------------------------------ agent lanes
 
 test('inside an agent lane, writes the lane\'s fence refuses are refused', async () => {

@@ -467,7 +467,9 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 		if (!server || !lane.worktree) {
 			return undefined;
 		}
-		const config = join(this.root, '.vibez', 'lanes', `${lane.id}.mcp.json`);
+		const dir = join(this.root, '.vibez', 'lanes');
+		mkdirSync(dir, { recursive: true });
+		const config = join(dir, `${lane.id}.mcp.json`);
 		writeFileSync(config, JSON.stringify({ mcpServers: { vibez: { command: 'node', args: [server, '--root', lane.worktree] } } }, null, 2));
 		return config;
 	}
@@ -670,7 +672,10 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 
 	/** Moves a lane's patch onto the new baseline. If it no longer applies, the card says so. */
 	private async rebaseLane(lane: Lane, head: string): Promise<boolean> {
-		const result = await git(['rebase', '-q', head], lane.worktree!);
+		// --reapply-cherry-picks: after an Undo, this lane's own change is in
+		// the history below its revert, and a plain rebase would silently drop
+		// it as "already applied", leaving nothing to measure.
+		const result = await git(['rebase', '-q', '--reapply-cherry-picks', head], lane.worktree!);
 		if (result.code !== 0) {
 			await git(['rebase', '--abort'], lane.worktree!);
 			this.update(lane.id, { state: 'failed', error: 'no longer applies after the last land' });
@@ -678,6 +683,11 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 			return false;
 		}
 		const sha = (await git(['rev-parse', 'HEAD'], lane.worktree!)).out.trim();
+		if (sha === head) {
+			this.update(lane.id, { state: 'failed', error: 'its change is already in your tree' });
+			this.room(LOCAL_ID, 'rebase-empty', lane.id);
+			return false;
+		}
 		this.update(lane.id, { base: head, commit: sha });
 		return true;
 	}

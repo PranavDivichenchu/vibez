@@ -48,7 +48,7 @@ See [fork/README.md](fork/README.md) for the overlay structure.
 |---|---|
 | `packages/vi` | Logic documents, declarations, graph operations, node catalog, validation and JavaScript generation |
 | `packages/ui` | Page documents, layouts, themes, logic bindings and HTML generation |
-| `packages/mcp` | MCP page/declaration editing, inspection and isolated logic tests |
+| `packages/mcp` | MCP server for agents: `.ui` pages, `.vi` logic graphs, plain HTML sites, recorded flows; isolated logic tests; fenced inside agent lanes |
 | `fork/contrib` | Native workbench editors, execution service and console |
 | `packages/core` | Shared graph types, layout, recorded-flow analysis, site pages and templates, and the agent queue (fences, measurement, significance) |
 | `packages/capture` | OpenTelemetry capture and trace storage |
@@ -176,7 +176,10 @@ c  fetch.ts       editing · editing fetch.ts
 
 - **Each agent is Claude Code** running headless in its own git worktree
   (`.vibez/worktrees/<lane>`), with `node_modules` linked from your tree. It
-  needs [Claude Code](https://claude.ai/code) installed and logged in.
+  needs [Claude Code](https://claude.ai/code) installed and logged in. It also
+  gets the Vibez MCP server (`packages/mcp`), so it edits `.ui` pages, `.vi`
+  logic and HTML pages through the same checks as the editors, fenced like its
+  own edits.
 - **Fences.** The files of the selected nodes are fenced for that agent;
   a node whose file an agent holds shows a hatched ring and `held by agent-a`
   on the canvas. Nothing ever waits: asking for a held file is refused on the
