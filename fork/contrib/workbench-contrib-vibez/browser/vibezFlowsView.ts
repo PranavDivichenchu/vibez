@@ -6,6 +6,7 @@
 import { VibezPagesInput } from './vibezPagesEditor.js';
 import { VibezDashboardInput } from './vibezDashboardInput.js';
 import * as dom from '../../../../base/browser/dom.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { basename } from '../../../../base/common/resources.js';
 import { localize } from '../../../../nls.js';
@@ -97,10 +98,16 @@ export class VibezFlowsView extends ViewPane {
 		this.refresh();
 	}
 
+	/** Only the newest refresh draws: a flow file changes several times in a row as it is written. */
+	private generation = 0;
+	private readonly rows = this._register(new DisposableStore());
+
 	private async refresh(): Promise<void> {
+		const generation = ++this.generation;
 		const folder = this.contextService.getWorkspace().folders[0];
-		dom.clearNode(this.list);
 		if (!folder) {
+			this.rows.clear();
+			dom.clearNode(this.list);
 			this.empty(localize('vibez.noFolder', "Open a folder to record a flow."));
 			return;
 		}
@@ -114,25 +121,31 @@ export class VibezFlowsView extends ViewPane {
 			// No .vibez yet is the normal first state, not a failure.
 		}
 
+		// Read everything first, then draw in one go, so a slower earlier
+		// refresh can never add its rows on top of a newer one's.
+		const graphs = await Promise.all(entries.map(async entry => {
+			try {
+				return { resource: entry.resource, graph: JSON.parse((await this.fileService.readFile(entry.resource)).value.toString()) as Graph };
+			} catch {
+				return { resource: entry.resource, graph: undefined };
+			}
+		}));
+		if (generation !== this.generation) {
+			return;
+		}
+		this.rows.clear();
+		dom.clearNode(this.list);
 		if (!entries.length) {
 			this.empty(localize('vibez.noFlows', "Nothing recorded yet."),
 				localize('vibez.noFlowsHint', "Run your app once and it shows up here."));
 			return;
 		}
-
-		for (const entry of entries) {
-			await this.renderRow(entry.resource);
+		for (const { resource, graph } of graphs) {
+			this.renderRow(resource, graph);
 		}
 	}
 
-	private async renderRow(resource: URI): Promise<void> {
-		let graph: Graph | undefined;
-		try {
-			graph = JSON.parse((await this.fileService.readFile(resource)).value.toString()) as Graph;
-		} catch {
-			graph = undefined;
-		}
-
+	private renderRow(resource: URI, graph: Graph | undefined): void {
 		const row = dom.append(this.list, dom.$('.vibez-flow-row'));
 		row.tabIndex = 0;
 		row.setAttribute('role', 'button');
@@ -161,8 +174,8 @@ export class VibezFlowsView extends ViewPane {
 		}
 
 		const open = () => this.editorService.openEditor(new VibezEditorInput(resource), { pinned: true });
-		this._register(dom.addDisposableListener(row, dom.EventType.CLICK, () => void open()));
-		this._register(dom.addDisposableListener(row, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {
+		this.rows.add(dom.addDisposableListener(row, dom.EventType.CLICK, () => void open()));
+		this.rows.add(dom.addDisposableListener(row, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				void open();
