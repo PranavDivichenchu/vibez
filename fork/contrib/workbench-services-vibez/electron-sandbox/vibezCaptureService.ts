@@ -45,6 +45,10 @@ class VibezCaptureService implements IVibezCaptureService {
 		return this.proxy.site(root, target);
 	}
 
+	sitePreviews(dir: string, pages: Record<string, string>): Promise<void> {
+		return this.proxy.sitePreviews(dir, pages);
+	}
+
 	selection(): Promise<IVibezSelection> {
 		return this.proxy.selection();
 	}

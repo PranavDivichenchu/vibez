@@ -44,6 +44,8 @@ export class VibezSiteServer {
 	private port = 0;
 	private root = '';
 	private target = '';
+	private previews = new Map<string, string>();
+	private previewDir = '';
 
 	constructor(private readonly logService: ILogService) { }
 
@@ -53,7 +55,8 @@ export class VibezSiteServer {
 		this.target = url && !/^https?:\/\//i.test(url) ? `http://${url}` : url;
 		if (!this.server) {
 			const server = createServer((request, response) => {
-				const handled = this.target ? this.proxy(request, response) : this.file(request, response);
+				const pathname = new URL(request.url ?? '/', 'http://site').pathname;
+				const handled = this.preview(pathname, response) ? undefined : this.target ? this.proxy(request, response) : this.file(request, response);
 				Promise.resolve(handled).catch(error => {
 					this.logService.warn(`[vibez] site: ${error}`);
 					if (!response.headersSent) { response.writeHead(500, { 'content-type': 'text/plain' }); }
@@ -69,6 +72,22 @@ export class VibezSiteServer {
 			this.logService.info(`[vibez] site canvas serving on ${this.port}`);
 		}
 		return { origin: `http://127.0.0.1:${this.port}`, mode: this.target ? 'app' : 'files' };
+	}
+
+	/** Dashboard previews: whole pages kept in memory, served without the inspector. */
+	setPreviews(dir: string, pages: Record<string, string>): void {
+		this.previewDir = dir.replace(/^\/+/, '');
+		this.previews = new Map(Object.entries(pages));
+	}
+
+	private preview(pathname: string, response: ServerResponse): boolean {
+		const m = /^\/(.*)__vibez-preview-([a-z0-9-]+)\.html$/.exec(pathname);
+		if (!m || m[1] !== this.previewDir || !this.previews.has(m[2]!)) {
+			return false;
+		}
+		response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+		response.end(this.previews.get(m[2]!));
+		return true;
 	}
 
 	dispose(): void {

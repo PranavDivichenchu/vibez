@@ -96,6 +96,8 @@ export class VibezPagesEditor extends EditorPane {
 				return;
 			}
 			if (e.structural) {
+				// Pages came or went: start from a fresh view (on the new page, if there is one).
+				this.fresh = true;
 				void this.load();
 			} else if (e.focus) {
 				VibezPagesEditor.focusNext = undefined;

@@ -54,6 +54,10 @@ export class VibezCaptureMainService extends Disposable implements IVibezCapture
 		return this.siteServer.serve(root, target);
 	}
 
+	async sitePreviews(dir: string, pages: Record<string, string>): Promise<void> {
+		this.siteServer.setPreviews(dir, pages);
+	}
+
 	private sourceWatcher: FSWatcher | undefined;
 
 	/**

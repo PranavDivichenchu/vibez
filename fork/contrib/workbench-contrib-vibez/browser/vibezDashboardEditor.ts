@@ -160,14 +160,43 @@ export class VibezDashboardEditor extends EditorPane {
 		} catch {
 			// Previews fall back to the template's own styles.
 		}
+		// Previews are pictures, built to stand alone inside the dashboard: the
+		// site's stylesheets are inlined (a preview frame cannot always fetch them),
+		// its scripts are left out, and the colour scheme is pinned to light so the
+		// editor's dark theme does not bleed into the page behind the site's colours.
 		const base = origin && !appUrl ? `<base href="${origin}/${dir}">` : '';
+		const styles = new Map<string, string>();
+		for (const m of (shell ?? '').matchAll(/<link\b[^>]*rel\s*=\s*["']?stylesheet[^>]*>/gi)) {
+			const href = /href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(m[0]);
+			const path = href ? (href[2] ?? href[3] ?? href[4] ?? '') : '';
+			if (!path || /^(?:[a-z]+:)?\/\//i.test(path)) {
+				continue;
+			}
+			const file = (path.startsWith('/') ? path.slice(1) : dir + path).split(/[?#]/)[0]!;
+			const css = await this.files.readFile(URI.joinPath(this.folder, file)).then(c => c.value.toString(), () => undefined);
+			if (css !== undefined) {
+				styles.set(m[0], `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`);
+			}
+		}
+		const light = '<meta name="color-scheme" content="light"><style>html{color-scheme:light;background:#fff}</style>';
+		const previews: Record<string, string> = {};
 		const templates = TEMPLATES.map(t => {
-			const page = buildPage(t, t.title, shell).html;
+			let page = buildPage(t, t.title, shell).html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
+			for (const [link, inline] of styles) {
+				page = page.split(link).join(inline);
+			}
+			previews[t.id] = page.replace(/<head\b[^>]*>/i, head => head + light);
 			return {
 				id: t.id, name: t.name, description: t.description, title: t.title,
-				preview: base ? page.replace(/<head\b[^>]*>/i, head => head + base) : page,
+				// Served by the site server when it can be (it loads the site's pictures too);
+				// otherwise shown inline.
+				url: origin && !appUrl ? `${origin}/${dir}__vibez-preview-${t.id}.html` : '',
+				preview: previews[t.id]!.replace(/<head\b[^>]*>/i, head => head + base),
 			};
 		});
+		if (origin && !appUrl) {
+			await this.capture.sitePreviews(dir, previews).catch(() => undefined);
+		}
 		const pages = html.sort((a, b) => routeOfPath(urlPathOfFile(a)).localeCompare(routeOfPath(urlPathOfFile(b)))).map(file => ({
 			file,
 			route: routeOfPath(urlPathOfFile(file)),

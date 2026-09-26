@@ -81,6 +81,12 @@ export interface IVibezCaptureService {
 	 * at `target` when one is given. Pages come back with the inspector bridge in them.
 	 */
 	site(root: string, target: string): Promise<IVibezSiteInfo>;
+	/**
+	 * Pages to show as previews on the dashboard, by id. Each is served at
+	 * `<dir>__vibez-preview-<id>.html` on the site's origin, so its stylesheets
+	 * and pictures load exactly as they do for the site's own pages.
+	 */
+	sitePreviews(dir: string, pages: Record<string, string>): Promise<void>;
 	/** The last region clicked inside the preview. */
 	selection(): Promise<IVibezSelection>;
 	/** After an edit: wait for the app to restart, then measure it again. */
