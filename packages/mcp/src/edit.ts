@@ -194,6 +194,16 @@ function splitProps(node: UiNode, props: Props): { plain: Props; links: Props } 
   return { plain, links };
 }
 
+/** Where a link goes: another page next to this one, or a web address. `go:` is accepted and dropped. */
+function checkLinkTarget(raw: string, ctx: EditContext): string {
+  const to = raw.trim().replace(/^go:/, '').trim();
+  if (to === '' || /^(https?:\/\/|mailto:)/.test(to)) return to;
+  if (!ctx.pages.includes(to)) {
+    throw new VibezError(`A link goes to a page next to this one or a web address; there is no page ${to}. Pages: ${ctx.pages.join(', ') || 'none'}.`);
+  }
+  return to;
+}
+
 function applyPlain(node: UiNode, plain: Props): NodePatch {
   const patch: Record<string, unknown> = {};
   const layout: Record<string, unknown> = {};
@@ -369,6 +379,7 @@ export function applyOps(start: UiDoc, ops: Op[], ctx: EditContext): EditResult 
           const parent = frameOf(idOf(op.parent, 'page'));
           let node = entry.make((kind) => makeId(kind, allIds(doc)));
           const { plain, links } = splitProps(node, op.props ?? {});
+          if (typeof plain['to'] === 'string') plain['to'] = checkLinkTarget(plain['to'], ctx);
           // A text that shows a value gets a stand-in that says which, not the palette's sample sentence.
           if (node.kind === 'text' && typeof links['shows'] === 'string' && !('text' in plain)) {
             const shown = String(links['shows']);
@@ -387,6 +398,7 @@ export function applyOps(start: UiDoc, ops: Op[], ctx: EditContext): EditResult 
           const id = idOf(op.id);
           const node = find(doc, id)!.node;
           const { plain, links } = splitProps(node, op.props ?? {});
+          if (typeof plain['to'] === 'string') plain['to'] = checkLinkTarget(plain['to'], ctx);
           if (id === 'page' && ('width' in plain || 'height' in plain)) throw new VibezError('The page is always the full width of the screen.');
           doc = update(doc, id, applyPlain(node, plain));
           const linked = applyLinks(doc, id, links, ctx);

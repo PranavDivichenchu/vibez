@@ -86,6 +86,19 @@ export function createVibezServer(root: string): McpServer {
     },
   );
 
+  /** Broken .vi links, plus links and "go:" actions pointing at pages that do not exist. */
+  const problems = async (pagePath: string, doc: UiDoc): Promise<string[]> => {
+    const out = brokenLinks(doc, await ws.linkedFor(pagePath)).map((b) => `${b.id} (${b.what})`);
+    const pages = new Set(await pagesFrom(pagePath));
+    const walk = (node: UiDoc['root'] | UiDoc['root']['children'][number]): void => {
+      const target = node.kind === 'link' ? node.to : 'on' in node && node.on?.run === 'navigate' ? node.on.to : undefined;
+      if (target && !/^(https?:\/\/|mailto:)/.test(target) && !pages.has(target)) out.push(`${node.id} (goes to ${target}, which does not exist)`);
+      if (node.kind === 'frame') node.children.forEach(walk);
+    };
+    walk(doc.root);
+    return out;
+  };
+
   /** Other pages, as the page at `pagePath` refers to them. */
   const pagesFrom = async (pagePath: string): Promise<string[]> =>
     (await ws.find(['.ui'])).filter((p) => p !== pagePath).map((p) => posix.relative(posix.dirname(pagePath), p));
@@ -197,12 +210,12 @@ export function createVibezServer(root: string): McpServer {
     const result = applyOps(doc, ops as Op[], { linked, pages: await pagesFrom(path) });
     await ws.writePage(path, result.doc);
     const names = Object.entries(result.created);
-    const broken = brokenLinks(result.doc, linked);
+    const broken = await problems(path, result.doc);
     return say([
       `Changed ${path}:`,
       ...result.log.map((line) => `  - ${line}`),
       ...(names.length ? ['', `new ids: ${names.map(([k, v]) => `${k} = ${v}`).join(', ')}`] : []),
-      ...(broken.length ? ['', `broken links: ${broken.map((b) => `${b.id} (${b.what})`).join('; ')}`] : []),
+      ...(broken.length ? ['', `broken links: ${broken.join('; ')}`] : []),
       '',
       outlinePage(path, result.doc, linked),
     ].join('\n'));
@@ -257,8 +270,8 @@ export function createVibezServer(root: string): McpServer {
     for (const page of await ws.find(['.ui'])) routes[posix.relative(posix.dirname(path), page)] = `./${basename(page, '.ui')}.html`;
     const out = `.vibez/build/${basename(path, '.ui')}.html`;
     await ws.write(out, compile(doc, { linked, routes }));
-    const broken = brokenLinks(doc, linked);
-    return say(`Compiled ${path} to ${out}.${broken.length ? `\nBroken links: ${broken.map((b) => `${b.id} (${b.what})`).join('; ')}` : '\nNo broken links.'}`);
+    const broken = await problems(path, doc);
+    return say(`Compiled ${path} to ${out}.${broken.length ? `\nBroken links: ${broken.join('; ')}` : '\nNo broken links.'}`);
   }));
 
   // ---------------------------------------------------------- .vi

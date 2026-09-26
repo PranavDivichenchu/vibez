@@ -117,6 +117,16 @@ test('refusals say what would fit, and change nothing', async () => {
   assert.equal(page('pages/dashboard.ui'), before);
 });
 
+test('a link target is checked, and a go: prefix is understood', async () => {
+  const ok = await call('ui_edit', { path: 'pages/dashboard.ui', ops: [{ op: 'add', element: 'link', parent: 'invite-card', props: { label: 'Team', to: 'go:team.ui' } }] });
+  assert.equal(ok.error, false, ok.text);
+  assert.match(ok.text, /link "Team" · to team\.ui/);
+  const missing = await call('ui_edit', { path: 'pages/dashboard.ui', ops: [{ op: 'set', id: 'photos-link', props: { to: 'nowhere.ui' } }] });
+  assert.match(missing.text, /there is no page nowhere\.ui\. Pages: team\.ui/);
+  const built = await call('ui_build', { path: 'pages/dashboard.ui' });
+  assert.match(built.text, /photos-link \(goes to gallery\.ui, which does not exist\)/);
+});
+
 test('declaring an export makes it connectable; removing one reports the pages it breaks', async () => {
   const declared = await call('vi_declare', { path: 'pages/dashboard.vi', values: [{ name: 'teamSize', type: 'Number', sample: 8 }] });
   assert.match(declared.text, /added value pages\/dashboard\.vi#teamSize: Number/);
