@@ -166,6 +166,14 @@ test('queue: the headline is the focus node that moved most', () => {
   assert.equal(whole.subject, 'the flow');
 });
 
+test('queue: a focus node is followed by name when the change gives it a new key', () => {
+  const before: Measurement = { ...measurement(2600, { 'data:q1': 2400 }), labels: { 'data:q1': 'getUserStats' } };
+  const after: Measurement = { ...measurement(500, { 'data:q2': 300 }), labels: { 'data:q2': 'getUserStats' } };
+  const d = measureDelta(before, after, ['data:q1'], { 'data:q1': 'getUserStats' });
+  assert.equal(d.subject, 'getUserStats');
+  assert.equal(percent(d.change), '\u221288%');
+});
+
 test('queue: a claim that does not survive landing says so', () => {
   const lane = newLane('b', agentActor('b', 1), 'y', [], ['grid']);
   lane.claimed = measureDelta(measurement(800, { grid: 800 }), measurement(240, { grid: 240 }), ['grid']);

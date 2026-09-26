@@ -821,7 +821,7 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 				throw new Error(`the app sent traces for ${samples.flow.length} of ${config.runs} runs. Is it exporting OpenTelemetry to OTEL_EXPORTER_OTLP_ENDPOINT?`);
 			}
 			this._onDidEvents.fire([{ kind: 'trace', actor }]);
-			return { runs: samples.flow.length, at: Date.now(), rev, flow: samples.flow, nodes: samples.nodes };
+			return { runs: samples.flow.length, at: Date.now(), rev, flow: samples.flow, nodes: samples.nodes, labels: samples.labels };
 		} finally {
 			this.bucket = undefined;
 			cleanups.forEach(fn => { try { fn(); } catch { /* already gone */ } });

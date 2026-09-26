@@ -28,6 +28,8 @@ export interface Measurement {
   rev: string;
   flow: number[];
   nodes: Record<SemanticKey, number[]>;
+  /** Display names by key, so a node can be followed when its key changes. */
+  labels?: Record<SemanticKey, string>;
 }
 
 export const FLOW_KEY = '__flow__';
@@ -117,6 +119,14 @@ export function measureDelta(
 ): Delta {
   const a = new Map<string, number[]>(Object.entries(before.nodes));
   const b = new Map<string, number[]>(Object.entries(after.nodes));
+  // A focus node whose key changed (rewriting its query changes its identity)
+  // is followed by name, when exactly one node on the other side has it.
+  for (const id of focus) {
+    if (!a.has(id) || b.has(id)) { continue; }
+    const name = before.labels?.[id] ?? labels[id];
+    const same = Object.entries(after.labels ?? {}).filter(([key, label]) => label === name && !a.has(key));
+    if (name && same.length === 1) { b.set(id, after.nodes[same[0]![0]]!); }
+  }
   a.set(FLOW_KEY, before.flow);
   b.set(FLOW_KEY, after.flow);
   const verdicts = compareSamples(a, b);
@@ -147,7 +157,8 @@ export function measureDelta(
 
 /** `−87%`, `+12%`, `0%`. A real minus sign, because it is read, not parsed. */
 export function percent(change: number): string {
-  const rounded = Math.round(change * 100);
+  // Round the size, not the signed value, so −87.5% and +87.5% both read 88%.
+  const rounded = Math.sign(change) * Math.round(Math.abs(change) * 100);
   if (rounded === 0) { return '0%'; }
   return `${rounded < 0 ? '−' : '+'}${Math.abs(rounded)}%`;
 }
