@@ -221,8 +221,10 @@ begin
   end if;
   update team_messages set accepted_by = auth.uid(), accepted_at = now() where id = p_message;
   for p in select jsonb_array_elements_text(coalesce(msg.payload -> 'paths', '[]'::jsonb)) loop
+    -- A file the agent already holds is not claimed twice.
     insert into team_claims (workspace_id, agent_id, user_id, path, note)
-      values (msg.workspace_id, p_agent, auth.uid(), p, 'taken over from a handoff');
+      select msg.workspace_id, p_agent, auth.uid(), p, 'taken over from a handoff'
+      where not exists (select 1 from team_claims c where c.agent_id = p_agent and c.path = p and c.released_at is null);
   end loop;
   return msg.payload;
 end $$;
@@ -239,7 +241,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   if tg_table_name = 'team_agents' then
     if tg_op = 'INSERT' then
-      insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, 'started', new.task);
+      insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, case when new.task = '' then 'joined' else 'started' end, new.task);
     elsif new.status is distinct from old.status and new.status = 'done' then
       insert into team_activity (workspace_id, user_id, agent_id, verb, target) values (new.workspace_id, new.user_id, new.id, 'finished', new.task);
     elsif new.task is distinct from old.task then
@@ -258,10 +260,10 @@ begin
   elsif tg_table_name = 'team_messages' then
     if tg_op = 'INSERT' then
       insert into team_activity (workspace_id, user_id, agent_id, verb, target, detail)
-        values (new.workspace_id, new.from_user, new.from_agent, case when new.kind = 'handoff' then 'handed off' else 'messaged' end,
+        values (new.workspace_id, new.from_user, new.from_agent, case when new.kind = 'handoff' then 'handed off to' else 'messaged' end,
                 coalesce(new.to_user::text, 'everyone'), left(new.body, 200));
     elsif old.accepted_at is null and new.accepted_at is not null then
-      insert into team_activity (workspace_id, user_id, verb, target, detail) values (new.workspace_id, new.accepted_by, 'took over', new.from_user::text, left(new.body, 200));
+      insert into team_activity (workspace_id, user_id, verb, target, detail) values (new.workspace_id, new.accepted_by, 'took over from', new.from_user::text, left(new.body, 200));
     end if;
   end if;
   return new;

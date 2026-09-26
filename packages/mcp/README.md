@@ -36,10 +36,21 @@ change appears on the canvas as it is written and is one ⌘Z away.
 | `site_add_page` | a new page from a template, with the site's own header and footer, linked from the navigation |
 | `site_delete_page` | delete a page and its navigation links; a copy is kept in `.vibez/trash` |
 | `site_library` | the elements and page templates to choose from |
+| **Team** (when the project has a `vibez.team.json`) | |
+| `team_status` | everyone on the team, each person's agents with their task, the files they hold, and whether they are active; recent activity |
+| `team_start` | say what this agent is doing and claim its files; hear who else is on them or nearby, the team's notes, and unread messages |
+| `team_check` | would these files or this task run into someone's work, without claiming anything |
+| `team_claim` / `team_release` | hold more files, or let go of some or all |
+| `team_remember` / `team_recall` | leave a note (decision, gotcha, convention) on a file for every agent, and read them |
+| `team_message` / `team_inbox` | message a teammate or everyone; read what came in |
+| `team_handoff` / `team_accept` | pass a task, its next steps and its files to someone; take one over |
+| `team_done` | finish: every claim released |
 | **Measured runs** | |
 | `flow_read` | what actually ran: steps, timings, the critical path, problems noticed |
 
 The same vocabulary is available as the resource `vibez://reference`.
+
+On a team project, `ui_edit`, `vi_edit` and `site_edit` also check the team before writing. When another person's agent holds the file (or the page's linked `.vi` file, or another element on the same page), the reply starts with a heads-up naming them and their task. The edit still goes ahead: claims warn, they never block. The file is then claimed for this agent. Without a team these tools behave exactly as before.
 
 ## Using it
 

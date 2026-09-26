@@ -383,7 +383,7 @@ export class VibezQueueMainService extends Disposable implements IVibezQueueServ
 	private runAgent(lane: Lane, avoid: { file: string; heldBy: string }[]): void {
 		const request = this.requests.get(lane.id)!;
 		const mcp = this.vibezMcp(lane);
-		const prompt = lanePrompt(request.ask, { fence: lane.fence, nodes: request.nodes, avoid, vibezTools: mcp !== undefined });
+		const prompt = lanePrompt(request.ask, { fence: lane.fence, nodes: request.nodes, avoid, vibezTools: mcp !== undefined, team: existsSync(join(this.root, 'vibez.team.json')) });
 		const settingsDir = join(this.root, '.vibez', 'lanes');
 		mkdirSync(settingsDir, { recursive: true });
 		const settings = join(settingsDir, `${lane.id}.settings.json`);

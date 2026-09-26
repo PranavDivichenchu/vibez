@@ -27,6 +27,7 @@ export interface HandoffPayload {
 }
 
 export const ONLINE_SECONDS = 90;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface TeamSnapshot {
   members: Member[];
@@ -125,7 +126,8 @@ export class TeamSession {
         claims: claims.filter((c) => c.agent_id === a.id).map((c) => c.path),
       })),
       claims: active,
-      activity: activity.map((row) => ({ ...row, person: this.nameOf(row.user_id) })),
+      // Messages and handoffs name a person by id; show their name.
+      activity: activity.map((row) => ({ ...row, person: this.nameOf(row.user_id), target: UUID.test(row.target) ? this.nameOf(row.target) : row.target })),
     };
   }
 

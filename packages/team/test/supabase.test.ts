@@ -120,7 +120,7 @@ test('two people\'s agents coordinate through one team', async (t) => {
   await assert.rejects(ashmith.accept(handoff!.id), /already taken/);
   const taken = await ashmith.snapshot();
   assert.deepEqual(taken.claims.filter((c) => c.person === 'you').map((c) => c.path).sort(), ['logic/pricing.vi', 'pages/pricing.ui']);
-  assert.ok(taken.activity.some((a) => a.verb === 'took over'));
+  assert.ok(taken.activity.some((a) => a.verb === 'took over from'));
 
   // Done releases everything.
   assert.equal(await ashmith.done(), 2);

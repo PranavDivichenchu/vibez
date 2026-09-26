@@ -264,3 +264,47 @@ Limits: pages whose address needs a value (`/product/[id]`) are not shown yet;
 a click handler's description comes from reading its code for well-known
 moves and says "runs some code" when it recognises none; element-to-line
 mapping is exact for HTML files and best-effort for framework components.
+
+## Teams: several people's agents on one project
+
+The Agents strip coordinates agents on one machine. Teams do the same across
+people: Pranav's Claude Code and Ashmith's Claude Code, on their own laptops,
+see what the other is doing and are warned before they collide. The team
+lives in a Supabase project; each person signs in anonymously and joins with
+a code.
+
+```
+npm run team -- create "Vibez" --as Pranav --url <supabase url> --key <anon key>
+npm run team -- join <code> --as Ashmith
+npm run team -- status
+```
+
+`create` writes `vibez.team.json` (commit it: it holds the project URL, the
+public anon key and the team id, never the join code) and prints the code.
+Each person's sign-in is kept in `~/.vibez/team/`, readable only by them.
+The Supabase project needs the migration in `supabase/migrations` and
+anonymous sign-ins turned on. For local work, `npx supabase start` in this
+repository runs one in Docker with both already set.
+
+Once a project has a team, every agent using the Vibez MCP server gets the
+`team_*` tools (see `packages/mcp/README.md`):
+
+- **Presence.** `team_start` says what the agent is doing and claims the
+  files it will change. `team_status` shows each person's agents, their
+  task, the files they hold, and whether they are still active (an agent
+  quiet for 90 seconds shows as quiet, and its claims say it may have stopped).
+- **Overlap warnings.** Claims are graded: the same file or element is
+  *overlapping*; another element on the same page, a page's linked `.vi`
+  file, or the same folder is *adjacent*; a task described in similar words
+  is *related*. `ui_edit`, `vi_edit` and `site_edit` check before writing
+  and start their reply with a heads-up when someone is there. Claims warn,
+  never block.
+- **Shared notes.** `team_remember` leaves a decision, gotcha or convention
+  on a file; every agent that starts work near it is shown it.
+- **Messages and handoffs.** `team_message` reaches a person (and their
+  agents). `team_handoff` passes a task, its next steps and its files to
+  someone, and `team_accept` takes it over.
+
+Agents started from the Agents strip are told to use these when the project
+has a `vibez.team.json`. Row-level security keeps every table to the team's
+members; the anon key alone reads nothing.
