@@ -6,6 +6,10 @@
 import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
 import { VibezDashboardEditor } from './vibezDashboardEditor.js';
 import { VibezDashboardInput } from './vibezDashboardInput.js';
+import { OPEN_AFTER_KEY, VibezStartEditor } from './vibezStartEditor.js';
+import { VibezStartInput } from './vibezStartInput.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IStorageService, StorageScope } from '../../../../platform/storage/common/storage.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -87,6 +91,64 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
 	canMoveView: true,
 	order: 20,
 }], Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).get(EXPLORER_CONTAINER_ID)!);
+
+// ---------------------------------------------------------------- the start window
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezStartEditor, VibezStartEditor.ID, localize('vibez.start', "Start")),
+	[new SyncDescriptor(VibezStartInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.start', title: localize2('vibez.start.title', "Vibez: Start"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezStartInput('home'), { pinned: true });
+	}
+});
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.projectGraph', title: localize2('vibez.projectGraph', "Vibez: Grok Project Graph"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezStartInput('graph'), { pinned: true });
+	}
+});
+
+/**
+ * What a window shows first. With no folder open, the start window: there is
+ * nothing else to do until there is a project. Just after a project was made
+ * from the start window, its first page — on the site canvas — and the folder
+ * becomes a git repository, which agents need to work on it.
+ */
+class VibezStartContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.vibezStart';
+	constructor(
+		@IWorkspaceContextService workspace: IWorkspaceContextService,
+		@IEditorService editors: IEditorService,
+		@IStorageService storage: IStorageService,
+		@ICommandService commands: ICommandService,
+	) {
+		super();
+		const folders = workspace.getWorkspace().folders;
+		const after = storage.get(OPEN_AFTER_KEY, StorageScope.APPLICATION);
+		if (after) {
+			const file = URI.parse(after);
+			if (folders.some(f => file.path.startsWith(`${f.uri.path}/`))) {
+				storage.remove(OPEN_AFTER_KEY, StorageScope.APPLICATION);
+				void editors.openEditor({ resource: file, options: { pinned: true } });
+				void commands.executeCommand('git.init', true).then(undefined, () => undefined);
+				return;
+			}
+		}
+		if (!folders.length) {
+			void editors.openEditor(new VibezStartInput('home'), { pinned: true });
+		}
+	}
+}
+registerWorkbenchContribution2(VibezStartContribution.ID, VibezStartContribution, WorkbenchPhase.AfterRestored);
 
 registerWorkbenchContribution2(VibezTeamLiveContribution.ID, VibezTeamLiveContribution, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(VibezUndoRedoContribution.ID, VibezUndoRedoContribution, WorkbenchPhase.BlockRestore);

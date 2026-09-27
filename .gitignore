@@ -7,3 +7,5 @@ out/
 .env
 
 packages/vibez-core/dist/
+
+.claude/worktrees/
