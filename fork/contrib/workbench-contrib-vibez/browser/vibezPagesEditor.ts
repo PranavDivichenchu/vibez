@@ -507,13 +507,17 @@ export class VibezPagesEditor extends EditorPane {
 		if (!result.ok) {
 			return fail(result.reason, result.reload);
 		}
-		const doc = result.doc;
+		const before = this.sources.get(file) ?? null;
+		const after = serializeUi(result.doc);
 		try {
-			await this.files.writeFile(resource, VSBuffer.fromString(serializeUi(doc)));
+			await this.files.writeFile(resource, VSBuffer.fromString(after));
 		} catch (error) {
 			return fail(`Could not save ${file}: ${error}`);
 		}
-		this.sources.set(file, serializeUi(doc));
+		this.sources.set(file, after);
+		// One step of history, like any edit on the canvas: ⌘Z puts the file back.
+		const removed = ops.some(op => op.op === 'remove');
+		siteHistory.record({ label: removed ? `deleting from ${file}` : `a change to ${file}`, changes: [{ file, before, after }] });
 		this.post({ type: 'edited', file, at });
 		await this.load();
 	}
