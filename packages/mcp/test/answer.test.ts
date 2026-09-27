@@ -77,3 +77,29 @@ test('the built page shows the answer once the action has run', async () => {
   assert.equal(built.error, false, built.text);
   assert.match(built.text, /No broken links/);
 });
+
+// The canvas and the built page show a value's declared sample until the logic
+// is actually serving. If the graph changes and the sample does not, the design
+// view quietly shows data the logic no longer produces.
+test('running a page value saves what it produced as its sample', async () => {
+  const path = 'app/count.vi';
+  await call('vi_edit', { path, ops: [
+    { op: 'declare', what: 'value', name: 'total', type: 'Number', sample: 1 },
+  ] });
+  const read = await call('vi_read', { path, graph: 'total' });
+  const ret = /^\s+(\S+) · Return/m.exec(read.text)![1]!;
+  await call('vi_edit', { path, ops: [
+    { op: 'add', graph: 'total', block: 'Value', as: 'n', config: { value: 42, type: 'Number' } },
+    { op: 'connect', graph: 'total', from: '$n.value', to: `${ret}.value` },
+  ] });
+
+  const ran = await call('vi_run', { path, export: 'total' });
+  assert.equal(ran.error, false, ran.text);
+  assert.match(ran.text, /total -> 42/);
+  assert.match(ran.text, /Saved this as total's sample/);
+  // The sample now matches what the logic produces, so the canvas agrees.
+  assert.match((await call('vi_read', { path })).text, /sample 42/);
+
+  // Running it again with nothing changed says nothing new.
+  assert.doesNotMatch((await call('vi_run', { path, export: 'total' })).text, /Saved this as/);
+});

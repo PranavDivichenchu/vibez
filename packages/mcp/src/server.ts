@@ -14,7 +14,7 @@ import {
   type UiDoc, type ViAction, type ViValue,
 } from '../../ui/src/index.ts';
 import type { Graph } from '../../core/src/index.ts';
-import { compileFile, matches, parseDoc as parseViDoc, serialize as serializeVi, type ViDoc } from '../../vi/src/index.ts';
+import { compileFile, matches, parseDoc as parseViDoc, serialize as serializeVi, updateValue, type ViDoc } from '../../vi/src/index.ts';
 import { Workspace, VibezError, titleFrom } from './workspace.ts';
 import { outlinePage, summarizePage, formatValue, formatAction } from './notation.ts';
 import { applyOps, type Op } from './edit.ts';
@@ -668,7 +668,12 @@ export function createVibezServer(root: string): McpServer {
         ? `const mod = await import(${JSON.stringify(target)}); const Cls = mod.__vibezTest.classes[${JSON.stringify(methodClass.name)}]; const obj = new Cls(${JSON.stringify(object ?? {})}); const result = await obj[${JSON.stringify(method.name)}](...${JSON.stringify(callArgs)}); ${report} console.log('object afterwards -> ' + JSON.stringify(obj));`
         : `const mod = await import(${JSON.stringify(target)}); const fn = mod.__vibezTest[${JSON.stringify(kind)}][${JSON.stringify(exportName)}]; const result = await fn(...${JSON.stringify(callArgs)}); ${report}`;
       const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', runner], { timeout: 10_000, maxBuffer: 1024 * 1024 });
-      return say([stdout.trim(), stderr.trim(), ...warnings.map(warning => `Warning: ${warning}`)].filter(Boolean).join('\n'));
+      // Running a page value is also the truest sample there is. The canvas and
+      // the built page show the declared sample until the logic is served, so
+      // leaving it behind after the graph changed means the design view quietly
+      // shows data the logic no longer produces.
+      const refreshed = value && !method ? await keepSample(path, doc, exportName, stdout) : undefined;
+      return say([stdout.trim(), stderr.trim(), ...(refreshed ? [refreshed] : []), ...warnings.map(warning => `Warning: ${warning}`)].filter(Boolean).join('\n'));
     } catch (error) {
       if (error instanceof VibezError) throw error;
       const message = (error as Error).message;
@@ -681,6 +686,22 @@ export function createVibezServer(root: string): McpServer {
       await rm(ws.path(build), { recursive: true, force: true });
     }
   }));
+
+  /** Save what a page value just produced as its sample, when it has changed. */
+  async function keepSample(path: string, doc: ViDoc, name: string, stdout: string): Promise<string | undefined> {
+    const at = stdout.indexOf(`${name} -> `);
+    if (at < 0) return undefined;
+    let produced: unknown;
+    try {
+      produced = JSON.parse(stdout.slice(at + `${name} -> `.length).trim());
+    } catch {
+      return undefined;
+    }
+    const current = doc.exports.values.find((v) => v.name === name);
+    if (!current || JSON.stringify(current.sample) === JSON.stringify(produced)) return undefined;
+    await ws.write(path, serializeVi(updateValue(doc, name, { ...current, sample: produced })));
+    return `Saved this as ${name}'s sample, so the canvas shows it too.`;
+  }
 
   // ---------------------------------------------------------- flows
 
