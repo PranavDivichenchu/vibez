@@ -25,7 +25,8 @@ import { EditError, moveElement, removeElement, setAttribute, setStyle, setText 
 import { ELEMENT_CSS, ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
 import { annotateHtml, discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
 import { parseDoc, serialize as serializeUi } from '../../../../platform/vibez/common/vibezUiOps.js';
-import { applyCanvasEdit, CanvasOp } from '../../../../platform/vibez/common/vibezUiCanvasEdit.js';
+import { applyCanvasEdit, CanvasOp, nodeAt } from '../../../../platform/vibez/common/vibezUiCanvasEdit.js';
+import { applyConnect, connectPanel, ConnectKey, ConnectOption, ConnectPanel } from '../../../../platform/vibez/common/vibezUiConnect.js';
 import { Linked, parseViExports } from '../../../../platform/vibez/common/vibezUiLinks.js';
 import { compile as compileUi } from '../../../../platform/vibez/common/vibezUiCompile.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -92,6 +93,9 @@ export class VibezPagesEditor extends EditorPane {
 	private sources = new Map<string, string>();
 	/** The HTML each .ui page was last served as, so a click maps back to its element. */
 	private built = new Map<string, string>();
+	/** For each .ui page: the .vi files it can connect to, and the other pages, both named from where it sits. */
+	private uiLinked = new Map<string, Linked>();
+	private uiSiblings = new Map<string, string[]>();
 	private pages: PageNode[] = [];
 	private graph: GraphLike | null = null;
 	/** The page to bring into view the next time the canvas loads. */
@@ -178,14 +182,16 @@ export class VibezPagesEditor extends EditorPane {
 	private watchPages(): void {
 		this.watchScope.clear();
 		let pending: number | undefined;
+		const changed = new Set<URI>();
 		this.watchScope.add(this.files.onDidFilesChange(e => {
-			const touched = [...e.rawAdded, ...e.rawDeleted, ...e.rawUpdated];
-			if (!touched.some(uri => uri.path.endsWith('.ui') || uri.path.endsWith('.vi'))) {
+			const touched = [...e.rawAdded, ...e.rawDeleted, ...e.rawUpdated].filter(uri => uri.path.endsWith('.ui') || uri.path.endsWith('.vi'));
+			if (!touched.length) {
 				return;
 			}
-			// A save can arrive as several events; redraw once they settle.
+			touched.forEach(uri => changed.add(uri));
+			// A save can arrive as several events; look once they settle.
 			dom.getWindow(this.container).clearTimeout(pending);
-			pending = dom.getWindow(this.container).setTimeout(() => { if (this.ready) { void this.load(); } }, 250);
+			pending = dom.getWindow(this.container).setTimeout(() => void this.changedOnDisk([...changed].splice(0), changed), 250);
 		}));
 		this.watchScope.add(toDisposable(() => dom.getWindow(this.container).clearTimeout(pending)));
 	}
@@ -260,9 +266,11 @@ export class VibezPagesEditor extends EditorPane {
 			case 'inspect': {
 				const info = message.info as ElementInfo;
 				const result = explainElement(info, { sources: this.sources, pages: this.pages, graph: this.graph });
-				this.post({ type: 'explain', req: message.req, result });
+				this.post({ type: 'explain', req: message.req, result: { ...result, logic: this.logicFor(info) } });
 				return;
 			}
+			case 'connect':
+				return this.connect(String(message.file ?? ''), String(message.node ?? ''), message.key as ConnectKey, (message.ref ?? null) as ConnectOption['ref'], message.at === null || message.at === undefined ? null : Number(message.at));
 			case 'edit':
 				return this.edit(String(message.file), message.at === null || message.at === undefined ? null : Number(message.at), String(message.tag ?? ''), (message.ops ?? []) as EditOp[]);
 			case 'undo':
@@ -396,6 +404,10 @@ export class VibezPagesEditor extends EditorPane {
 			if (text === undefined) { this.sources.delete(file); } else { this.sources.set(file, text); }
 		}
 		this.pages = discoverPages(this.sources).pages;
+		// A drawn page undone is recompiled before anything reloads it.
+		if (result.event.files.some(file => file.endsWith('.ui') || file.endsWith('.vi'))) {
+			await this.serveUiPages();
+		}
 		if (result.event.structural) {
 			this.post({ type: 'notice', text: result.text });
 			return; // the history event reloads the whole canvas
@@ -482,6 +494,87 @@ export class VibezPagesEditor extends EditorPane {
 	}
 
 	/**
+	 * Redraw for changes made somewhere else — an agent, the file's text, a
+	 * teammate — but not for the ones this editor just wrote itself, which it
+	 * has already shown.
+	 */
+	private async changedOnDisk(uris: URI[], pending: Set<URI>): Promise<void> {
+		pending.clear();
+		if (!this.ready || !this.folder) {
+			return;
+		}
+		const root = `${this.folder.path}/`;
+		for (const uri of uris) {
+			const file = uri.path.startsWith(root) ? uri.path.slice(root.length) : undefined;
+			const text = await this.files.readFile(uri).then(c => c.value.toString(), () => undefined);
+			if (!file || text !== this.sources.get(file)) {
+				await this.load();
+				return;
+			}
+		}
+	}
+
+	/**
+	 * After an edit made here: take the new text, recompile, and only then tell
+	 * the canvas, which reloads just that page and keeps it selected with its
+	 * panel open. Redrawing the whole canvas instead closed the panel after
+	 * every change, and reloading the page before it was recompiled showed the
+	 * old one.
+	 */
+	private async saved(file: string, text: string, at: number | null): Promise<void> {
+		this.sources.set(file, text);
+		this.pages = discoverPages(this.sources).pages;
+		await this.serveUiPages();
+		this.post({ type: 'edited', file, at });
+	}
+
+	/** What the clicked element of a drawn page can be connected to, for the inspect panel. */
+	private logicFor(info: ElementInfo): { file: string; panel: ConnectPanel } | undefined {
+		const file = info.page;
+		if (!file?.endsWith('.ui')) {
+			return undefined;
+		}
+		const id = nodeAt(this.built.get(file) ?? '', info.at ?? null);
+		const parsed = id ? parseDoc(this.sources.get(file) ?? '') : undefined;
+		const panel = parsed?.ok && id ? connectPanel(parsed.doc, id, this.uiLinked.get(file) ?? new Map(), this.uiSiblings.get(file) ?? []) : undefined;
+		return panel ? { file, panel } : undefined;
+	}
+
+	/**
+	 * Connect an element of a drawn page to its logic: what it shows, what it
+	 * repeats over, what clicking it does. The choice is checked against what
+	 * the panel offered, written into the page's file, and is one step of
+	 * history like any other edit on the canvas.
+	 */
+	private async connect(file: string, node: string, key: ConnectKey, ref: ConnectOption['ref'], at: number | null): Promise<void> {
+		const fail = (reason: string) => this.post({ type: 'editFailed', file, reason });
+		if (!this.folder || !file.endsWith('.ui')) {
+			return fail('Only a drawn page connects to logic this way.');
+		}
+		const resource = URI.joinPath(this.folder, file);
+		if (this.textFiles.isDirty(resource)) {
+			return fail(`${file} has unsaved changes in an editor. Save or revert them, then try again.`);
+		}
+		const before = this.sources.get(file) ?? null;
+		const parsed = parseDoc(before ?? '');
+		if (!parsed.ok) {
+			return fail(`${file} could not be read: ${parsed.reason}`);
+		}
+		const result = applyConnect(parsed.doc, node as never, key, ref, this.uiLinked.get(file) ?? new Map(), this.uiSiblings.get(file) ?? []);
+		if (!result.ok) {
+			return fail(result.reason);
+		}
+		const after = serializeUi(result.doc);
+		try {
+			await this.files.writeFile(resource, VSBuffer.fromString(after));
+		} catch (error) {
+			return fail(`Could not save ${file}: ${error}`);
+		}
+		siteHistory.record({ label: `connecting an element on ${file}`, changes: [{ file, before, after }] });
+		await this.saved(file, after, at);
+	}
+
+	/**
 	 * An edit made on the canvas, applied to the `.ui` page it came from.
 	 *
 	 * A drawn page has no HTML of its own to rewrite: what is on screen was
@@ -514,12 +607,10 @@ export class VibezPagesEditor extends EditorPane {
 		} catch (error) {
 			return fail(`Could not save ${file}: ${error}`);
 		}
-		this.sources.set(file, after);
 		// One step of history, like any edit on the canvas: ⌘Z puts the file back.
 		const removed = ops.some(op => op.op === 'remove');
 		siteHistory.record({ label: removed ? `deleting from ${file}` : `a change to ${file}`, changes: [{ file, before, after }] });
-		this.post({ type: 'edited', file, at });
-		await this.load();
+		await this.saved(file, after, removed ? null : at);
 	}
 
 	private async write(resource: URI, file: string, html: string): Promise<void> {
@@ -621,6 +712,8 @@ export class VibezPagesEditor extends EditorPane {
 		const routes = new Map(this.pages.filter(p => p.file.endsWith('.ui')).map(p => [p.file, p.route]));
 		const built: Record<string, string> = {};
 		this.built.clear();
+		this.uiLinked.clear();
+		this.uiSiblings.clear();
 		for (const [file, route] of routes) {
 			const parsed = parseDoc(this.sources.get(file) ?? '');
 			if (!parsed.ok) {
@@ -640,6 +733,16 @@ export class VibezPagesEditor extends EditorPane {
 					mine.set(name, exports);
 				}
 			}
+			// Every .vi file in the project can be connected to, not only the ones
+			// the page already uses: that is how a page gets its first one.
+			for (const [vi, exports] of linked) {
+				const name = posix.relative(dir, vi) || posix.basename(vi);
+				if (!mine.has(name)) {
+					mine.set(name, exports);
+				}
+			}
+			this.uiLinked.set(file, mine);
+			this.uiSiblings.set(file, Object.keys(near).filter(other => posix.normalize(posix.join(dir, other)) !== file));
 			try {
 				// The canvas reports where an element starts as an offset into the
 				// page *before* it was marked up (that is how a page written in

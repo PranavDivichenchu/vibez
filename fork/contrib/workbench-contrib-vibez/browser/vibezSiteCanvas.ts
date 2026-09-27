@@ -71,6 +71,11 @@ button,input{font:inherit;color:inherit}
 #wires .broken{stroke:#E5484D;stroke-opacity:.9;stroke-width:2;fill:none;vector-effect:non-scaling-stroke}
 #wires .x{fill:#E5484D}
 #panel .linkrow{display:flex;gap:6px}
+#panel .logic{padding:10px;border-radius:8px;background:rgba(128,128,128,.09);margin-bottom:6px;display:flex;flex-direction:column;gap:10px}
+#panel .logic label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+#panel .logic select{padding:5px 6px;border-radius:6px;border:1px solid var(--line);background:var(--vscode-dropdown-background,transparent);color:var(--vscode-dropdown-foreground,inherit);font:inherit;font-size:12.5px}
+#panel .logic .args{display:flex;flex-direction:column;gap:6px;padding-left:10px;border-left:2px solid var(--line)}
+#panel .logic .hint{margin:0;font-size:12px;color:var(--muted)}
 #panel .linkrow select{flex:1;min-width:0}
 #wires .hitw{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;vector-effect:non-scaling-stroke}
 #wires .w.pin{stroke:var(--accent);stroke-opacity:1;stroke-width:3.5}
@@ -632,6 +637,7 @@ function renderPanel(x){
     panel.appendChild(crumb);
   }
   if (S.cur) { panel.appendChild(editSection(S.cur.c, S.cur.info)); }
+  if (x.logic && S.cur) { panel.appendChild(logicSection(S.cur.c, S.cur.info, x.logic)); }
   section('When you use it', x.actions.map(function(a){ return item(a.title, a.detail, a.code, null, a.snippet); }));
   if (x.destination) {
     var dst = x.destination, extra = [];
@@ -1151,6 +1157,62 @@ function inlineOf(info){
   String(info.inlineStyle || '').split(';').forEach(function(d){ var i = d.indexOf(':'); if (i > 0) { out[d.slice(0, i).trim().toLowerCase()] = d.slice(i + 1).trim(); } });
   return out;
 }
+
+/**
+ * Connect to logic: on a drawn page, what this element shows, what it repeats
+ * over, and what clicking it does. Every choice listed is one that fits, so
+ * nothing picked here can be wired wrong.
+ */
+function logicSection(c, info, logic){
+  var wrap = el('div', '');
+  wrap.appendChild(el('h3', '', 'Connect to logic'));
+  var box = el('div', 'logic');
+  wrap.appendChild(box);
+  var p = logic.panel;
+  if (p.note) { box.appendChild(el('p', 'hint', p.note)); }
+  function send(key, ref){
+    S.saving = true; S.editCard = c; S.openAfter = true; S.activeCard = c;
+    vscode.postMessage({ type: 'connect', file: logic.file, node: p.node, key: key, ref: ref, at: info.at });
+  }
+  function picker(title, options, current, onPick){
+    var lab = el('label', '', title);
+    var sel = document.createElement('select');
+    var found = false;
+    options.forEach(function(o, i){
+      var opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = o.detail ? o.label + '  —  ' + o.detail : o.label;
+      if (!found && sameRef(o.ref, current)) { opt.selected = true; found = true; }
+      sel.appendChild(opt);
+    });
+    if (!found && current !== null && current !== undefined) {
+      // Connected to something no longer offered, like a value that was renamed.
+      var gone = document.createElement('option');
+      gone.value = '-1'; gone.textContent = 'Something that no longer exists'; gone.selected = true; gone.disabled = true;
+      sel.insertBefore(gone, sel.firstChild);
+    }
+    sel.addEventListener('change', function(){ var o = options[Number(sel.value)]; if (o) { onPick(o.ref); } });
+    lab.appendChild(sel);
+    return lab;
+  }
+  p.slots.forEach(function(slot){
+    box.appendChild(picker(slot.title, slot.options, slot.current, function(ref){ send(slot.key, ref); }));
+    if (slot.key === 'on' && slot.args && slot.args.length && slot.current && slot.current.run === 'vi') {
+      var args = el('div', 'args');
+      slot.args.forEach(function(a){
+        args.appendChild(picker(a.name + ' (' + a.type + ') from', a.options, a.current, function(ref){
+          var next = JSON.parse(JSON.stringify(slot.current));
+          next.args = next.args || {};
+          if (ref === null) { delete next.args[a.name]; } else { next.args[a.name] = ref; }
+          send('on', next);
+        }));
+      });
+      box.appendChild(args);
+    }
+  });
+  return wrap;
+}
+function sameRef(a, b){ return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b); }
 
 function editSection(c, info){
   var wrap = el('div', 'edit');
