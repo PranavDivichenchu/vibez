@@ -40,6 +40,11 @@ import { searchIndex, reachesFrom, type SearchItem } from '../../../../../platfo
 import { compileFile, compileServer, type ServerFile } from '../../../../../platform/vibez/common/vibezViCompile.js';
 import { VibezViEditorInput } from './viEditorInput.js';
 import { openNodeSearch } from './viNodeSearch.js';
+import { VibezSelectionContext } from '../vibezSelectionContext.js';
+import { canvasSelection } from '../vibezCanvasSelection.js';
+import { viNodeRanges } from '../../../../../platform/vibez/common/vibezJsonPlaces.js';
+import { ICompositeCodeEditor } from '../../../../../editor/common/editorCommon.js';
+import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DRAG_THRESHOLD = 4;
@@ -236,6 +241,7 @@ export class VibezViEditor extends EditorPane {
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IVibezCaptureService private readonly captureService: IVibezCaptureService,
 		@IVibezTeamService private readonly team: IVibezTeamService,
+		@IInstantiationService private readonly instantiation: IInstantiationService,
 	) {
 		super(VibezViEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -260,6 +266,7 @@ export class VibezViEditor extends EditorPane {
 		this.problem = dom.append(this.root, dom.$('.vz-vi-problem'));
 		this.installCamera();
 		this.installCanvasSearch();
+		this.selectionContext = this._register(this.instantiation.createInstance(VibezSelectionContext, this.root));
 		this.installKeys();
 		this.renderToolbar();
 		const resize = new ResizeObserver(() => this.layout());
@@ -360,6 +367,7 @@ export class VibezViEditor extends EditorPane {
 		void this.flushSave();
 		if (this.posSaveTimer) { clearTimeout(this.posSaveTimer); this.posSaveTimer = undefined; void this.savePositions(); }
 		this.inputScope.clear();
+		this.selectionContext?.clear();
 		super.clearInput();
 	}
 
@@ -1859,6 +1867,36 @@ export class VibezViEditor extends EditorPane {
 		if (!this.selectionStatus) { return; }
 		const count = this.selectedNodes.size;
 		this.selectionStatus.textContent = count > 1 ? localize('vibez.vi.nodesSelected', `${count} nodes selected`) : '';
+		this.syncSelectionContext();
+	}
+
+	/**
+	 * The selected blocks, as the selected lines of this file, for agents to
+	 * read (Claude Code takes the active editor's selection as its context).
+	 * Nothing selected hands on nothing, and the agent's scope is everything.
+	 */
+	private syncSelectionContext(): void {
+		const name = this.currentName();
+		const ids = [...this.selectedNodes];
+		if (!this.selectionContext) {
+			return;
+		}
+		if (!this.resource || name === undefined || !ids.length) {
+			this.selectionContext.clear();
+			canvasSelection.set([]);
+			return;
+		}
+		const where = this.methodTarget ? 'methods' : this.isViewingFunction() ? 'helpers' : 'logic';
+		const folder = this.contextService.getWorkspaceFolder(this.resource)?.uri;
+		const file = folder ? posix.relative(folder.path, this.resource.path) : posix.basename(this.resource.path);
+		canvasSelection.set(ids.map(id => ({ id: `${name}#${id}`, label: this.views.get(id)?.node.label ?? id, file })));
+		void this.selectionContext.show(this.resource, text => viNodeRanges(text, where, name, ids));
+	}
+
+	private selectionContext: VibezSelectionContext | undefined;
+
+	override getControl(): ICompositeCodeEditor | undefined {
+		return this.selectionContext?.control;
 	}
 
 	private removeSelected(): void {
@@ -2607,6 +2645,26 @@ export class VibezViEditor extends EditorPane {
 		let startX = 0, startY = 0;
 		let suppressClick = false;
 		let lastX = 0, lastY = 0;
+		let spaceHeld = false;
+		let additive = false;
+		let before = new Set<SemanticKey>();
+		const typing = (target: EventTarget | null) => Boolean((target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"]'));
+		this._register(dom.addDisposableListener(this.root, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => {
+			if (event.key === ' ' && !typing(event.target)) { spaceHeld = true; this.canvas.classList.add('grab'); event.preventDefault(); }
+		}));
+		this._register(dom.addDisposableListener(this.root, dom.EventType.KEY_UP, (event: KeyboardEvent) => {
+			if (event.key === ' ') { spaceHeld = false; this.canvas.classList.remove('grab'); }
+		}));
+		const covered = (event: PointerEvent): Set<SemanticKey> => {
+			const left = Math.min(startX, event.clientX), right = Math.max(startX, event.clientX);
+			const top = Math.min(startY, event.clientY), bottom = Math.max(startY, event.clientY);
+			const hit = new Set<SemanticKey>(additive ? before : []);
+			for (const [id, view] of this.views) {
+				const rect = view.card.getBoundingClientRect();
+				if (rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom) hit.add(id);
+			}
+			return hit;
+		};
 		const interactive = (target: EventTarget | null) => Boolean((target as HTMLElement | null)?.closest?.('.vz-vi-node, .vz-vi-port, .vz-vi-search, .vz-vi-menu, .vz-vi-canvas-controls, .vz-vi-graph-header'));
 
 		this._register(dom.addDisposableListener(this.canvas, dom.EventType.POINTER_DOWN, (event: PointerEvent) => {
@@ -2615,15 +2673,14 @@ export class VibezViEditor extends EditorPane {
 			}
 			startX = lastX = event.clientX;
 			startY = lastY = event.clientY;
-			selecting = event.button === 0 && event.shiftKey;
+			// A drag over empty space selects what it covers (⇧ adds to what is selected);
+			// the middle button, or holding space, moves around instead.
+			selecting = event.button === 0 && !spaceHeld;
+			additive = event.shiftKey || event.metaKey || event.ctrlKey;
+			before = new Set(this.selectedNodes);
 			dragging = !selecting;
 			this.touched = true;
-			if (selecting) {
-				const rect = this.canvas.getBoundingClientRect();
-				selectionBox = dom.append(this.canvas, dom.$('.vz-vi-selection-box'));
-				selectionBox.style.left = `${startX - rect.left}px`;
-				selectionBox.style.top = `${startY - rect.top}px`;
-			} else {
+			if (!selecting) {
 				this.canvas.classList.add('panning');
 			}
 			this.canvas.setPointerCapture(event.pointerId);
@@ -2632,7 +2689,19 @@ export class VibezViEditor extends EditorPane {
 			if (!dragging && !selecting) {
 				return;
 			}
+			if (selecting && !selectionBox) {
+				if (Math.abs(event.clientX - startX) + Math.abs(event.clientY - startY) < 5) {
+					return;
+				}
+				const rect = this.canvas.getBoundingClientRect();
+				selectionBox = dom.append(this.canvas, dom.$('.vz-vi-selection-box'));
+				selectionBox.style.left = `${startX - rect.left}px`;
+				selectionBox.style.top = `${startY - rect.top}px`;
+			}
 			if (selecting && selectionBox) {
+				// What the rectangle covers lights up as it grows.
+				const hit = covered(event);
+				this.views.forEach((view, id) => view.card.classList.toggle('selected', hit.has(id)));
 				const rect = this.canvas.getBoundingClientRect();
 				selectionBox.style.left = `${Math.min(startX, event.clientX) - rect.left}px`;
 				selectionBox.style.top = `${Math.min(startY, event.clientY) - rect.top}px`;
@@ -2647,13 +2716,10 @@ export class VibezViEditor extends EditorPane {
 			this.applyCamera();
 		}));
 		const stop = (event: PointerEvent) => {
-			if (selecting) {
-				const left = Math.min(startX, event.clientX), right = Math.max(startX, event.clientX);
-				const top = Math.min(startY, event.clientY), bottom = Math.max(startY, event.clientY);
-				for (const [id, view] of this.views) {
-					const rect = view.card.getBoundingClientRect();
-					if (rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom) this.selectedNodes.add(id);
-				}
+			if (selecting && selectionBox) {
+				const hit = covered(event);
+				this.selectedNodes.clear();
+				hit.forEach(id => this.selectedNodes.add(id));
 				this.selected = this.selectedNodes.values().next().value;
 				this.views.forEach((view, id) => view.card.classList.toggle('selected', this.selectedNodes.has(id)));
 				this.updateSelectionStatus();

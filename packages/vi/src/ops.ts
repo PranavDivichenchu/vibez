@@ -232,7 +232,13 @@ export function labelFor(kind: AuthoredKind, config: AuthoredConfig): string {
   if (config.kind === 'return') return config.early ? 'Early Return' : 'Return';
   if (config.kind === 'variable') return `${config.mode === 'set' ? 'Set' : 'Get'} ${config.name || '(unnamed)'}`;
   if (config.kind === 'call') return config.name || LABELS.call;
-  if (config.kind === 'literal') return String(config.value ?? LABELS.literal);
+  if (config.kind === 'literal') {
+    // A list or an object reads as what it holds, not as "[object Object]".
+    const value = config.value;
+    if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+    if (value && typeof value === 'object') { const json = JSON.stringify(value); return json.length > 40 ? `${json.slice(0, 39)}…` : json; }
+    return String(value ?? LABELS.literal);
+  }
   if (config.kind === 'compute' && isListFnOp(config.op) && config.fn) return `${LIST_FN_OPS[config.op].name} with ${config.fn}`;
   if (config.kind === 'compute') return config.label ?? (Object.prototype.hasOwnProperty.call(OP_NAMES, config.op) ? OP_NAMES[config.op as MathOp] : title(config.op));
   if (config.kind === 'branch') return config.mode === 'sequence' ? 'Sequence' : config.mode === 'switch' ? 'Switch' : config.mode === 'valid' ? 'Is Valid' : config.mode === 'success' ? 'Success / Failure' : config.mode === 'try' ? 'Try / Catch' : 'If';

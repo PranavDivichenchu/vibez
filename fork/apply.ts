@@ -29,10 +29,14 @@ console.log(`  product.json: ${Object.keys(overlay).length} keys set`);
 const iconPng = join(root, 'fork/overlay/resources/vibez.png');
 const iconIcns = join(root, 'fork/overlay/resources/vibez.icns');
 const iconIco = join(root, 'fork/overlay/resources/vibez.ico');
+const iconMac = join(root, 'fork/overlay/resources/vibez-mac.png');
 const iconTargets = [
 	[iconPng, join(vscodeDir, 'resources/linux/code.png')],
 	[iconIcns, join(vscodeDir, 'resources/darwin/code.icns')],
 	[iconIco, join(vscodeDir, 'resources/win32/code.ico')],
+	// Set as the Dock icon at startup (app.ts.patch), since macOS caches a
+	// development bundle's icon from whatever it first saw.
+	[iconMac, join(vscodeDir, 'resources/darwin/vibez.png')],
 ] as const;
 
 for (const [sourceIcon, targetIcon] of iconTargets) {

@@ -1,5 +1,5 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index 3fb0f3a..261652d 100644
+index 3fb0f3a..9a50315 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
 @@ -54,6 +54,12 @@ import { IProcessMainService } from '../../platform/process/common/process.js';
@@ -15,7 +15,24 @@ index 3fb0f3a..261652d 100644
  import { ILifecycleMainService, LifecycleMainPhase, ShutdownReason } from '../../platform/lifecycle/electron-main/lifecycleMainService.js';
  import { ILoggerService, ILogService } from '../../platform/log/common/log.js';
  import { IMenubarMainService, MenubarMainService } from '../../platform/menubar/electron-main/menubarMainService.js';
-@@ -1009,6 +1015,15 @@ export class CodeApplication extends Disposable {
+@@ -533,6 +539,16 @@ export class CodeApplication extends Disposable {
+ 			app.setAppUserModelId(win32AppUserModelId);
+ 		}
+ 
++		// Vibez: a development build runs from Electron's own bundle, and macOS
++		// keeps showing whatever icon it first cached for it. Set ours directly.
++		if (isMacintosh && !this.environmentMainService.isBuilt) {
++			try {
++				app.dock?.setIcon(join(this.environmentMainService.appRoot, 'resources', 'darwin', 'vibez.png'));
++			} catch (error) {
++				this.logService.error(error);
++			}
++		}
++
+ 		// Fix native tabs on macOS 10.13
+ 		// macOS enables a compatibility patch for any bundle ID beginning with
+ 		// "com.microsoft.", which breaks native tabs for VS Code when using this
+@@ -1009,6 +1025,15 @@ export class CodeApplication extends Disposable {
  		// Launch
  		services.set(ILaunchMainService, new SyncDescriptor(LaunchMainService, undefined, false /* proxied to other processes */));
  
@@ -31,7 +48,7 @@ index 3fb0f3a..261652d 100644
  		// Diagnostics
  		services.set(IDiagnosticsMainService, new SyncDescriptor(DiagnosticsMainService, undefined, false /* proxied to other processes */));
  		services.set(IDiagnosticsService, ProxyChannel.toService(getDelayedChannel(sharedProcessReady.then(client => client.getChannel('diagnostics')))));
-@@ -1129,6 +1144,15 @@ export class CodeApplication extends Disposable {
+@@ -1129,6 +1154,15 @@ export class CodeApplication extends Disposable {
  		const launchChannel = ProxyChannel.fromService(accessor.get(ILaunchMainService), disposables, { disableMarshalling: true });
  		this.mainProcessNodeIpcServer.registerChannel('launch', launchChannel);
  

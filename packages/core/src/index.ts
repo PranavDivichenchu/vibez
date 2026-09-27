@@ -22,3 +22,4 @@ export * from './queue.ts';
 export * from './agentStream.ts';
 export * from './replay.ts';
 export * from './project.ts';
+export * from './jsonPlaces.ts';

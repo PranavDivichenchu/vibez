@@ -8,8 +8,11 @@
  *
  * Every page of the site is a real, running page in its own frame, at a real
  * screen width, laid out left to right like artboards. You scroll a page by
- * scrolling over it; you move around the board by scrolling or dragging the
- * space between pages, and zoom with a pinch or ⌘-scroll.
+ * scrolling over it; you move around the board by scrolling, space-dragging or
+ * middle-dragging, and zoom with a pinch or ⌘-scroll. Dragging over empty
+ * space (or a page's background, or anything with ⇧) draws a rectangle that
+ * picks the elements inside it; what is picked is handed to agents as the
+ * selected text of its file (see vibezSelectionContext).
  *
  * Links are drawn from where they actually sit on the page to the page they
  * open. Lines only ever run through the gaps between pages and the lanes
@@ -53,6 +56,10 @@ button,input{font:inherit;color:inherit}
 #status{color:var(--muted);overflow:hidden;text-overflow:ellipsis;flex:1;text-align:right}
 #board{position:absolute;left:0;right:0;top:var(--bar);bottom:0;overflow:hidden;cursor:grab;background-image:radial-gradient(rgba(128,128,128,.22) 1px,transparent 1px);background-size:22px 22px}
 #board.dragging{cursor:grabbing}
+#board.grab{cursor:grab}
+#board.picking{cursor:crosshair}
+#board.picking iframe{pointer-events:none}
+#mq{position:absolute;display:none;border:1px solid #3B82F6;background:rgba(59,130,246,.12);border-radius:2px;pointer-events:none;z-index:5}
 #board.dragging iframe{pointer-events:none}
 #world{position:absolute;left:0;top:0;transform-origin:0 0}
 .card{position:absolute;top:0;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.2),0 10px 40px rgba(0,0,0,.35);cursor:default}
@@ -61,7 +68,9 @@ button,input{font:inherit;color:inherit}
 .card.flash{animation:flash 1.1s ease-out}
 /* Changed by someone or something else: an agent, a teammate, the file's text, its logic. */
 .card.pulse{animation:vzpulse .8s ease-out 3}
-@keyframes vzpulse{0%{box-shadow:0 0 0 0 rgba(168,85,247,.85),0 10px 40px rgba(0,0,0,.35)}100%{box-shadow:0 0 0 16px rgba(168,85,247,0),0 10px 40px rgba(0,0,0,.35)}}
+.card.pulse::after{content:'';position:absolute;inset:0;border-radius:10px;padding:3px;background:linear-gradient(160deg,#079DFE 0%,#7C78F8 33%,#C70FA8 66%,#F41615 100%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;z-index:2;animation:vzfade 2.4s ease-out forwards}
+@keyframes vzpulse{0%{box-shadow:-8px -8px 26px rgba(7,157,254,.75),0 0 22px rgba(199,15,168,.6),8px 8px 26px rgba(244,22,21,.65),0 10px 40px rgba(0,0,0,.35)}100%{box-shadow:-2px -2px 0 rgba(7,157,254,0),0 0 0 rgba(199,15,168,0),2px 2px 0 rgba(244,22,21,0),0 10px 40px rgba(0,0,0,.35)}}
+@keyframes vzfade{0%,80%{opacity:1}100%{opacity:0}}
 @keyframes flash{0%{box-shadow:0 0 0 14px rgba(34,197,94,.9),0 10px 40px rgba(0,0,0,.35)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0),0 10px 40px rgba(0,0,0,.35)}}
 #wires{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
 #wires .w{fill:none;stroke:var(--muted);stroke-opacity:.35;stroke-width:1.5;vector-effect:non-scaling-stroke}
@@ -246,7 +255,7 @@ function setMode(m){
   h.innerHTML = '';
   if (m === 'inspect') {
     h.appendChild(el('b', '', 'Inspect'));
-    h.appendChild(document.createTextNode(' · drag anything to move it · double-click to explain and edit · arrow keys nudge · I to use the site'));
+    h.appendChild(document.createTextNode(' · drag anything to move it · drag empty space to select · double-click to explain and edit · space-drag to pan · I to use the site'));
   } else {
     h.appendChild(el('b', '', 'Browse'));
     h.appendChild(document.createTextNode(' · the site works normally · double-click still explains · I to inspect'));
@@ -489,23 +498,80 @@ function focusCard(c, flash){
   if (flash !== false) { c.card.classList.remove('flash'); void c.card.offsetWidth; c.card.classList.add('flash'); }
 }
 
-var drag = null;
+var drag = null, mq = null, mqEl = el('div', '');
+mqEl.id = 'mq'; board.appendChild(mqEl);
 board.addEventListener('pointerdown', function(e){
-  if (e.button !== 0 || (e.target.closest && e.target.closest('.card'))) { return; }
+  if ((e.button !== 0 && e.button !== 1) || (e.target.closest && e.target.closest('.card'))) { return; }
   if (e.target.classList && e.target.classList.contains('hitw')) { return; }
   if (S.pin) { unpin(); }
   if (S.linkPick) { endLinkPick(true); }
+  board.setPointerCapture(e.pointerId);
+  // Inspecting, a drag over empty space picks what it covers; space or the middle button moves around instead.
+  if (e.button === 0 && S.mode === 'inspect' && !S.space) {
+    mq = { x: e.clientX, y: e.clientY, add: e.shiftKey, moved: false };
+    return;
+  }
   drag = { x: e.clientX, y: e.clientY, tx: S.tx, ty: S.ty };
   board.classList.add('dragging');
-  board.setPointerCapture(e.pointerId);
 });
+function mqRect(e){ return { l: Math.min(mq.x, e.clientX), t: Math.min(mq.y, e.clientY), r: Math.max(mq.x, e.clientX), b: Math.max(mq.y, e.clientY) }; }
+/** The rectangle, in each page's own coordinates: pages it does not reach get nothing. */
+function mqTell(r, done){
+  S.cards.forEach(function(c){
+    var f = c.frame.getBoundingClientRect();
+    var hits = r.r > f.left && r.l < f.right && r.b > f.top && r.t < f.bottom;
+    tell(c, { type: 'marquee', done: done, add: mq.add, rect: hits ? { l: (r.l - f.left) / S.z, t: (r.t - f.top) / S.z, r: (r.r - f.left) / S.z, b: (r.b - f.top) / S.z } : null });
+  });
+}
 board.addEventListener('pointermove', function(e){
+  if (mq) {
+    if (!mq.moved && Math.abs(e.clientX - mq.x) + Math.abs(e.clientY - mq.y) < 5) { return; }
+    mq.moved = true;
+    board.classList.add('picking');
+    var r = mqRect(e), b = board.getBoundingClientRect();
+    mqEl.style.display = 'block';
+    mqEl.style.left = (r.l - b.left) + 'px'; mqEl.style.top = (r.t - b.top) + 'px';
+    mqEl.style.width = (r.r - r.l) + 'px'; mqEl.style.height = (r.b - r.t) + 'px';
+    mqTell(r, false);
+    return;
+  }
   if (!drag) { return; }
   S.tx = drag.tx + e.clientX - drag.x; S.ty = drag.ty + e.clientY - drag.y; apply();
 });
-function endDrag(){ drag = null; board.classList.remove('dragging'); }
+function endDrag(e){
+  if (mq) {
+    var m0 = mq;
+    if (m0.moved && e && e.type === 'pointerup') { mqTell(mqRect(e), true); }
+    else if (!m0.moved && !m0.add) { clearPicks(); }
+    mq = null; mqEl.style.display = 'none'; board.classList.remove('picking');
+  }
+  drag = null; board.classList.remove('dragging');
+}
 board.addEventListener('pointerup', endDrag);
 board.addEventListener('pointercancel', endDrag);
+document.addEventListener('keydown', function(e){
+  if (e.key !== ' ' || S.space || (e.target && /^(input|textarea|select|button)$/i.test(e.target.tagName))) { return; }
+  S.space = true; board.classList.add('grab'); e.preventDefault();
+});
+document.addEventListener('keyup', function(e){ if (e.key === ' ') { S.space = false; board.classList.remove('grab'); } });
+
+/** What is picked, page by page, handed to the editor to become the selection agents read. */
+S.picks = {};
+function sendPicks(){
+  var items = [], n = 0;
+  Object.keys(S.picks).forEach(function(file){
+    var list = S.picks[file];
+    if (!list || !list.length) { return; }
+    n += list.length;
+    items.push({ file: file, nodes: list.map(function(i){ return i.node; }), ats: list.map(function(i){ return i.at; }), labels: list.map(function(i){ return i.text || i.tag; }) });
+  });
+  vscode.postMessage({ type: 'selection', items: items });
+  if (n > 1) { notice(n + ' elements selected. Claude gets them as context; Esc clears.', false); }
+}
+function clearPicks(){
+  S.cards.forEach(function(c){ tell(c, { type: 'clearPicks' }); });
+  if (Object.keys(S.picks).some(function(f){ return S.picks[f].length; })) { S.picks = {}; sendPicks(); }
+}
 // A narrow editor scrolls the toolbar sideways; an ordinary mouse wheel does it too.
 document.getElementById('bar').addEventListener('wheel', function(e){
   if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { this.scrollLeft += e.deltaY; e.preventDefault(); }
@@ -521,7 +587,7 @@ document.addEventListener('keydown', function(e){
   if (e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
   if (e.key === 'f' || e.key === 'F') { fit(); }
-  if (e.key === 'Escape') { if (S.elDrag) { tell(S.elDrag.c, { type: 'cancelDrag' }); S.elDrag = null; } if (S.linkPick) { endLinkPick(true); } if (S.pin) { unpin(); } closePanel(); }
+  if (e.key === 'Escape') { if (S.elDrag) { tell(S.elDrag.c, { type: 'cancelDrag' }); S.elDrag = null; } if (S.linkPick) { endLinkPick(true); } if (S.pin) { unpin(); } closePanel(); clearPicks(); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && (S.sel || S.pageSel)) { e.preventDefault(); doDelete(); return; }
   var holder = (S.cur && S.cur.c) || (S.lastPlaced && S.lastPlaced.c);
   if (/^Arrow/.test(e.key) && holder && S.mode === 'inspect') {
@@ -671,6 +737,9 @@ window.addEventListener('message', function(e){
       if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
       c.alive = true;
       pulseCard(c);
+      // Picked elements stay picked when their page reloads (a save, an agent's edit).
+      var kept = S.picks[fileOf(c)];
+      if (kept && kept.length) { tell(c, { type: 'repick', nodes: kept.map(function(i){ return i.node; }).filter(Boolean) }); }
     }
     else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); fullHeight(c, m.dh); drawWires(); }
     else if (m.type === 'move') { move(c, m); }
@@ -691,7 +760,15 @@ window.addEventListener('message', function(e){
     else if (m.type === 'hover') { S.hot = m.key ? { c: c, key: m.key } : null; drawWires(); }
     else if (m.type === 'inspect') { openPanel(c, m.info); }
     else if (m.type === 'toggle') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
-    else if (m.type === 'escape') { closePanel(); }
+    else if (m.type === 'escape') { closePanel(); clearPicks(); }
+    else if (m.type === 'picked') {
+      if (!m.add && m.from !== 'board') {
+        S.cards.forEach(function(o){ if (o !== c && (S.picks[fileOf(o)] || []).length) { tell(o, { type: 'clearPicks' }); } });
+        S.picks = {};
+      }
+      S.picks[fileOf(c)] = m.items || [];
+      sendPicks();
+    }
     else if (m.type === 'fit') { fit(); }
     else if (m.type === 'error') { c.errors++; badges(c); }
     else if (m.type === 'zoom') { var r = c.frame.getBoundingClientRect(); zoomAt(r.left + m.x * S.z, r.top + m.y * S.z, Math.exp(-m.dy * 0.01)); }

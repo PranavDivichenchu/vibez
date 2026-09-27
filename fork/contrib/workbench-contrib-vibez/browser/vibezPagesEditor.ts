@@ -38,6 +38,11 @@ import { ITextFileService } from '../../../services/textfile/common/textfiles.js
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../webview/browser/webview.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
 import { siteCanvasHtml } from './vibezSiteCanvas.js';
+import { VibezSelectionContext } from './vibezSelectionContext.js';
+import { canvasSelection } from './vibezCanvasSelection.js';
+import { uiNodeRanges } from '../../../../platform/vibez/common/vibezJsonPlaces.js';
+import { ICompositeCodeEditor } from '../../../../editor/common/editorCommon.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { SiteFileChange, siteHistory } from './vibezSiteHistory.js';
 import { linksTo, relativeHref, removeNavLink } from '../../../../platform/vibez/common/vibezTemplates.js';
 
@@ -131,6 +136,7 @@ export class VibezPagesEditor extends EditorPane {
 		@IOpenerService private readonly opener: IOpenerService,
 		@ICommandService private readonly commands: ICommandService,
 		@IVibezTeamService private readonly team: IVibezTeamService,
+		@IInstantiationService private readonly instantiation: IInstantiationService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
 		this._register(siteHistory.onDidChange(e => {
@@ -157,6 +163,37 @@ export class VibezPagesEditor extends EditorPane {
 		this.banner.onDidToggle = () => this.size && this.layout(this.size);
 		parent.appendChild(this.banner.element);
 		this.container = dom.append(parent, dom.$('.vibez-site'));
+		this.selection = this._register(this.instantiation.createInstance(VibezSelectionContext, parent));
+	}
+
+	/** What is selected on the canvas, as the active text editor's selection, for agents to read. */
+	private selection!: VibezSelectionContext;
+
+	override getControl(): ICompositeCodeEditor | undefined {
+		return this.selection?.control;
+	}
+
+	/**
+	 * The canvas picked some elements (a click, ⇧-clicks, or a rectangle
+	 * dragged over them): select where they are written. Elements of a drawn
+	 * page are found by id in its `.ui` file; those of a written page by where
+	 * their tag starts in its HTML. Several pages at once: the one with the
+	 * most picked is the one handed on, since an editor has one file.
+	 */
+	private selectionChanged(items: { file: string; nodes: (string | null)[]; ats: (number | null)[]; labels: string[] }[]): void {
+		const picked = (items ?? []).filter(i => i.nodes.length || i.ats.length).sort((a, b) => b.nodes.length - a.nodes.length);
+		canvasSelection.set(picked.flatMap(i => i.labels.map((label, n) => ({ id: `${i.file}#${i.nodes[n] ?? i.ats[n]}`, label, file: i.file }))));
+		const best = picked[0];
+		if (!best || !this.folder) {
+			this.selection.clear();
+			return;
+		}
+		const ids = best.nodes.filter((n): n is string => !!n);
+		const ats = best.ats.filter((n): n is number => typeof n === 'number');
+		const find = best.file.endsWith('.ui')
+			? (text: string) => uiNodeRanges(text, ids)
+			: (text: string) => ats.map(at => htmlElementRange(text, at)).filter((r): r is { start: number; end: number } => !!r);
+		void this.selection.show(URI.joinPath(this.folder, best.file), find);
 	}
 
 	override async setInput(input: VibezPagesInput, options: IEditorOptions | undefined, context: unknown, token: CancellationToken): Promise<void> {
@@ -258,6 +295,8 @@ export class VibezPagesEditor extends EditorPane {
 			case 'ready':
 				this.ready = true;
 				return this.load();
+			case 'selection':
+				return this.selectionChanged(message.items as never);
 			case 'reload':
 				return this.load();
 			case 'setApp':
@@ -868,4 +907,29 @@ export class VibezPagesEditor extends EditorPane {
 		await walk(folder, '');
 		return { sources, skipped };
 	}
+}
+
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+/** Where an element of a written page is, from its opening tag to its matching closing one. */
+function htmlElementRange(text: string, at: number): { start: number; end: number } | undefined {
+	const open = /^<([a-zA-Z][\w-]*)\b[^>]*?(\/?)>/.exec(text.slice(at, at + 4000));
+	if (!open) {
+		return undefined;
+	}
+	const tag = open[1]!.toLowerCase();
+	const after = at + open[0].length;
+	if (open[2] || VOID_TAGS.has(tag)) {
+		return { start: at, end: after };
+	}
+	const tags = new RegExp(`<(\\/?)${tag}\\b[^>]*>`, 'gi');
+	tags.lastIndex = after;
+	let depth = 1;
+	for (let m = tags.exec(text); m; m = tags.exec(text)) {
+		depth += m[1] ? -1 : 1;
+		if (depth === 0) {
+			return { start: at, end: m.index + m[0].length };
+		}
+	}
+	return { start: at, end: after };
 }

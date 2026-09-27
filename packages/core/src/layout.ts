@@ -57,12 +57,40 @@ export interface Layout {
 
 const execEdges = (edges: GEdge[]): GEdge[] => edges.filter((e) => e.wire === 'exec');
 
-/** Longest path from a root. Back edges are ignored rather than crashing. */
-function assignLayers(nodes: GNode[], edges: GEdge[]): Map<SemanticKey, number> {
-  const parents = new Map<SemanticKey, SemanticKey[]>();
-  for (const node of nodes) parents.set(node.id, []);
+/**
+ * Which edges decide columns. Exec wires always do. A data wire does when one
+ * of its ends is a pure node (no exec wire at all: a literal, a join, some
+ * math), so a value is laid out to the left of what uses it rather than
+ * stacked under the start in the first column. Data wires between two steps
+ * of the exec flow are left out: the flow already orders those.
+ */
+function layeringEdges(nodes: GNode[], edges: GEdge[]): { edges: GEdge[]; pure: Set<SemanticKey> } {
+  const onFlow = new Set<SemanticKey>();
   for (const edge of execEdges(edges)) {
+    onFlow.add(edge.from.node);
+    onFlow.add(edge.to.node);
+  }
+  const pure = new Set(nodes.filter((n) => !onFlow.has(n.id) && n.kind !== 'entry' && n.kind !== 'return').map((n) => n.id));
+  const known = new Set(nodes.map((n) => n.id));
+  return {
+    edges: edges.filter((e) => known.has(e.from.node) && known.has(e.to.node) && e.from.node !== e.to.node
+      && (e.wire === 'exec' || pure.has(e.from.node) || pure.has(e.to.node))),
+    pure,
+  };
+}
+
+/**
+ * Longest path from a root, then each pure node pulled right to sit just
+ * before the first node that uses it. Back edges are ignored rather than
+ * crashing.
+ */
+function assignLayers(nodes: GNode[], edges: GEdge[], pure: Set<SemanticKey>): Map<SemanticKey, number> {
+  const parents = new Map<SemanticKey, SemanticKey[]>();
+  const children = new Map<SemanticKey, SemanticKey[]>();
+  for (const node of nodes) { parents.set(node.id, []); children.set(node.id, []); }
+  for (const edge of edges) {
     parents.get(edge.to.node)?.push(edge.from.node);
+    children.get(edge.from.node)?.push(edge.to.node);
   }
 
   const layer = new Map<SemanticKey, number>();
@@ -79,6 +107,14 @@ function assignLayers(nodes: GNode[], edges: GEdge[]): Map<SemanticKey, number> 
     return depth;
   };
   for (const node of nodes) resolve(node.id);
+
+  // Right to left, so a chain of values closes up behind its consumer.
+  const order = [...nodes].sort((a, b) => layer.get(b.id)! - layer.get(a.id)!);
+  for (const node of order) {
+    if (!pure.has(node.id)) continue;
+    const used = (children.get(node.id) ?? []).map((c) => layer.get(c)!).filter((l) => l > layer.get(node.id)!);
+    if (used.length) layer.set(node.id, Math.min(...used) - 1);
+  }
   return layer;
 }
 
@@ -106,7 +142,8 @@ const widthOf = (node: GNode): number => {
 };
 
 export function layoutGraph(graph: Graph): Layout {
-  const layer = assignLayers(graph.nodes, graph.edges);
+  const { edges: ordering, pure } = layeringEdges(graph.nodes, graph.edges);
+  const layer = assignLayers(graph.nodes, ordering, pure);
   const boxes = new Map<SemanticKey, NodeBox>();
 
   for (const node of graph.nodes) {
@@ -136,33 +173,71 @@ export function layoutGraph(graph: Graph): Layout {
     x += w + GEO.COL_GAP;
   }
 
+  // The flow is placed by its exec parents, so its spine stays level. A pure
+  // node is placed by the wires it is part of: by what feeds it going right,
+  // and then, going left, lined up with the input it feeds.
   const parentsOf = new Map<SemanticKey, SemanticKey[]>();
-  for (const edge of execEdges(graph.edges)) {
-    parentsOf.set(edge.to.node, [...(parentsOf.get(edge.to.node) ?? []), edge.from.node]);
-  }
-
-  // Order each layer by the average position of its parents, then place with a
-  // minimum gap. Two sweeps is enough at this size.
-  for (let pass = 0; pass < 2; pass++) {
-    for (let index = 0; index < columns.length; index++) {
-      const column = columns[index];
-      if (!column) continue;
-      if (index > 0) {
-        column.sort((a, b) => centerOfParents(a) - centerOfParents(b));
-      }
-      let cursor = GEO.PAD;
-      for (const box of column) {
-        const desired = index === 0 ? cursor : centerOfParents(box) - box.h / 2;
-        box.y = Math.max(cursor, desired);
-        cursor = box.y + box.h + GEO.ROW_GAP;
-      }
+  const usesOf = new Map<SemanticKey, GEdge[]>();
+  for (const edge of ordering) {
+    if (edge.wire === 'exec' || pure.has(edge.to.node)) {
+      parentsOf.set(edge.to.node, [...(parentsOf.get(edge.to.node) ?? []), edge.from.node]);
+    }
+    if (pure.has(edge.from.node)) {
+      usesOf.set(edge.from.node, [...(usesOf.get(edge.from.node) ?? []), edge]);
     }
   }
-
-  function centerOfParents(box: NodeBox): number {
+  const rowY = (box: NodeBox, port: string, side: 'left' | 'right'): number => {
+    if (side === 'left' && port === 'exec') return GEO.HEADER / 2;
+    const i = box.rows.findIndex((r) => r[side] === port);
+    return GEO.HEADER + Math.max(0, i) * GEO.ROW + GEO.ROW / 2;
+  };
+  const centerOfParents = (box: NodeBox): number => {
     const up = (parentsOf.get(box.id) ?? []).map((id) => boxes.get(id)).filter((b): b is NodeBox => b !== undefined);
     if (up.length === 0) return box.y + box.h / 2;
     return up.reduce((acc, b) => acc + b.y + b.h / 2, 0) / up.length;
+  };
+  const besideUse = (box: NodeBox): number | undefined => {
+    const uses = (usesOf.get(box.id) ?? []).filter((e) => boxes.get(e.to.node)!.layer > box.layer);
+    if (!uses.length) return undefined;
+    const want = uses.map((e) => {
+      const to = boxes.get(e.to.node)!;
+      return to.y + rowY(to, e.to.port, 'left') - rowY(box, e.from.port, 'right');
+    });
+    return want.reduce((a, b) => a + b, 0) / want.length;
+  };
+  /** Top to bottom in the order wanted, never closer than a row gap. */
+  const place = (column: NodeBox[], want: (box: NodeBox) => number): void => {
+    const wanted = new Map(column.map((b) => [b.id, want(b)]));
+    column.sort((a, b) => wanted.get(a.id)! - wanted.get(b.id)!);
+    let cursor = -Infinity;
+    for (const box of column) {
+      box.y = Math.max(cursor, wanted.get(box.id)!);
+      cursor = box.y + box.h + GEO.ROW_GAP;
+    }
+  };
+
+  let first = true;
+  for (let pass = 0; pass < 3; pass++) {
+    for (let index = 0; index < columns.length; index++) {
+      const column = columns[index];
+      if (!column) continue;
+      if (first) {
+        // Nothing is placed yet: stack in order, then let the parents decide.
+        let cursor = GEO.PAD;
+        for (const box of column) {
+          box.y = index === 0 ? cursor : Math.max(cursor, centerOfParents(box) - box.h / 2);
+          cursor = box.y + box.h + GEO.ROW_GAP;
+        }
+        continue;
+      }
+      place(column, (box) => (pure.has(box.id) && (parentsOf.get(box.id) ?? []).length === 0 ? box.y : centerOfParents(box) - box.h / 2));
+    }
+    first = false;
+    for (let index = columns.length - 1; index >= 0; index--) {
+      const column = columns[index];
+      if (!column) continue;
+      place(column, (box) => (pure.has(box.id) ? besideUse(box) ?? box.y : box.y));
+    }
   }
 
   const minY = Math.min(...[...boxes.values()].map((b) => b.y));

@@ -414,8 +414,18 @@ select.vz-vi-field { background: var(--vscode-dropdown-background); color: var(-
 .vz-vi-class-issue.error { background: rgba(229, 83, 75, 0.12); color: #f0857e; }
 .vz-vi-class-issue.warning { background: rgba(214, 160, 50, 0.12); color: #e0b45a; }
 
-/* Changed from outside the editor: an agent, a teammate, the file's text. */
+/* Changed from outside the editor: an agent, a teammate, the file's text. Vibez's own gradient. */
+.vz-vi-node.vz-pulse::after { content: ''; position: absolute; inset: -3px; border-radius: 9px; padding: 3px; pointer-events: none;
+	background: linear-gradient(160deg,#079DFE 0%,#7C78F8 33%,#C70FA8 66%,#F41615 100%);
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+	animation: vz-vi-fade 2.4s ease-out forwards; }
 .vz-vi-node.vz-pulse { animation: vz-vi-pulse .8s ease-out 3; }
-@keyframes vz-vi-pulse { 0% { box-shadow: 0 0 0 0 rgba(168, 85, 247, .85); } 100% { box-shadow: 0 0 0 14px rgba(168, 85, 247, 0); } }
-.vz-vi-wire.vz-pulse { animation: vz-vi-wire-pulse .8s ease-in-out 3; }
-@keyframes vz-vi-wire-pulse { 50% { stroke: #A855F7; stroke-width: 4px; } }
+@keyframes vz-vi-pulse {
+	0% { box-shadow: -6px -6px 18px rgba(7, 157, 254, .7), 0 0 16px rgba(199, 15, 168, .55), 6px 6px 18px rgba(244, 22, 21, .6); }
+	100% { box-shadow: 0 0 0 rgba(7, 157, 254, 0), 0 0 0 rgba(199, 15, 168, 0), 0 0 0 rgba(244, 22, 21, 0); } }
+@keyframes vz-vi-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+.vz-vi-wire.vz-pulse { animation: vz-vi-wire-pulse 2.4s linear; }
+@keyframes vz-vi-wire-pulse { 0% { stroke: #079DFE; stroke-width: 4px; } 33% { stroke: #7C78F8; stroke-width: 4px; } 66% { stroke: #C70FA8; stroke-width: 4px; } 90% { stroke: #F41615; stroke-width: 4px; } }
+
+.vz-vi-canvas.grab { cursor: grab; }
+.vz-vi-canvas.grab.panning { cursor: grabbing; }
