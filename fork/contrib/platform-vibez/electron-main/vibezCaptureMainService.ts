@@ -17,6 +17,7 @@ import { buildGraph } from '../common/vibezBuild.js';
 import { applyBranches, BranchSiteLike } from '../common/vibezBranches.js';
 import { Graph } from '../common/vibezTypes.js';
 import { RawSpan } from '../common/vibezSpans.js';
+import { flowTouchesFile, requestOfSpan, SeenRequest } from '../common/vibezRequests.js';
 import { decodeOtlp, toRawSpans, DecodedSpan } from './vibezOtlp.js';
 
 const DEFAULT_PORT = 4318;
@@ -42,6 +43,20 @@ export class VibezCaptureMainService extends Disposable implements IVibezCapture
 	 * honestly rather than pretending otherwise.
 	 */
 	private readonly traces = new Map<string, DecodedSpan[]>();
+
+	/**
+	 * The page requests the app served lately, newest last, and where it
+	 * answered. Kept apart from the traces, which are dropped when the code
+	 * changes, because this is exactly what a replay after a save asks for.
+	 */
+	private readonly seenRequests = new Map<string, SeenRequest & { at: number }>();
+	private appOrigin: string | undefined;
+	private replaying: Promise<IVibezReplayResult> | undefined;
+	/** When a source file last changed, and when the app was last seen down after it. */
+	private sourceChangedAt = 0;
+	private restartSeenAt = 0;
+	private probing: NodeJS.Timeout | undefined;
+	private replayAgain: string | undefined;
 
 	private readonly siteServer: VibezSiteServer;
 
@@ -80,6 +95,7 @@ export class VibezCaptureMainService extends Disposable implements IVibezCapture
 					this.logService.info(`[vibez] ${file} changed; dropping traces of the old code`);
 					this.traces.clear();
 				}
+				this.watchForRestart();
 			});
 		} catch (error) {
 			this.logService.warn(`[vibez] could not watch sources: ${error}`);
@@ -302,18 +318,105 @@ font:13px/1.6 system-ui;text-align:center">
 	 * to come back, discard one warm-up request, then measure clean.
 	 */
 	async replay(runs: number): Promise<IVibezReplayResult> {
-		const target = this.target;
-		const restarted = await until(async () => !(await ping(target, 600)), 2500);
+		return this.replayUrls([this.target], runs);
+	}
+
+	/**
+	 * Replay after a save. Only a file some step of the flow comes from is
+	 * worth it; saving a README should not make the app do anything. One
+	 * replay runs at a time, and saves during it make one more afterwards.
+	 */
+	async replayAfterSave(file: string): Promise<IVibezReplayResult> {
+		if (!this.workspacePath) {
+			return { ok: false, runs: 0, restarted: false, skipped: 'no-flow' };
+		}
+		let anchors: (string | undefined)[];
+		try {
+			const graph = JSON.parse(this.flowJson()) as { nodes: { anchor?: { file?: string } }[] };
+			anchors = graph.nodes.map(node => node.anchor?.file);
+		} catch {
+			anchors = [];
+		}
+		if (!anchors.some(Boolean)) {
+			return { ok: false, runs: 0, restarted: false, skipped: 'no-flow' };
+		}
+		if (!flowTouchesFile(anchors, relative(this.workspacePath, file))) {
+			return { ok: false, runs: 0, restarted: false, skipped: 'not-in-flow' };
+		}
+		if (this.replaying) {
+			this.replayAgain = file;
+			return { ok: false, runs: 0, restarted: false, skipped: 'busy' };
+		}
+		const urls = this.replayTargets();
+		this.replaying = this.replayUrls(urls, REPLAY_RUNS_AFTER_SAVE).then(result => ({ ...result, requests: urls.map(url => new URL(url).pathname + new URL(url).search) }));
+		try {
+			return await this.replaying;
+		} finally {
+			this.replaying = undefined;
+			const again = this.replayAgain;
+			this.replayAgain = undefined;
+			if (again) {
+				void this.replayAfterSave(again);
+			}
+		}
+	}
+
+	/** The pages a replay asks for: the ones the app served lately, or the preview's address. */
+	private replayTargets(): string[] {
+		const origin = this.appOrigin ?? new URL(this.target).origin;
+		const pages = [...this.seenRequests.values()].sort((a, b) => b.at - a.at).slice(0, MAX_REPLAY_PAGES)
+			.map(request => `${request.origin ?? origin}${request.path}`);
+		return pages.length ? pages : [this.target];
+	}
+
+	/**
+	 * A file watcher restarts an app within a fraction of a second of a save,
+	 * often before anything asks to replay it, and a restart that already
+	 * happened cannot be seen afterwards. So the app is watched from the
+	 * moment its source changes, and a replay knows whether it went down.
+	 */
+	private watchForRestart(): void {
+		this.sourceChangedAt = Date.now();
+		if (this.probing || !this.seenRequests.size) {
+			return;
+		}
+		const target = this.replayTargets()[0];
+		const started = Date.now();
+		const tick = async () => {
+			if (!(await ping(target, 300))) {
+				this.restartSeenAt = Date.now();
+			}
+			this.probing = Date.now() - started < RESTART_WATCH_MS && this.restartSeenAt < this.sourceChangedAt
+				? setTimeout(() => void tick(), 150)
+				: undefined;
+		};
+		this.probing = setTimeout(() => void tick(), 0);
+	}
+
+	/**
+	 * Measure the app again at these pages: wait for it to restart (a file
+	 * watcher needs a moment to notice the save), wait for it to answer,
+	 * throw one warm-up request at each page away, then ask each `runs` times.
+	 */
+	private async replayUrls(urls: string[], runs: number): Promise<IVibezReplayResult> {
+		const target = urls[0];
+		const changedAt = this.sourceChangedAt;
+		const seenDown = () => changedAt > 0 && this.restartSeenAt >= changedAt;
+		const restarted = seenDown() || await until(async () => seenDown() || !(await ping(target, 600)), 2500);
 		const up = await until(() => ping(target, 900), 20000);
 		if (!up) {
 			return { ok: false, runs: 0, restarted, reason: `Nothing answered at ${target} after the change.` };
 		}
 
-		await ping(target, 10000);
+		for (const url of urls) {
+			await ping(url, 10000);
+		}
 		await sleep(400);
 		this.traces.clear();
 		for (let i = 0; i < runs; i++) {
-			await ping(target, 10000);
+			for (const url of urls) {
+				await ping(url, 10000);
+			}
 		}
 		// The app's exporter batches spans for a fraction of a second.
 		await sleep(1000);
@@ -336,6 +439,20 @@ font:13px/1.6 system-ui;text-align:center">
 
 	private ingest(spans: DecodedSpan[]): void {
 		for (const span of spans) {
+			if (!span.parentSpanId) {
+				const seen = requestOfSpan(span.attributes, span.name);
+				if (seen && seen.method === 'GET') {
+					const key = `${seen.method} ${seen.path}`;
+					this.seenRequests.delete(key);
+					this.seenRequests.set(key, { ...seen, at: Date.now() });
+					while (this.seenRequests.size > MAX_REPLAY_PAGES * 4) {
+						this.seenRequests.delete(this.seenRequests.keys().next().value!);
+					}
+					if (seen.origin) {
+						this.appOrigin = seen.origin;
+					}
+				}
+			}
 			const existing = this.traces.get(span.traceId) ?? [];
 			existing.push(span);
 			this.traces.set(span.traceId, existing);
@@ -595,6 +712,13 @@ try {
 		super.dispose();
 	}
 }
+
+/** How long after a source change the app is watched for its restart. */
+const RESTART_WATCH_MS = 6000;
+/** Pages asked for again after a save, most recently served first. */
+const MAX_REPLAY_PAGES = 5;
+/** Requests per page after a save: enough for a steady timing, few enough to feel instant. */
+const REPLAY_RUNS_AFTER_SAVE = 3;
 
 const SKIP = new Set(['node_modules', '.git', '.vibez', 'out', 'dist', 'build', '.next', 'coverage', '.turbo']);
 const SOURCE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts']);

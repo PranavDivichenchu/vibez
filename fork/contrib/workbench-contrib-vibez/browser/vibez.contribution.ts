@@ -29,6 +29,7 @@ import { VibezQueueView } from './vibezQueueView.js';
 import { VibezTeamView } from './vibezTeamView.js';
 import { VibezTeamLiveContribution } from './vibezTeamLive.js';
 import { VibezUndoRedoContribution } from './vibezUndoRedo.js';
+import { VibezReplayOnSaveContribution } from './vibezReplayOnSave.js';
 // Open Vibez editors come back after a reload or restart.
 import './vibezEditorSerializers.js';
 import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
@@ -114,6 +115,7 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
 
 registerWorkbenchContribution2(VibezTeamLiveContribution.ID, VibezTeamLiveContribution, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(VibezUndoRedoContribution.ID, VibezUndoRedoContribution, WorkbenchPhase.BlockRestore);
+registerWorkbenchContribution2(VibezReplayOnSaveContribution.ID, VibezReplayOnSaveContribution, WorkbenchPhase.AfterRestored);
 
 registerAction2(class extends Action2 {
 	constructor() {

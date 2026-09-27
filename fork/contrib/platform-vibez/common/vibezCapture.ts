@@ -67,6 +67,10 @@ export interface IVibezReplayResult {
 	/** Whether the app was seen going down and coming back after the edit. */
 	restarted: boolean;
 	reason?: string;
+	/** For a replay after a save: nothing was replayed, and why. */
+	skipped?: 'not-in-flow' | 'no-flow' | 'busy';
+	/** For a replay after a save: the pages that were asked for again. */
+	requests?: string[];
 }
 
 export interface IVibezRunStatus {
@@ -121,6 +125,12 @@ export interface IVibezCaptureService {
 	selection(): Promise<IVibezSelection>;
 	/** After an edit: wait for the app to restart, then measure it again. */
 	replay(runs: number): Promise<IVibezReplayResult>;
+	/**
+	 * After a file is saved: when a step of the recorded flow comes from it,
+	 * wait for the app to restart, ask it again for the pages it recently
+	 * served, and rewrite the flow, so the graph follows the code.
+	 */
+	replayAfterSave(file: string): Promise<IVibezReplayResult>;
 	/** Work out what putting `symbol` behind `condition` would change. Reads, never writes. */
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan>;
 	/** Work out what starting every lookup in `symbol`'s loop at once would change. */

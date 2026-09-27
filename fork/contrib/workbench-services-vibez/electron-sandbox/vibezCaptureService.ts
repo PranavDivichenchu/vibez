@@ -60,6 +60,10 @@ class VibezCaptureService implements IVibezCaptureService {
 		return this.proxy.replay(runs);
 	}
 
+	replayAfterSave(file: string): Promise<IVibezReplayResult> {
+		return this.proxy.replayAfterSave(file);
+	}
+
 	planBranch(symbol: string, condition: string, empty: string): Promise<IVibezGesturePlan> {
 		return this.proxy.planBranch(symbol, condition, empty);
 	}

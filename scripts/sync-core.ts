@@ -44,6 +44,7 @@ const FILES: Record<string, string> = {
   'queue.ts': 'vibezQueue.ts',
   'agentStream.ts': 'vibezAgentStream.ts',
   'replay.ts': 'vibezReplay.ts',
+  'requests.ts': 'vibezRequests.ts',
 };
 
 const target = join(forkDir(), 'src/vs/platform/vibez/common');

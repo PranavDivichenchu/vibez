@@ -199,6 +199,16 @@ c  fetch.ts       editing · editing fetch.ts
 - **Stop all** (⌥⌘.) ends every run and releases every fence.
 - Everything any actor does is appended to `.vibez/room.log`.
 
+**The graph follows your code.** A flow is what really ran, so it changes
+when the new code runs. After you save a file that a step of the flow comes
+from, Vibez waits for your app to restart (run it with a file watcher, like
+`node --watch`), asks it again for the pages it recently served, and writes
+the flow again; the open graph redraws with the new steps and timings a few
+seconds after the save. The status bar says what happened. Turn it off with
+the `vibez.replayOnSave` setting. The pages come from the requests your app
+traced (`url.full`, or `server.address` and `server.port`, say where it is;
+otherwise the preview's address is used).
+
 **Set up measuring** writes `.vibez/measure.json` with a first guess at how to
 start your app (`cwd`, optional `build`, `start` with `$PORT`, `path`, `runs`,
 `warmup`). **Record flow** opens your app in a window and writes down what you
