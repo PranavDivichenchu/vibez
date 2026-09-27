@@ -78,7 +78,9 @@ async function main(): Promise<void> {
       const snap = await team.snapshot();
       console.log(`${project.team.name} · ${snap.members.map((m) => m.name).join(', ')}`);
       for (const agent of snap.agents.filter((a) => a.status !== 'done')) {
-        console.log(`  ${agent.online ? '●' : '○'} ${agent.person}'s ${agent.kind}: ${agent.task || '(no task yet)'}${agent.claims.length ? ` · ${agent.claims.join(', ')}` : ''}`);
+        // `person` is "you" for your own agents, and "you's" is not a word.
+        const whose = agent.person === 'you' ? 'your' : `${agent.person}'s`;
+        console.log(`  ${agent.online ? '●' : '○'} ${whose} ${agent.kind}: ${agent.task || '(no task yet)'}${agent.claims.length ? ` · ${agent.claims.join(', ')}` : ''}`);
       }
       console.log('recent:');
       for (const a of snap.activity.slice(0, 10)) console.log(`  ${a.person} ${a.verb} ${a.target}`.trimEnd());
