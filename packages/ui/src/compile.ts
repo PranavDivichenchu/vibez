@@ -141,11 +141,12 @@ ${body}
 export const RUNTIME = `(function(){
 var C=JSON.parse(document.getElementById('vibez-config').textContent);
 var live={};Object.keys(C.samples).forEach(function(k){live[k]=C.samples[k];});
-var typed={};
+var typed={};var answers={};
 function key(f,n){return f+'#'+n;}
 function get(r,item){
   if(r.from==='item'){return r.field==null?item:(item||{})[r.field];}
   if(r.from==='input'){return typed[r.name];}
+  if(r.from==='answer'){var a=answers[key(r.file,r.name)];return r.field==null?a:(a||{})[r.field];}
   var v=live[key(r.file,r.name)];return r.field==null?v:(v||{})[r.field];
 }
 function words(v){
@@ -202,7 +203,8 @@ function act(a,item){
   if(a.run==='navigate'){location.href=C.routes[a.to]||a.to;return;}
   var args={};Object.keys(a.args||{}).forEach(function(k){args[k]=get(a.args[k],item);});
   fetch(url(a.file,a.name),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(args)})
-    .then(function(r){if(!r.ok){throw 0;}return refresh();})
+    .then(function(r){if(!r.ok){throw 0;}return r.json();})
+    .then(function(answer){answers[key(a.file,a.name)]=answer;return refresh();})
     .catch(function(){toast(a.name+' would run here'+(Object.keys(args).length?' with '+JSON.stringify(args):'')+'. Nothing is serving '+a.file+' yet.');});
 }
 document.addEventListener('input',function(e){var t=e.target;if(t&&t.name){typed[t.name]=t.value;}});

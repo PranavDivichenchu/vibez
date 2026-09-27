@@ -14,6 +14,7 @@ import { VibezError } from './workspace.ts';
  *   item.customer                a field of the current item, inside a repeat
  *   input.email                  what was typed into the input saved as email
  *   dashboard.vi#inviteTeammate  an action, for a button
+ *   answer:orders.vi#place       what that action answered the last time it ran
  *   go:gallery.ui                go to another page
  *
  * The same strings go in and come out, so what an agent reads is exactly what
@@ -27,6 +28,7 @@ export function formatValue(ref: ValueRef): string {
     case 'vi': return `${ref.file}#${ref.name}${ref.field ? `.${ref.field}` : ''}`;
     case 'item': return ref.field ? `item.${ref.field}` : 'item';
     case 'input': return `input.${ref.name}`;
+    case 'answer': return `answer:${ref.file}#${ref.name}${ref.field ? `.${ref.field}` : ''}`;
   }
 }
 
@@ -35,14 +37,18 @@ export function parseValue(text: string): ValueRef {
   if (s === 'item') return { from: 'item' };
   if (s.startsWith('item.')) return { from: 'item', field: s.slice(5) };
   if (s.startsWith('input.')) return { from: 'input', name: s.slice(6) };
-  const hash = s.indexOf('#');
+  // What an action answered, so a page can show the result of a button press.
+  const answer = s.startsWith('answer:');
+  const body = answer ? s.slice(7).trim() : s;
+  const hash = body.indexOf('#');
   if (hash > 0) {
-    const file = s.slice(0, hash);
-    const [name, ...field] = s.slice(hash + 1).split('.');
+    const file = body.slice(0, hash);
+    const [name, ...field] = body.slice(hash + 1).split('.');
     if (!file.endsWith('.vi') || !name) throw new VibezError(`"${text}" is not a value. Write it like dashboard.vi#orders or dashboard.vi#plan.tier.`);
-    return field.length ? { from: 'vi', file, name, field: field.join('.') } : { from: 'vi', file, name };
+    const from = answer ? 'answer' as const : 'vi' as const;
+    return field.length ? { from, file, name, field: field.join('.') } : { from, file, name };
   }
-  throw new VibezError(`"${text}" is not a value. Use file.vi#name, file.vi#name.field, item.field or input.name.`);
+  throw new VibezError(`"${text}" is not a value. Use file.vi#name, file.vi#name.field, answer:file.vi#action, item.field or input.name.`);
 }
 
 export function formatAction(ref: ActionRef): string {

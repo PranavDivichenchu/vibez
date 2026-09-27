@@ -204,3 +204,59 @@ test('text is escaped, never injected', () => {
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(html, /<title>&lt;script&gt;<\/title>/);
 });
+
+// ---------------------------------------------------------------- what an action answers
+
+// A button does something; a page should be able to say what came back,
+// without the logic having to stash it in a variable first.
+const ANSWERING = JSON.stringify({
+  graph: { nodes: [] },
+  exports: {
+    values: [],
+    actions: [
+      { name: 'order', inputs: [{ name: 'name', type: 'String' }], returns: 'String' },
+      { name: 'clear', inputs: [] },
+    ],
+  },
+});
+const answering: Linked = new Map([['shop.vi', parseViExports(ANSWERING)]]);
+
+test('a text can show what an action answers, but only when the action answers something', () => {
+  let doc = blankDoc();
+  const t = add(doc, 'Text'); doc = t.doc;
+  const choices = valueChoices(doc, t.id, 'text', answering);
+  assert.deepEqual(choices.map((c) => c.label), ['what order answers']);
+  assert.deepEqual(choices[0]!.ref, { from: 'answer', file: 'shop.vi', name: 'order' });
+  // `clear` returns nothing, so there is nothing to show.
+  assert.equal(choices.some((c) => c.label.includes('clear')), false);
+});
+
+test('an answer is empty until the action runs, and is not confused with a value', () => {
+  const ref = { from: 'answer', file: 'shop.vi', name: 'order' } as const;
+  assert.equal(resolve(ref, { linked: answering }), undefined);
+  assert.equal(resolve(ref, { linked: answering, answers: new Map([['shop.vi#order', 'Ordered Sourdough!']]) }), 'Ordered Sourdough!');
+  // A page value of the same name is a different thing and does not leak in.
+  assert.equal(resolve(ref, { linked: answering, live: new Map([['shop.vi#order', 'wrong']]) }), undefined);
+});
+
+test('showing what a deleted action answers is reported as broken', () => {
+  let doc = blankDoc();
+  const t = add(doc, 'Text'); doc = t.doc;
+  doc = update(doc, t.id, { bind: { from: 'answer', file: 'shop.vi', name: 'gone' } });
+  assert.deepEqual(brokenLinks(doc, answering), [{ id: t.id, what: 'shop.vi has no gone' }]);
+  doc = update(doc, t.id, { bind: { from: 'answer', file: 'shop.vi', name: 'order' } });
+  assert.deepEqual(brokenLinks(doc, answering), []);
+});
+
+test('the built page keeps the answer and shows it', () => {
+  let doc = blankDoc();
+  const t = add(doc, 'Text'); doc = t.doc;
+  doc = update(doc, t.id, { bind: { from: 'answer', file: 'shop.vi', name: 'order' } });
+  const html = compile(doc, { linked: answering });
+  assert.match(html, /data-bind="\{&quot;kind&quot;:&quot;text&quot;,&quot;ref&quot;:\{&quot;from&quot;:&quot;answer&quot;/);
+  // An answer is not fetched on load: there is nothing to fetch until it runs.
+  assert.match(html, /"values":\[\]/);
+  // The answer is kept under the action's key and everything showing it redraws.
+  assert.match(html, /answers\[key\(a\.file,a\.name\)\]=answer/);
+  assert.match(html, /if\(r\.from==='answer'\)/);
+});

@@ -42,14 +42,17 @@ export type Ratio = 'free' | '1:1' | '4:3' | '3:2' | '16:9' | '3:4' | '9:16';
 /**
  * Where a value on the page comes from.
  *
- *   vi     an export of a `.vi` file: `orders` from `dashboard.vi`
- *   item   a field of the current item, inside a frame that repeats over a list
- *   input  what someone typed into an input on this page
+ *   vi      an export of a `.vi` file: `orders` from `dashboard.vi`
+ *   item    a field of the current item, inside a frame that repeats over a list
+ *   input   what someone typed into an input on this page
+ *   answer  what an action answered the last time it ran: the "Ordered
+ *           sourdough!" a button's action gave back. Empty until it runs.
  */
 export type ValueRef =
   | { from: 'vi'; file: string; name: string; field?: string }
   | { from: 'item'; field?: string }
-  | { from: 'input'; name: string };
+  | { from: 'input'; name: string }
+  | { from: 'answer'; file: string; name: string; field?: string };
 
 /** What happens on a click or a submit. */
 export type ActionRef =

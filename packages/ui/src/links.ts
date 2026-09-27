@@ -113,6 +113,14 @@ export function valueChoices(doc: UiDoc, id: string, slot: Slot, linked: Linked)
         }
       }
     }
+    // What an action answers. A button does something; this is how the page
+    // can say what came back, without storing the answer anywhere first.
+    for (const action of exports.actions) {
+      if (action.returns && fits.includes(action.returns)) {
+        out.push({ ref: { from: 'answer', file, name: action.name }, label: `what ${action.name} answers`,
+          type: action.returns, source: file });
+      }
+    }
   }
   return out;
 }
@@ -162,6 +170,8 @@ export interface Scope {
   inputs?: Record<string, string>;
   /** Live values, when the page is running; samples are used for anything missing. */
   live?: Map<string, unknown>;
+  /** What each action answered the last time it ran, by `file#name`. */
+  answers?: Map<string, unknown>;
 }
 
 export const liveKey = (file: string, name: string): string => `${file}#${name}`;
@@ -179,6 +189,11 @@ export function resolve(ref: ValueRef, scope: Scope): unknown {
       const whole = scope.live?.has(key)
         ? scope.live.get(key)
         : scope.linked.get(ref.file)?.values.find((v) => v.name === ref.name)?.sample;
+      return ref.field === undefined ? whole : (whole as Record<string, unknown> | undefined)?.[ref.field];
+    }
+    case 'answer': {
+      // Nothing until the action runs, which is what the page should show.
+      const whole = scope.answers?.get(liveKey(ref.file, ref.name));
       return ref.field === undefined ? whole : (whole as Record<string, unknown> | undefined)?.[ref.field];
     }
   }
@@ -199,6 +214,7 @@ export function describeRef(ref: ValueRef): string {
     case 'item': return ref.field ? `item › ${ref.field}` : 'item';
     case 'input': return `typed ${ref.name}`;
     case 'vi': return ref.field ? `${ref.name} › ${ref.field}` : ref.name;
+    case 'answer': return ref.field ? `what ${ref.name} answers › ${ref.field}` : `what ${ref.name} answers`;
   }
 }
 
@@ -210,10 +226,13 @@ export function describeAction(ref: ActionRef): string {
 export function brokenLinks(doc: UiDoc, linked: Linked): { id: string; what: string }[] {
   const out: { id: string; what: string }[] = [];
   const checkValue = (id: string, ref: ValueRef | undefined): void => {
-    if (ref?.from !== 'vi') return;
+    if (ref?.from !== 'vi' && ref?.from !== 'answer') return;
     const exports = linked.get(ref.file);
-    if (!exports) out.push({ id, what: `${ref.file} is not linked` });
-    else if (!exports.values.some((v) => v.name === ref.name)) out.push({ id, what: `${ref.file} has no ${ref.name}` });
+    if (!exports) { out.push({ id, what: `${ref.file} is not linked` }); return; }
+    const has = ref.from === 'vi'
+      ? exports.values.some((v) => v.name === ref.name)
+      : exports.actions.some((a) => a.name === ref.name);
+    if (!has) out.push({ id, what: `${ref.file} has no ${ref.name}` });
   };
   const checkAction = (id: string, ref: ActionRef | undefined): void => {
     if (ref?.run !== 'vi') return;
