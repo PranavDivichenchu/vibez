@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, unlinkSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { SupabaseRest, TeamError, type Session } from './rest.ts';
 import { TeamSession } from './team.ts';
+import { HOSTED_TEAM_SERVER } from './hosted.ts';
 
 /**
  * Where a team is written down.
@@ -97,8 +99,9 @@ export async function createTeam(dir: string, opts: { url: string; anonKey: stri
  */
 export async function joinTeam(dir: string, opts: { code: string; as: string; url?: string; anonKey?: string }): Promise<{ workspaceId: string; file?: string }> {
   const project = findProject(dir);
-  const url = project?.team.url ?? opts.url;
-  const anonKey = project?.team.anonKey ?? opts.anonKey;
+  // The project's own server, then one given, then the Vibez team server.
+  const url = project?.team.url ?? opts.url ?? HOSTED_TEAM_SERVER?.url;
+  const anonKey = project?.team.anonKey ?? opts.anonKey ?? HOSTED_TEAM_SERVER?.anonKey;
   if (!url || !anonKey) throw new TeamError(`There is no ${PROJECT_FILE} here yet. Pass --url and --key for the team's Supabase project.`);
   const rest = new SupabaseRest(url, anonKey);
   const session = await rest.signInAnonymously();
@@ -119,4 +122,58 @@ export async function joinCode(team: TeamSession): Promise<string> {
   const [row] = await team.rest.select<{ join_code: string }>('team_workspaces', { id: `eq.${team.workspaceId}`, select: 'join_code' });
   if (!row) throw new TeamError('Could not read the team.');
   return row.join_code;
+}
+
+// ------------------------------------------------------------ one session, one agent
+
+/**
+ * The Claude Code process this one belongs to: the MCP server is its child,
+ * an edit hook its grandchild (through a shell). Found by walking up the
+ * process tree to the first process whose name says claude.
+ */
+export function sessionPid(): number | undefined {
+  let pid = process.ppid;
+  for (let depth = 0; depth < 6 && pid > 1; depth++) {
+    try {
+      const out = execFileSync('ps', ['-o', 'ppid=,comm=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000 }).trim();
+      const match = /^(\d+)\s+(.*)$/.exec(out);
+      if (!match) return undefined;
+      if (/claude/i.test(basename(match[2]!))) return pid;
+      pid = Number(match[1]);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** A session is named by its Claude Code process, or failing that by the session id Claude Code gives hooks. */
+export type SessionKey = number | string | undefined;
+const linkFile = (key: number | string, workspaceId: string): string => join(personalDir(), 'live', `${workspaceId}-${String(key).replace(/[^\w-]/g, '')}.json`);
+
+/** The agent row another process of this session already made, if any. */
+export function readLink(pid: SessionKey, workspaceId: string): string | undefined {
+  if (!pid) return undefined;
+  try {
+    return (JSON.parse(readFileSync(linkFile(pid, workspaceId), 'utf8')) as { agentId: string }).agentId;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeLink(pid: SessionKey, workspaceId: string, agentId: string): void {
+  if (!pid) return;
+  const file = linkFile(pid, workspaceId);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify({ agentId, at: new Date().toISOString() }));
+  chmodSync(file, 0o600);
+}
+
+export function dropLink(pid: SessionKey, workspaceId: string): void {
+  if (!pid) return;
+  try {
+    unlinkSync(linkFile(pid, workspaceId));
+  } catch {
+    // Already gone.
+  }
 }

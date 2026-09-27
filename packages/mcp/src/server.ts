@@ -308,6 +308,8 @@ export function createVibezServer(root: string): McpServer {
     const collisions = await team.around(touchedOnPage(path, ops as Op[], result.created), result.doc.links.map((l) => ws.resolveFrom(path, l)));
     await ws.writePage(path, result.doc);
     await collisions.claim();
+    const touched = touchedOnPage(path, ops as Op[], result.created).filter((p) => p.includes('#')).map((p) => p.split('#')[1]!);
+    await team.pulse(path, result.log.join('; '), touched.length ? { elements: touched } : {});
     const names = Object.entries(result.created);
     const broken = await problems(path, result.doc);
     return say([
@@ -475,6 +477,7 @@ export function createVibezServer(root: string): McpServer {
     await collisions.claim();
     const names = Object.entries(result.created);
     const graphs = [...result.touched].filter((name) => [...result.doc.exports.values, ...result.doc.exports.actions, ...(result.doc.functions ?? [])].some((d) => d.name === name));
+    await team.pulse(path, result.log.join('; '), { graphs: [...result.touched] });
     const issues = compileIssues(result.doc, siblings);
     const broken = await brokenPagesFor();
     return say([
@@ -554,6 +557,7 @@ export function createVibezServer(root: string): McpServer {
     const collisions = await team.around([path]);
     await ws.write(path, result.html);
     await collisions.claim();
+    await team.pulse(path, result.log.join('; '));
     return say([...headsUp(collisions.warnings), `Changed ${path}:`, ...result.log.map((l) => `  - ${l}`), '', outlineHtml(path, result.html)].join('\n'));
   }));
 

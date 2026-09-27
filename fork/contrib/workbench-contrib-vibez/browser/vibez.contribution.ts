@@ -27,6 +27,7 @@ import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezQueueView } from './vibezQueueView.js';
 import { VibezTeamView } from './vibezTeamView.js';
+import { VibezTeamLiveContribution } from './vibezTeamLive.js';
 import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
@@ -107,6 +108,8 @@ Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
 	canToggleVisibility: true,
 	canMoveView: true,
 }], vibezViewContainer);
+
+registerWorkbenchContribution2(VibezTeamLiveContribution.ID, VibezTeamLiveContribution, WorkbenchPhase.AfterRestored);
 
 registerAction2(class extends Action2 {
 	constructor() {

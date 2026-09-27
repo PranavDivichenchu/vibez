@@ -7,7 +7,7 @@ import { ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Event } from '../../../../base/common/event.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
-import { IVibezTeamResult, IVibezTeamService, IVibezTeamState } from '../../../../platform/vibez/common/vibezTeamService.js';
+import { IVibezTeamLive, IVibezTeamResult, IVibezTeamService, IVibezTeamState } from '../../../../platform/vibez/common/vibezTeamService.js';
 
 /** The renderer's handle on the team, kept by the main process. */
 class VibezTeamService implements IVibezTeamService {
@@ -34,6 +34,9 @@ class VibezTeamService implements IVibezTeamService {
 	forget(noteId: string): Promise<IVibezTeamResult> { return this.proxy.forget(noteId); }
 	accept(messageId: string): Promise<IVibezTeamResult> { return this.proxy.accept(messageId); }
 	release(): Promise<IVibezTeamResult> { return this.proxy.release(); }
+	live(): Promise<IVibezTeamLive | undefined> { return this.proxy.live(); }
+	setLive(on: boolean): Promise<void> { return this.proxy.setLive(on); }
+	connect(): Promise<IVibezTeamResult> { return this.proxy.connect(); }
 }
 
 registerSingleton(IVibezTeamService, VibezTeamService, InstantiationType.Delayed);

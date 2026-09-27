@@ -305,15 +305,34 @@ Once a project has a team, every agent using the Vibez MCP server gets the
   agents). `team_handoff` passes a task, its next steps and its files to
   someone, and `team_accept` takes it over.
 
+- **Live.** Every edit goes out as it lands, saying exactly what changed:
+  the lines and the function for a code edit, the elements for a page, the
+  graphs for a `.vi` file. Teammates' IDEs get it over Supabase Realtime
+  within a second and light it up in that person's colour.
+- **Claude Code's own edits count too.** Starting or joining a team (or
+  **Connect Claude Code here** in the Team view, or `npm run team -- connect`)
+  adds hooks to `.claude/settings.local.json` and the Vibez MCP server to
+  Claude Code for that project. Before an edit to a file a teammate holds,
+  the agent (and you, in the transcript) gets a heads-up; after any edit, the
+  file is claimed and the change goes out live; when the session ends, its
+  claims are released. The settings file is personal and kept out of git.
+
 **In the IDE**, the **Team** view (in the Vibez sidebar, or **Vibez: Open
 Team**) starts or joins a team without a terminal, and then shows who is
 working on what, the files each person's agents hold (click one to open it),
 messages with a composer, handoffs with **Take over**, the team's notes, and
-what just happened. It updates every few seconds. Editors mark other
-people's work where you would run into it: the page editor, logic editor
-and site canvas show a bar naming who holds that file, claimed elements on
-a page are outlined, and graph nodes traced to a held file get a `held by`
-ring. An agent's claims are released when its session ends.
+what just happened, with a dot showing the live connection is up. Editors
+mark other people's work where you would run into it: the page editor,
+logic editor and site canvas show a bar naming who holds that file and,
+for a few seconds, who just changed what; claimed elements on a page are
+outlined and flash when changed; graph nodes traced to a held file get a
+`held by` ring, and the step a teammate just edited pulses with their name
+and the lines. Without a live connection it all still updates every few
+seconds.
+
+**Hosting.** `packages/team/src/hosted.ts` names the Vibez team server, one
+Supabase project we run. Once it is set, starting a team asks only for a
+team name and your name, and nobody else needs a server or an account.
 
 Agents started from the Agents strip are told to use these when the project
 has a `vibez.team.json`. Row-level security keeps every table to the team's

@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { describeOverlap, ONLINE_SECONDS, STALE_MINUTES, TeamError, type TeamSession } from '../../team/src/index.ts';
-import { findProject, openTeam } from '../../team/src/config.ts';
+import { describeOverlap, ONLINE_SECONDS, STALE_MINUTES, TeamError, type EditMeta, type TeamSession } from '../../team/src/index.ts';
+import { dropLink, findProject, openTeam, readLink, sessionPid, writeLink } from '../../team/src/config.ts';
 import { dirname, posix, relative, resolve, sep } from 'node:path';
 import { VibezError } from './workspace.ts';
 
@@ -25,6 +25,8 @@ const NOT_SET_UP = 'This project has no team yet. A person sets one up in a term
   + '  npm run team -- join <code> --as <their name>';
 
 export interface TeamHooks {
+  /** After a write: tell teammates' IDEs what just changed, so it lights up for them. Never fails the edit. */
+  pulse(path: string, summary: string, meta?: EditMeta): Promise<void>;
   /** The agent's session is over: let go of everything it held, so nobody is warned about work that stopped. */
   finish(): Promise<void>;
   /** Before a write: warnings about other agents' claims on these files. After: the files are claimed. */
@@ -54,9 +56,13 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
     if (team === undefined) {
       const client = server.server.getClientVersion()?.name;
       team = openTeam(root, process.env['VIBEZ_AGENT_KIND'] ?? client ?? 'agent') ?? null;
+      // This session's edit hook may already be on the team as this agent.
+      const existing = team ? readLink(pid, team.workspaceId) : undefined;
+      if (team && existing) team.adopt(existing);
     }
     return team;
   };
+  const pid = sessionPid();
 
   const need = (): TeamSession => {
     const t = session();
@@ -67,6 +73,7 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
   /** Once this agent exists on the team, it says it is alive every half minute while the server runs. */
   const alive = (t: TeamSession) => {
     if (beat || !t.agent) return;
+    writeLink(pid, t.workspaceId, t.agent);
     beat = setInterval(() => void t.heartbeat().catch(() => undefined), (ONLINE_SECONDS / 3) * 1000);
     beat.unref();
   };
@@ -255,10 +262,23 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
   }, run(async (t) => `done; released ${await t.done()} claim(s).`));
 
   return {
+    async pulse(path, summary, meta = {}) {
+      const t = session();
+      if (!t) return;
+      try {
+        await t.pulse(onTeam(path), summary, { tool: 'vibez', ...meta });
+        alive(t);
+      } catch {
+        // Advisory, like everything on the team.
+      }
+    },
     async finish() {
       if (beat) clearInterval(beat);
       beat = undefined;
-      if (team?.agent) await team.done().catch(() => undefined);
+      if (team?.agent) {
+        await team.done().catch(() => undefined);
+        dropLink(pid, team.workspaceId);
+      }
     },
     async around(paths, related = []) {
       const t = session();

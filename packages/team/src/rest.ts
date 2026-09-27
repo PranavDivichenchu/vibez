@@ -83,6 +83,15 @@ export class SupabaseRest {
     return this.toSession(await this.auth('token?grant_type=refresh_token', { refresh_token: this.session.refreshToken }));
   }
 
+  /** A current access token, refreshed if it is about to expire: for opening a live connection. */
+  accessToken(): Promise<string> {
+    return this.token();
+  }
+
+  get anon(): string {
+    return this.anonKey;
+  }
+
   private async token(): Promise<string> {
     if (!this.session) throw new TeamError('Not signed in to the team. Run: npm run team -- join <code> --as <your name>');
     if (this.session.expiresAt - 60 < Date.now() / 1000) await this.refresh();

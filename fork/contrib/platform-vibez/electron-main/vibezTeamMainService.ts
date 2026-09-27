@@ -7,13 +7,18 @@ import { dirname } from 'path';
 import { Emitter } from '../../../base/common/event.js';
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../log/common/log.js';
-import { IVibezTeamResult, IVibezTeamService, IVibezTeamState } from '../common/vibezTeamService.js';
+import { IVibezTeamLive, IVibezTeamResult, IVibezTeamService, IVibezTeamState } from '../common/vibezTeamService.js';
+import { connectClaudeCode } from '../node/vibezTeamConnect.js';
+import { HOSTED_TEAM_SERVER } from '../node/vibezTeamHosted.js';
+import { VIBEZ_REPO } from '../node/vibezTeamPaths.js';
 import { createTeam, findProject, joinCode, joinTeam, openTeam, readPersonal } from '../node/vibezTeamConfig.js';
 import { TeamError } from '../node/vibezTeamRest.js';
 import { ONLINE_SECONDS, TeamSession } from '../node/vibezTeamSession.js';
 
-/** How often the team is asked what changed. Short enough to feel live, long enough to cost nothing. */
+/** How often the team is asked what changed without a live connection. */
 const POLL_MS = 4000;
+/** With the live connection up, pushes bring changes; this only catches anything missed. */
+const LIVE_POLL_MS = 20000;
 
 const empty = (root: string, status: IVibezTeamState['status'], extra: Partial<IVibezTeamState> = {}): IVibezTeamState => ({
 	status, root, members: [], agents: [], claims: [], messages: [], notes: [], activity: [], unread: 0, updatedAt: Date.now(), ...extra,
@@ -39,6 +44,7 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 	private last = '';
 	private polling = false;
 	private timer: ReturnType<typeof setInterval> | undefined;
+	private liveOn = false;
 
 	constructor(@ILogService private readonly logService: ILogService) {
 		super();
@@ -57,10 +63,44 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 			this.session = undefined;
 			this.last = '';
 		}
-		if (!this.timer) {
-			this.timer = setInterval(() => void this.poll(), POLL_MS);
-		}
+		this.schedule();
 		return this.poll();
+	}
+
+	private schedule(): void {
+		if (this.timer) {
+			clearInterval(this.timer);
+		}
+		this.timer = setInterval(() => void this.poll(), this.liveOn ? LIVE_POLL_MS : POLL_MS);
+	}
+
+	async setLive(on: boolean): Promise<void> {
+		if (on !== this.liveOn) {
+			this.liveOn = on;
+			this.schedule();
+		}
+	}
+
+	async live(): Promise<IVibezTeamLive | undefined> {
+		const seat = this.seat();
+		if (!(seat instanceof TeamSession) || !seat.rest.userId) {
+			return undefined;
+		}
+		return { url: seat.rest.url, anonKey: seat.rest.anon, accessToken: await seat.rest.accessToken(), workspaceId: seat.workspaceId, userId: seat.rest.userId };
+	}
+
+	async connect(): Promise<IVibezTeamResult> {
+		const project = this.root ? findProject(this.root) : undefined;
+		if (!project) {
+			return { ok: false, reason: 'This project has no team yet.' };
+		}
+		try {
+			const result = connectClaudeCode(dirname(project.file), VIBEZ_REPO);
+			const done = `Claude Code in this project is on the team: its edits are shown to teammates as they land, and it is warned about theirs${result.mcp === 'no-claude' ? '' : '; the Vibez tools are added'}.`;
+			return { ok: true, note: result.note ? `${done} ${result.note}` : done };
+		} catch (error) {
+			return { ok: false, reason: (error as Error).message };
+		}
 	}
 
 	async state(): Promise<IVibezTeamState> {
@@ -72,6 +112,7 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 	}
 
 	private set(state: IVibezTeamState): IVibezTeamState {
+		state.hosted = !!HOSTED_TEAM_SERVER;
 		this.current = state;
 		const { updatedAt: _, ...rest } = state;
 		const key = JSON.stringify(rest);
@@ -139,7 +180,7 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 			projectDir: dirname(project.file),
 			team: project.team.name,
 			me,
-			members: snap.members.map(m => ({ name: m.name, you: m.user_id === t.rest.userId })),
+			members: snap.members.map(m => ({ userId: m.user_id, name: m.name, you: m.user_id === t.rest.userId })),
 			agents: snap.agents.filter(a => a.status !== 'done').map(a => ({
 				id: a.id, person: person(a.person), you: a.person === 'you', kind: a.kind, task: a.task,
 				online: a.online, status: a.status, lastSeen: a.last_seen, claims: a.claims,
@@ -180,10 +221,16 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 			return { ok: false, reason: 'Open a folder first.' };
 		}
 		try {
-			const made = await createTeam(this.root, options);
+			const url = options.url || HOSTED_TEAM_SERVER?.url;
+			const anonKey = options.anonKey || HOSTED_TEAM_SERVER?.anonKey;
+			if (!url || !anonKey) {
+				return { ok: false, reason: 'Give the Supabase URL and anon key of the server to use.' };
+			}
+			const made = await createTeam(this.root, { ...options, url, anonKey });
 			this.session = undefined;
 			await this.poll();
-			return { ok: true, code: made.code };
+			const connected = await this.connect();
+			return { ok: true, code: made.code, note: connected.note ?? connected.reason };
 		} catch (error) {
 			return { ok: false, reason: error instanceof TeamError ? error.message : `Could not create the team: ${(error as Error).message}` };
 		}
@@ -198,7 +245,8 @@ export class VibezTeamMainService extends Disposable implements IVibezTeamServic
 			await joinTeam(project ? dirname(project.file) : this.root, options);
 			this.session = undefined;
 			await this.poll();
-			return { ok: true };
+			const connected = await this.connect();
+			return { ok: true, note: connected.note ?? connected.reason };
 		} catch (error) {
 			return { ok: false, reason: error instanceof TeamError ? error.message : `Could not join the team: ${(error as Error).message}` };
 		}

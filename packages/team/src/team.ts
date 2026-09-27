@@ -16,7 +16,17 @@ export interface AgentRow { id: string; user_id: string; kind: string; task: str
 export interface ClaimRow { id: string; agent_id: string; user_id: string; path: string; note: string; created_at: string; released_at: string | null }
 export interface MemoryRow { id: string; user_id: string; path: string | null; kind: string; body: string; created_at: string }
 export interface MessageRow { id: string; from_user: string; from_agent: string | null; to_user: string | null; kind: 'message' | 'handoff'; body: string; payload: HandoffPayload; created_at: string; read_by: string[]; accepted_by: string | null }
-export interface ActivityRow { id: number; user_id: string | null; agent_id: string | null; verb: string; target: string; detail: string; created_at: string }
+export interface ActivityRow { id: number; user_id: string | null; agent_id: string | null; verb: string; target: string; detail: string; meta: EditMeta; created_at: string }
+
+/** What an edit changed, precisely enough to light up those lines, elements or graphs. */
+export interface EditMeta {
+  lines?: [number, number];
+  /** Functions the edit declares or sits in, so a graph can light the exact step. */
+  symbols?: string[];
+  elements?: string[];
+  graphs?: string[];
+  tool?: string;
+}
 
 export interface HandoffPayload {
   task?: string;
@@ -79,6 +89,27 @@ export class TeamSession {
   userByName(name: string): Member | undefined {
     const wanted = name.trim().toLowerCase();
     return this.members.find((m) => m.name.toLowerCase() === wanted);
+  }
+
+  /**
+   * Take over an agent row this person already has, instead of starting a
+   * new one: an agent's MCP server and its edit hook are separate processes
+   * of one session, and should show as one agent.
+   */
+  adopt(agentId: string): void {
+    this.agentId = agentId;
+  }
+
+  /**
+   * Say that this agent just changed something, as it lands: teammates' IDEs
+   * light up the file's nodes, or the elements or graphs named, right away.
+   */
+  async pulse(path: string, summary: string, meta: EditMeta = {}): Promise<void> {
+    const agent = await this.ensureAgent();
+    await this.rest.insert('team_activity', {
+      workspace_id: this.workspaceId, user_id: this.me, agent_id: agent, verb: 'edited',
+      target: normalizePath(path), detail: summary.slice(0, 300), meta,
+    });
   }
 
   /** This agent's row, created on first use and kept alive by heartbeats. */

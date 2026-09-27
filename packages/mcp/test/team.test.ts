@@ -139,6 +139,9 @@ test('two people\'s agents see each other, are warned before colliding, and pass
   assert.match(status.text, /Ashmith · claude-code · active · no task yet\n {4}holds site\/index\.html, pages\/dashboard\.ui#subtitle, logic\/menu\.vi/);
   assert.match(status.text, /you \(this or another of your agents\) · claude-code · active · redo the home page hero\n {4}holds site\/index\.html/);
   assert.match(status.text, /Ashmith claimed site\/index\.html — editing/);
+  // Each edit also went out live, saying what changed, for teammates' IDEs to light up.
+  assert.match(status.text, /Ashmith edited pages\/dashboard\.ui — set text on text "Annual plans now" \(subtitle\)/);
+  assert.match(status.text, /Ashmith edited site\/index\.html — @\d+ <h1> now says "Fresh bread daily"/);
 
   // An agent working from a subfolder names files the same way the team does.
   const fromSite = await agent(join(ashmithDir, 'site'), ashmithHome);

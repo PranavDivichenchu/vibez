@@ -101,11 +101,13 @@ create index team_messages_workspace on public.team_messages (workspace_id, crea
 create table public.team_activity (
   id bigint generated always as identity primary key,
   workspace_id uuid not null references public.team_workspaces on delete cascade,
-  user_id uuid references auth.users on delete set null,
+  user_id uuid default auth.uid() references auth.users on delete set null,
   agent_id uuid references public.team_agents on delete set null,
   verb text not null,
   target text not null default '',
   detail text not null default '',
+  -- For an edit: which lines, elements or graphs changed, so the IDE can light up exactly those.
+  meta jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
 create index team_activity_workspace on public.team_activity (workspace_id, created_at desc);
@@ -162,6 +164,13 @@ create policy "members send messages" on public.team_messages
 
 create policy "members see activity" on public.team_activity
   for select using (public.team_is_member(workspace_id));
+-- Edits as they land are the one thing people log themselves; everything
+-- else in the feed is written by the triggers below, so it can't be faked.
+create policy "members log their own edits" on public.team_activity
+  for insert with check (
+    public.team_is_member(workspace_id) and user_id = auth.uid() and verb = 'edited'
+    and (agent_id is null or exists (select 1 from public.team_agents a where a.id = agent_id and a.user_id = auth.uid()))
+  );
 
 -- ------------------------------------------------------------ joining, reading, accepting
 
@@ -274,5 +283,12 @@ create trigger team_claims_log after insert or update on public.team_claims for 
 create trigger team_memories_log after insert on public.team_memories for each row execute function public.team_log();
 create trigger team_messages_log after insert or update on public.team_messages for each row execute function public.team_log();
 
--- Live updates for the IDE's Team panel, when it subscribes.
+-- Live updates for the IDE's Team panel, when it subscribes. A server
+-- without Supabase Realtime (the minimal Vibez team server) has no
+-- publication yet, so one is made.
+do $$ begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+end $$;
 alter publication supabase_realtime add table public.team_agents, public.team_claims, public.team_messages, public.team_activity;

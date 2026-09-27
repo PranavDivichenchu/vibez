@@ -22,6 +22,7 @@ import { IViewPaneOptions, ViewPane } from '../../../browser/parts/views/viewPan
 import { IViewDescriptorService } from '../../../common/views.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
 import { IVibezTeamResult, IVibezTeamService, IVibezTeamState, teamPath } from '../../../../platform/vibez/common/vibezTeamService.js';
+import { isTeamLive, onTeamLive } from './vibezTeamLive.js';
 
 const NOTE_KINDS = ['note', 'decision', 'gotcha', 'convention'];
 
@@ -96,6 +97,7 @@ export class VibezTeamView extends ViewPane {
 		this.buildNoteComposer();
 
 		this._register(this.team.onDidChange(state => this.show(state)));
+		this._register(onTeamLive(() => this.state && this.show(this.state)));
 		this._register(this.onDidChangeBodyVisibility(visible => {
 			if (visible) {
 				this.readMessages();
@@ -172,6 +174,18 @@ export class VibezTeamView extends ViewPane {
 			who.textContent = state.members.length === 1
 				? localize('vibez.team.asAlone', "you are {0} · just you so far", state.me ?? '')
 				: localize('vibez.team.as', "you are {0} · {1} people", state.me ?? '', state.members.length);
+			const live = dom.append(this.top, dom.$('.vt-live'));
+			live.classList.toggle('on', isTeamLive());
+			live.textContent = isTeamLive() ? localize('vibez.team.live', "live: teammates' edits show as they land") : localize('vibez.team.notLive', "checking every few seconds");
+			const connect = dom.append(this.top, dom.$<HTMLButtonElement>('button.vt-link'));
+			connect.textContent = localize('vibez.team.connect', "Connect Claude Code here");
+			connect.title = localize('vibez.team.connectTitle', "Adds the team hooks and the Vibez tools to Claude Code for this project, so your agents' edits show for teammates and they are warned about theirs. Done automatically when you start or join a team.");
+			this.drawn.add(dom.addDisposableListener(connect, 'click', async () => {
+				const result = await this.run(this.team.connect());
+				if (result.ok && result.note) {
+					this.notifications.info(result.note);
+				}
+			}));
 			const code = dom.append(this.top, dom.$<HTMLButtonElement>('button.vt-link'));
 			code.textContent = localize('vibez.team.code', "Copy join code");
 			code.title = localize('vibez.team.codeTitle', "A teammate joins with this code. Share it only with people you want on the team.");
@@ -218,32 +232,38 @@ export class VibezTeamView extends ViewPane {
 		const join = this.form(localize('vibez.team.joinTitle', "Join a team"), [
 			['code', localize('vibez.team.codeField', "Join code")],
 			['as', localize('vibez.team.nameField', "Your name")],
-			...(state.status === 'none' ? [
+			...(state.status === 'none' && !state.hosted ? [
 				['url', localize('vibez.team.urlField', "Supabase URL")] as [string, string],
 				['key', localize('vibez.team.keyField', "Supabase anon key")] as [string, string],
 			] : []),
 		], localize('vibez.team.join', "Join"), async values => {
 			const result = await this.run(this.team.join({ code: values.code, as: values.as, ...(values.url ? { url: values.url } : {}), ...(values.key ? { anonKey: values.key } : {}) }));
+			if (result.ok && result.note) {
+				this.notifications.info(result.note);
+			}
 			return result.ok;
 		});
 		if (state.status === 'none') {
 			const create = this.form(localize('vibez.team.createTitle', "Start a team"), [
 				['team', localize('vibez.team.teamField', "Team name")],
 				['as', localize('vibez.team.nameField', "Your name")],
-				['url', localize('vibez.team.urlField', "Supabase URL")],
-				['key', localize('vibez.team.keyField', "Supabase anon key")],
+				// With the Vibez team server built in, nobody needs a server of their own.
+				...(state.hosted ? [] : [
+					['url', localize('vibez.team.urlField', "Supabase URL")] as [string, string],
+					['key', localize('vibez.team.keyField', "Supabase anon key")] as [string, string],
+				]),
 			], localize('vibez.team.create', "Create"), async values => {
-				const result = await this.run(this.team.create({ team: values.team, as: values.as, url: values.url, anonKey: values.key }));
+				const result = await this.run(this.team.create({ team: values.team, as: values.as, url: values.url ?? '', anonKey: values.key ?? '' }));
 				if (result.ok && result.code) {
 					await this.clipboard.writeText(result.code);
-					this.notifications.info(localize('vibez.team.created', "Team created. vibez.team.json was written (commit it). The join code {0} is copied: give it to your teammates.", result.code));
+					this.notifications.info(localize('vibez.team.created', "Team created. vibez.team.json was written (commit it). The join code {0} is copied: give it to your teammates. {1}", result.code, result.note ?? ''));
 				}
 				return result.ok;
 			});
 			// Whoever starts the team comes first; everyone after them joins.
 			this.setup.appendChild(create);
 			this.setup.appendChild(join);
-			dom.append(this.setup, dom.$('.vt-hint')).textContent = localize('vibez.team.supabase',
+			dom.append(this.setup, dom.$('.vt-hint')).textContent = state.hosted ? '' : localize('vibez.team.supabase',
 				"The Supabase project needs the migration in supabase/migrations and anonymous sign-ins on. For local work, run npx supabase start in the Vibez repository and use the URL and anon key it prints.");
 		}
 		if (state.status === 'outside') {
@@ -501,6 +521,9 @@ const TEAM_CSS = `
 .vibez-team .vt-who,.vibez-team .vt-hint,.vibez-team .vt-when,.vibez-team .vt-kind,.vibez-team .vt-detail{color:var(--vscode-descriptionForeground)}
 .vibez-team .vt-hint{line-height:1.45}
 .vibez-team .vt-warn{color:var(--vscode-editorWarning-foreground)}
+.vibez-team .vt-live{display:flex;align-items:center;gap:5px;color:var(--vscode-descriptionForeground)}
+.vibez-team .vt-live::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--vscode-descriptionForeground)}
+.vibez-team .vt-live.on::before{background:var(--vscode-testing-iconPassed,#3fb950);box-shadow:0 0 0 3px rgba(63,185,80,.25)}
 .vibez-team .vt-setup{display:flex;flex-direction:column;gap:10px}
 .vibez-team .vt-setup:empty{display:none}
 .vibez-team .vt-form{display:flex;flex-direction:column;gap:5px;padding:8px;border:1px solid var(--vscode-panel-border,rgba(128,128,128,.3));border-radius:6px}

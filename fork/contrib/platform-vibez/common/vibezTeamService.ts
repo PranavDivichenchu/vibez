@@ -81,7 +81,7 @@ export interface IVibezTeamState {
 	projectDir?: string;
 	team?: string;
 	me?: string;
-	members: { name: string; you: boolean }[];
+	members: { userId: string; name: string; you: boolean }[];
 	agents: IVibezTeamAgent[];
 	claims: IVibezTeamClaim[];
 	messages: IVibezTeamMessage[];
@@ -90,9 +90,46 @@ export interface IVibezTeamState {
 	unread: number;
 	/** When the team was last heard from, in ms since the epoch. */
 	updatedAt: number;
+	/** Whether the Vibez team server is built in, so starting a team needs no server of your own. */
+	hosted?: boolean;
 }
 
-export interface IVibezTeamResult { ok: boolean; reason?: string; code?: string }
+export interface IVibezTeamResult { ok: boolean; reason?: string; code?: string; note?: string }
+
+/** What the renderer needs to open the team's live connection (Supabase Realtime). */
+export interface IVibezTeamLive {
+	url: string;
+	anonKey: string;
+	accessToken: string;
+	workspaceId: string;
+	userId: string;
+}
+
+/** A teammate's edit, as it lands: which file, and exactly which lines, elements or graphs. */
+export interface IVibezTeamPulse {
+	person: string;
+	userId: string;
+	/** Relative to the folder holding vibez.team.json. */
+	path: string;
+	summary: string;
+	lines?: [number, number];
+	/** Functions the edit declares or sits in. */
+	symbols?: string[];
+	elements?: string[];
+	graphs?: string[];
+	hue: number;
+	at: number;
+}
+
+/** Each person keeps one colour everywhere, from their id. */
+export function personHue(userId: string): number {
+	let h = 0;
+	for (let i = 0; i < userId.length; i++) {
+		h = (h * 31 + userId.charCodeAt(i)) >>> 0;
+	}
+	// Away from the warning yellow the "held" marks use.
+	return (h % 300 + 70) % 360;
+}
 
 export interface IVibezTeamService {
 	readonly _serviceBrand: undefined;
@@ -114,6 +151,12 @@ export interface IVibezTeamService {
 	accept(messageId: string): Promise<IVibezTeamResult>;
 	/** Let go of everything you hold from the IDE. */
 	release(): Promise<IVibezTeamResult>;
+	/** Credentials for the live connection, or undefined without a team. */
+	live(): Promise<IVibezTeamLive | undefined>;
+	/** The renderer says whether its live connection is up; the main process then checks less often. */
+	setLive(on: boolean): Promise<void>;
+	/** Connects this person's Claude Code in this project to the team: hooks and the Vibez MCP server. */
+	connect(): Promise<IVibezTeamResult>;
 }
 
 /** Claims by other people's agents on one file (and elements in it), for marking editors and canvases. */

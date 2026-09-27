@@ -144,3 +144,69 @@ test('someone who is not on the team sees nothing and can claim nothing', async 
   assert.deepEqual(await stranger.recall(), []);
   await assert.rejects(stranger.start('sneak in', ['src/secret.ts']), /row-level security|violates/);
 });
+
+/** A Supabase Realtime subscription, the way the IDE opens it, collecting what arrives. */
+async function listen(team: TeamSession): Promise<{ got: Record<string, unknown>[]; close: () => void; ready: Promise<void> }> {
+  const token = await team.rest.accessToken();
+  const socket = new WebSocket(`${url!.replace(/^http/, 'ws')}/realtime/v1/websocket?apikey=${anonKey}&vsn=1.0.0`);
+  const got: Record<string, unknown>[] = [];
+  const topic = `realtime:vibez-team-${team.workspaceId}`;
+  const ready = new Promise<void>((resolveReady, reject) => {
+    socket.onopen = () => socket.send(JSON.stringify({
+      topic, event: 'phx_join', ref: '1', join_ref: '1',
+      payload: {
+        config: { broadcast: { self: false }, presence: { key: '' }, private: false, postgres_changes: [{ event: 'INSERT', schema: 'public', table: 'team_activity', filter: `workspace_id=eq.${team.workspaceId}` }] },
+        access_token: token,
+      },
+    }));
+    socket.onmessage = (e) => {
+      const m = JSON.parse(String(e.data)) as { event: string; payload: { status?: string; data?: { record: Record<string, unknown> } } };
+      if (m.event === 'system' && m.payload.status === 'ok') resolveReady();
+      if (m.event === 'phx_reply' && m.payload.status === 'error') reject(new Error(JSON.stringify(m.payload)));
+      if (m.event === 'postgres_changes' && m.payload.data) got.push(m.payload.data.record);
+    };
+    setTimeout(() => reject(new Error('realtime did not subscribe')), 10_000);
+  });
+  return { got, close: () => socket.close(), ready };
+}
+
+test('a teammate\'s edit arrives live, and only for members', async (t) => {
+  if (skip()) return t.skip('no Supabase running');
+  const dirA = mkdtempSync(join(tmpdir(), 'team-live-a-'));
+  const dirB = mkdtempSync(join(tmpdir(), 'team-live-b-'));
+  const homeA = mkdtempSync(join(tmpdir(), 'home-live-a-'));
+  const homeB = mkdtempSync(join(tmpdir(), 'home-live-b-'));
+  process.env['VIBEZ_TEAM_HOME'] = homeA;
+  const made = await createTeam(dirA, { url: url!, anonKey: anonKey!, team: 'Live', as: 'Pranav' });
+  copyFileSync(made.file, join(dirB, PROJECT_FILE));
+  process.env['VIBEZ_TEAM_HOME'] = homeB;
+  await joinTeam(dirB, { code: made.code, as: 'Ashmith' });
+  const pranav = person(dirA, homeA);
+  const ashmith = person(dirB, homeB);
+
+  // Pranav's IDE is listening; so is a stranger who knows the team's id.
+  process.env['VIBEZ_TEAM_HOME'] = homeA;
+  const ide = await listen(pranav);
+  await ide.ready;
+  const rest = new SupabaseRest(url!, anonKey!);
+  await rest.signInAnonymously();
+  const outsider = await listen(new TeamSession(rest, pranav.workspaceId));
+  await outsider.ready.catch(() => undefined);
+
+  // Ashmith's agent edits: the edit is on Pranav's screen within moments, with its lines.
+  process.env['VIBEZ_TEAM_HOME'] = homeB;
+  const sent = Date.now();
+  await ashmith.pulse('src/db.ts', 'Edit lines 71–80', { tool: 'Edit', lines: [71, 80] });
+  for (let i = 0; i < 50 && !ide.got.some((r) => r['verb'] === 'edited'); i++) await new Promise((r) => setTimeout(r, 100));
+  const edit = ide.got.find((r) => r['verb'] === 'edited');
+  assert.ok(edit, `nothing arrived: ${JSON.stringify(ide.got)}`);
+  assert.equal(edit!['target'], 'src/db.ts');
+  assert.deepEqual((edit!['meta'] as { lines: number[] }).lines, [71, 80]);
+  assert.ok(Date.now() - sent < 5000, 'arrived within seconds');
+  assert.deepEqual(outsider.got, [], 'row-level security keeps it from someone not on the team');
+
+  // Only edits can be written directly; the feed's other lines come from the database itself.
+  await assert.rejects(ashmith.rest.insert('team_activity', { workspace_id: ashmith.workspaceId, verb: 'claimed', target: 'x' }), /row-level security/);
+  ide.close();
+  outsider.close();
+});

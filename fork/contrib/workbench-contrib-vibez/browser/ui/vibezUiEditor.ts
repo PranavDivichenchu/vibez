@@ -105,7 +105,7 @@ export class VibezUiEditor extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		this.root = dom.append(parent, h('div.vz-ui', { tabindex: '0' }));
 		this.toolbar = dom.append(this.root, h('div.vz-ui-toolbar'));
-		this.banner = this._register(new VibezTeamBanner(this.team, held => this.canvas?.markHeld(held.map(h => h.id))));
+		this.banner = this._register(new VibezTeamBanner(this.team, held => this.canvas?.markHeld(held.map(h => h.id)), pulse => pulse.elements?.length && this.canvas?.flash(pulse.elements, pulse.hue)));
 		this.root.appendChild(this.banner.element);
 		this.body = dom.append(this.root, h('div.vz-ui-body'));
 

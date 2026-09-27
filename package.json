@@ -21,7 +21,8 @@
     "shop": "node --watch examples/shop/src/server.ts",
     "ui:build": "node scripts/ui-build.ts",
     "ui:harness": "node scripts/ui-harness.ts",
-    "team": "node packages/team/src/cli.ts"
+    "team": "node packages/team/src/cli.ts",
+    "team:host": "node scripts/team-host.ts"
   },
   "engines": {
     "node": ">=22.18"

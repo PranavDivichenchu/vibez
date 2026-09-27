@@ -143,6 +143,8 @@ const TEAM_FILES: Record<string, string> = {
   'overlap.ts': 'vibezTeamOverlap.ts',
   'team.ts': 'vibezTeamSession.ts',
   'config.ts': 'vibezTeamConfig.ts',
+  'hosted.ts': 'vibezTeamHosted.ts',
+  'connect.ts': 'vibezTeamConnect.ts',
 };
 for (const [from, to] of Object.entries(TEAM_FILES)) {
   let text = readFileSync(join('packages/team/src', from), 'utf8');
@@ -153,4 +155,7 @@ for (const [from, to] of Object.entries(TEAM_FILES)) {
   text = text.replace(/from 'node:([a-z/]+)'/g, "from '$1'");
   writeFileSync(join(nodeTarget, to), HEADER.replace('packages/core', 'packages/team') + text);
 }
+// Where this Vibez checkout is, for connecting a project's Claude Code to the
+// team: its hooks and MCP server run from here.
+writeFileSync(join(nodeTarget, 'vibezTeamPaths.ts'), `${HEADER.replace('packages/core', 'scripts/sync-core.ts')}export const VIBEZ_REPO = ${JSON.stringify(process.cwd())};\n`);
 console.log('  synced team client -> platform/vibez/node');

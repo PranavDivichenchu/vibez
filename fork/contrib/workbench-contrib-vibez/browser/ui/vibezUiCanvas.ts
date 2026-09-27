@@ -3,7 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
-import { heldElementsCss } from '../vibezTeamBanner.js';
+import { heldElementsCss, pulseElementsCss } from '../vibezTeamBanner.js';
 import * as dom from '../../../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
@@ -75,6 +75,8 @@ export class VibezUiCanvas extends Disposable {
 	private readonly shadow: ShadowRoot;
 	private readonly pageStyle: HTMLStyleElement;
 	private readonly heldStyle: HTMLStyleElement;
+	private readonly pulseStyle: HTMLStyleElement;
+	private pulseTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly overlay: HTMLElement;
 	private readonly hoverBox: HTMLElement;
 	private readonly selectBox: HTMLElement;
@@ -115,6 +117,8 @@ export class VibezUiCanvas extends Disposable {
 		this.shadow.appendChild(this.pageStyle);
 		this.heldStyle = document.createElement('style');
 		this.shadow.appendChild(this.heldStyle);
+		this.pulseStyle = document.createElement('style');
+		this.shadow.appendChild(this.pulseStyle);
 
 		this.overlay = dom.append(this.element, dom.$('.vz-ui-overlay'));
 		this.parentBox = dom.append(this.overlay, dom.$('.vz-ui-box.parent'));
@@ -134,6 +138,15 @@ export class VibezUiCanvas extends Disposable {
 	/** Outlines the elements another person's agent holds; they survive every re-render. */
 	markHeld(ids: string[]): void {
 		this.heldStyle.textContent = heldElementsCss(ids.map(id => ({ id })));
+	}
+
+	/** Flashes elements a teammate's agent just changed, in their colour. */
+	flash(ids: string[], hue: number): void {
+		this.pulseStyle.textContent = pulseElementsCss(ids, hue, Date.now());
+		if (this.pulseTimer) {
+			clearTimeout(this.pulseTimer);
+		}
+		this.pulseTimer = setTimeout(() => { this.pulseStyle.textContent = ''; }, 2600);
 	}
 
 	setDevice(device: Device): void {
@@ -206,7 +219,7 @@ export class VibezUiCanvas extends Disposable {
 
 		// Everything but the style element is redrawn: pages are small, and a
 		// full redraw is what guarantees the canvas matches the document.
-		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle && this.shadow.lastChild !== this.heldStyle) {
+		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle && this.shadow.lastChild !== this.heldStyle && this.shadow.lastChild !== this.pulseStyle) {
 			this.shadow.lastChild.remove();
 		}
 		this.pageStyle.textContent = PAGE_CSS(theme.colors.accent, theme.colors.accentSoft);
