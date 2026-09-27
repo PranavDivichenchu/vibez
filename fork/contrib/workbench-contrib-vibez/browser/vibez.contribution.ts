@@ -4,8 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
-import { VibezDashboardEditor } from './vibezDashboardEditor.js';
-import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -24,13 +22,11 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { VibezEditor } from './vibezEditor.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
-import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezQueueView } from './vibezQueueView.js';
 import { VibezTeamView } from './vibezTeamView.js';
 import { VibezTeamLiveContribution } from './vibezTeamLive.js';
 import { VibezUndoRedoContribution } from './vibezUndoRedo.js';
 import { VibezReplayOnSaveContribution } from './vibezReplayOnSave.js';
-import { VIBEZ_CONTAINER_ID, VibezRevealSidebarContribution } from './vibezRevealSidebar.js';
 // Open Vibez editors come back after a reload or restart.
 import './vibezEditorSerializers.js';
 import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
@@ -39,6 +35,7 @@ import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { Codicon } from '../../../../base/common/codicons.js';
 import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContainer.js';
+import { VIEWLET_ID as EXPLORER_CONTAINER_ID } from '../../files/common/files.js';
 import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
@@ -78,44 +75,27 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 }]);
 
 /**
- * Vibez's rail entry: the way into the site canvas, the dashboard and the
- * agents, and the list of recorded flows. The recorded graph is still where
- * agents are scoped (select nodes, then start an agent), so it stays one click
- * away. `.vi` and `.ui` files are not listed here: they open from the explorer
- * like any other file.
+ * Vibez has no rail entry of its own. A project is its files: a `.ui` page
+ * opens the page editor, a `.vi` file opens its logic, and the rest of the
+ * site is reachable from the page you are on. There is nothing to find in a
+ * side panel first.
+ *
+ * Team is the exception, because it is about people rather than a file: it
+ * sits under the file tree, where you can see who holds what while you work.
  */
-const vibezViewContainer: ViewContainer = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).registerViewContainer({
-	id: VIBEZ_CONTAINER_ID,
-	title: localize2('vibez.container', "Vibez"),
-	icon: Codicon.circuitBoard,
-	ctorDescriptor: new SyncDescriptor(ViewPaneContainer, [VIBEZ_CONTAINER_ID, { mergeViewWithContainerWhenSingleView: true }]),
-	storageId: VIBEZ_CONTAINER_ID,
-	order: 2,
-}, ViewContainerLocation.Sidebar, { isDefault: false });
-
 Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry).registerViews([{
-	id: VibezFlowsView.ID,
-	name: localize2('vibez.flows', "Flows"),
-	containerIcon: Codicon.circuitBoard,
-	ctorDescriptor: new SyncDescriptor(VibezFlowsView),
-	canToggleVisibility: false,
-	canMoveView: true,
-	// The container already registers workbench.view.vibez; declaring an open
-	// command here too collides on that id and takes the whole workbench down.
-}, {
-	// Several people's agents on this project: who is working on what, and what they hold.
 	id: VibezTeamView.ID,
 	name: localize2('vibez.team', "Team"),
 	containerIcon: Codicon.circuitBoard,
 	ctorDescriptor: new SyncDescriptor(VibezTeamView),
 	canToggleVisibility: true,
 	canMoveView: true,
-}], vibezViewContainer);
+	order: 20,
+}], Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry).get(EXPLORER_CONTAINER_ID)!);
 
 registerWorkbenchContribution2(VibezTeamLiveContribution.ID, VibezTeamLiveContribution, WorkbenchPhase.AfterRestored);
 registerWorkbenchContribution2(VibezUndoRedoContribution.ID, VibezUndoRedoContribution, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(VibezReplayOnSaveContribution.ID, VibezReplayOnSaveContribution, WorkbenchPhase.AfterRestored);
-registerWorkbenchContribution2(VibezRevealSidebarContribution.ID, VibezRevealSidebarContribution, WorkbenchPhase.AfterRestored);
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -284,20 +264,6 @@ registerAction2(class extends Action2 {
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
 		await accessor.get(IEditorService).openEditor(new VibezPagesInput(), { pinned: true });
-	}
-});
-
-Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(VibezDashboardEditor, VibezDashboardEditor.ID, localize('vibez.dashboard', "Dashboard")),
-	[new SyncDescriptor(VibezDashboardInput)]
-);
-
-registerAction2(class extends Action2 {
-	constructor() {
-		super({ id: 'vibez.openDashboard', title: localize2('vibez.openDashboard', "Vibez: Open Dashboard"), f1: true });
-	}
-	async run(accessor: ServicesAccessor): Promise<void> {
-		await accessor.get(IEditorService).openEditor(new VibezDashboardInput(), { pinned: true });
 	}
 });
 

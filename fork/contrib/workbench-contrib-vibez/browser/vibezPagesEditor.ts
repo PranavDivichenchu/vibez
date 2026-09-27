@@ -15,6 +15,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
@@ -33,7 +34,6 @@ import { IEditorService, SIDE_GROUP } from '../../../services/editor/common/edit
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { IWebviewElement, IWebviewService, WebviewContentPurpose } from '../../webview/browser/webview.js';
 import { VibezEditorInput } from './vibezEditorInput.js';
-import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { siteCanvasHtml } from './vibezSiteCanvas.js';
 import { SiteFileChange, siteHistory } from './vibezSiteHistory.js';
 import { linksTo, relativeHref, removeNavLink } from '../../../../platform/vibez/common/vibezTemplates.js';
@@ -105,6 +105,7 @@ export class VibezPagesEditor extends EditorPane {
 		@IVibezCaptureService private readonly capture: IVibezCaptureService,
 		@ITextFileService private readonly textFiles: ITextFileService,
 		@IOpenerService private readonly opener: IOpenerService,
+		@ICommandService private readonly commands: ICommandService,
 		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
@@ -226,7 +227,8 @@ export class VibezPagesEditor extends EditorPane {
 			case 'redo':
 				return this.undo(true);
 			case 'addPage':
-				await this.editors.openEditor(new VibezDashboardInput(), { pinned: true });
+				// A page is a file you make, not something picked from a gallery.
+				await this.commands.executeCommand('vibez.newPage');
 				return;
 			case 'viewInBrowser': {
 				// Only this site's own addresses: the canvas never opens anything else.

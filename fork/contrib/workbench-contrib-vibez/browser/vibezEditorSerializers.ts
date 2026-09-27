@@ -12,7 +12,6 @@ import { VibezEditorInput } from './vibezEditorInput.js';
 import { VibezUiEditorInput } from './ui/vibezUiEditorInput.js';
 import { VibezViEditorInput } from './vi/viEditorInput.js';
 import { VibezPagesInput } from './vibezPagesEditor.js';
-import { VibezDashboardInput } from './vibezDashboardInput.js';
 
 /**
  * How Vibez's editors come back after a reload or a restart. Without these
@@ -60,4 +59,3 @@ factories.registerEditorSerializer(VibezUiEditorInput.ID, fileSerializer(resourc
 factories.registerEditorSerializer(VibezViEditorInput.ID, fileSerializer(resource => new VibezViEditorInput(resource)));
 factories.registerEditorSerializer(VibezEditorInput.ID, fileSerializer(resource => new VibezEditorInput(resource)));
 factories.registerEditorSerializer(VibezPagesInput.ID, singletonSerializer(() => new VibezPagesInput()));
-factories.registerEditorSerializer(VibezDashboardInput.ID, singletonSerializer(() => new VibezDashboardInput()));

@@ -18,6 +18,7 @@ import { localize } from '../../../../../nls.js';
 import { IEditorOptions } from '../../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { IOpenerService } from '../../../../../platform/opener/common/opener.js';
+import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
@@ -64,6 +65,8 @@ export class VibezUiEditor extends EditorPane {
 
 	private root!: HTMLElement;
 	private toolbar!: HTMLElement;
+	private pageStrip!: HTMLElement;
+	private readonly stripScope = this._register(new DisposableStore());
 	private banner!: VibezTeamBanner;
 	private body!: HTMLElement;
 	private chooser!: HTMLElement;
@@ -98,6 +101,7 @@ export class VibezUiEditor extends EditorPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IOpenerService private readonly openerService: IOpenerService,
+		@ICommandService private readonly commandService: ICommandService,
 		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezUiEditor.ID, group, telemetryService, themeService, storageService);
@@ -108,6 +112,7 @@ export class VibezUiEditor extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		this.root = dom.append(parent, h('div.vz-ui', { tabindex: '0' }));
 		this.toolbar = dom.append(this.root, h('div.vz-ui-toolbar'));
+		this.pageStrip = dom.append(this.root, h('div.vz-ui-tabs'));
 		this.banner = this._register(new VibezTeamBanner(this.team, held => this.canvas?.markHeld(held.map(h => h.id)), pulse => pulse.elements?.length && this.canvas?.flash(pulse.elements, pulse.hue)));
 		this.root.appendChild(this.banner.element);
 		this.body = dom.append(this.root, h('div.vz-ui-body'));
@@ -177,6 +182,7 @@ export class VibezUiEditor extends EditorPane {
 			return;
 		}
 		this.load(text ?? '');
+		this.renderPages();
 
 		this.inputScope.add(this.fileService.onDidFilesChange(e => {
 			if (this.resource && e.contains(this.resource)) {
@@ -184,7 +190,7 @@ export class VibezUiEditor extends EditorPane {
 			}
 			const touched = [...e.rawAdded, ...e.rawDeleted, ...e.rawUpdated];
 			if (touched.some(uri => uri.path.endsWith('.vi') || uri.path.endsWith('.ui'))) {
-				void this.scan().then(() => this.renderAll());
+				void this.scan().then(() => { this.renderAll(); this.renderPages(); });
 			}
 		}));
 	}
@@ -583,6 +589,44 @@ export class VibezUiEditor extends EditorPane {
 		this.left.render();
 		this.right.render();
 		this.updateToolbarState();
+	}
+
+	/**
+	 * Every page of the site, along the top, with this one marked.
+	 *
+	 * A site is more than the page you happen to have open, and there is no
+	 * panel to go and find the rest in: they are here, on the page itself, the
+	 * way a design tool keeps its pages in reach. The last two move you on —
+	 * a new page, or all of them at once on the canvas.
+	 */
+	private renderPages(): void {
+		this.stripScope.clear();
+		dom.clearNode(this.pageStrip);
+		const here = this.resource?.toString();
+		const pages = [...this.uiFiles].sort((a, b) => a.path.localeCompare(b.path));
+		// On a lone page there is nothing to switch between, so the strip only
+		// offers the way to a second one.
+		for (const uri of pages) {
+			const chip = h<'button'>('button.vz-ui-tab', { type: 'button', title: uri.path });
+			chip.textContent = posix.basename(uri.path, '.ui');
+			chip.classList.toggle('current', uri.toString() === here);
+			if (uri.toString() !== here) {
+				this.stripScope.add(dom.addDisposableListener(chip, dom.EventType.CLICK, () =>
+					void this.editorService.openEditor({ resource: uri, options: { pinned: true } })));
+			}
+			this.pageStrip.append(chip);
+		}
+		const add = h<'button'>('button.vz-ui-tab.add', { type: 'button', title: localize('vibez.ui.newPage', "Add a page to this site") });
+		add.append(icon('plus', 13));
+		this.stripScope.add(dom.addDisposableListener(add, dom.EventType.CLICK, () => void this.commandService.executeCommand('vibez.newPage')));
+		this.pageStrip.append(add);
+
+		if (pages.length > 1) {
+			const all = h<'button'>('button.vz-ui-tab.all', { type: 'button', title: localize('vibez.ui.allPages', "See every page together, and how they link") });
+			all.append(icon('grid', 13), h('span', {}, localize('vibez.ui.wholeSite', "Whole site")));
+			this.stripScope.add(dom.addDisposableListener(all, dom.EventType.CLICK, () => void this.commandService.executeCommand('vibez.openPages')));
+			this.pageStrip.append(all);
+		}
 	}
 
 	private renderToolbar(): void {
