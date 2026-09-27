@@ -121,6 +121,11 @@ export interface IVibezCaptureService {
 	 * and pictures load exactly as they do for the site's own pages.
 	 */
 	sitePreviews(dir: string, pages: Record<string, string>): Promise<void>;
+	/**
+	 * The project's `.ui` pages, compiled, by the address each one answers to
+	 * (`/menu`). They have no HTML on disk, so the site serves them from here.
+	 */
+	sitePages(pages: Record<string, string>): Promise<void>;
 	/** The last region clicked inside the preview. */
 	selection(): Promise<IVibezSelection>;
 	/** After an edit: wait for the app to restart, then measure it again. */

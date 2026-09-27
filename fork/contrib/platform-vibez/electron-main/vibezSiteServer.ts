@@ -48,6 +48,7 @@ export class VibezSiteServer {
 	private target = '';
 	private previews = new Map<string, string>();
 	private previewDir = '';
+	private built = new Map<string, string>();
 
 	constructor(private readonly logService: ILogService) { }
 
@@ -58,7 +59,8 @@ export class VibezSiteServer {
 		if (!this.server) {
 			const server = createServer((request, response) => {
 				const pathname = new URL(request.url ?? '/', 'http://site').pathname;
-				const handled = this.preview(pathname, response) ? undefined : this.target ? this.proxy(request, response) : this.file(request, response);
+				const handled = this.preview(pathname, response) ? undefined
+					: this.builtPage(pathname, response) ?? (this.target ? this.proxy(request, response) : this.file(request, response));
 				Promise.resolve(handled).catch(error => {
 					this.logService.warn(`[vibez] site: ${error}`);
 					if (!response.headersSent) { response.writeHead(500, { 'content-type': 'text/plain' }); }
@@ -80,6 +82,33 @@ export class VibezSiteServer {
 	setPreviews(dir: string, pages: Record<string, string>): void {
 		this.previewDir = dir.replace(/^\/+/, '');
 		this.previews = new Map(Object.entries(pages));
+	}
+
+	/**
+	 * `.ui` pages, compiled and kept in memory, each at its own clean address.
+	 *
+	 * A `.ui` file is a page the same way a `.html` file is, but its HTML is
+	 * generated rather than written, so there is nothing on disk to serve. It
+	 * is served here instead of from `.vibez/build` so that the canvas always
+	 * shows what the file says right now, and so nothing has to be written to
+	 * disk to look at a page.
+	 */
+	setBuiltPages(pages: Record<string, string>): void {
+		this.built = new Map(Object.entries(pages));
+	}
+
+	/** Serves a compiled `.ui` page, with the bridge, or returns undefined if this is not one. */
+	private builtPage(pathname: string, response: ServerResponse): Promise<void> | undefined {
+		let path: string;
+		try {
+			path = decodeURIComponent(pathname);
+		} catch {
+			return undefined;
+		}
+		// `/menu`, `/menu/` and `/menu.html` are the same page, as for a static host.
+		const route = path.replace(/\.html?$/i, '').replace(/\/+$/, '') || '/';
+		const html = this.built.get(route);
+		return html === undefined ? undefined : this.send(response, 200, html, false);
 	}
 
 	private preview(pathname: string, response: ServerResponse): boolean {

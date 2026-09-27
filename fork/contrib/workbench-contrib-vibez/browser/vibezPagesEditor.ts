@@ -8,6 +8,7 @@ import { VibezTeamBanner } from './vibezTeamBanner.js';
 import './media/vibezPages.css';
 import * as dom from '../../../../base/browser/dom.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
+import { posix } from '../../../../base/common/path.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -22,6 +23,9 @@ import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCap
 import { EditError, moveElement, removeElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
 import { ELEMENT_CSS, ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
 import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
+import { parseDoc } from '../../../../platform/vibez/common/vibezUiOps.js';
+import { Linked, parseViExports } from '../../../../platform/vibez/common/vibezUiLinks.js';
+import { compile as compileUi } from '../../../../platform/vibez/common/vibezUiCompile.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
@@ -38,7 +42,8 @@ const APP_URL_KEY = 'vibez.site.appUrl';
 const MAX_FILE_BYTES = 512_000;
 const MAX_ENTRIES = 12_000;
 const SKIPPED_DIRS = new Set(['node_modules', '.git', '.next', '.nuxt', '.svelte-kit', '.vibez', 'dist', 'build', 'out', 'coverage']);
-const SOURCE = /\.(?:html?|[cm]?[jt]sx?|vue|svelte|astro)$/;
+// `.ui` pages are pages; `.vi` files are read so a page's data can be filled in.
+const SOURCE = /\.(?:html?|[cm]?[jt]sx?|vue|svelte|astro|ui|vi)$/;
 
 export class VibezPagesInput extends EditorInput {
 	static readonly ID = 'workbench.input.vibez.pages';
@@ -123,7 +128,7 @@ export class VibezPagesEditor extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		// Pages other people's agents are working on, above the canvas.
 		this.banner = this._register(new VibezTeamBanner(this.team));
-		this.banner.watchKinds(['.html', '.htm']);
+		this.banner.watchKinds(['.html', '.htm', '.ui']);
 		this.banner.onDidToggle = () => this.size && this.layout(this.size);
 		parent.appendChild(this.banner.element);
 		this.container = dom.append(parent, dom.$('.vibez-site'));
@@ -265,6 +270,9 @@ export class VibezPagesEditor extends EditorPane {
 	 */
 	private async edit(file: string, at: number | null, tag: string, ops: EditOp[]): Promise<void> {
 		const fail = (reason: string, reload = false) => this.post({ type: 'editFailed', file, reason, reload });
+		if (file.endsWith('.ui')) {
+			return fail(`${file} is a page you draw. Open it to change it — double-click the page, or open the file.`);
+		}
 		if (!this.folder || !/\.html?$/i.test(file) || !this.sources.has(file)) {
 			return fail('Only the HTML files in this folder can be edited on the canvas.');
 		}
@@ -363,8 +371,14 @@ export class VibezPagesEditor extends EditorPane {
 	/** The page new pages copy their header and footer from; it cannot be deleted. */
 	private homeFile(): string | undefined {
 		const html = [...this.sources.keys()].filter(f => /\.html?$/i.test(f));
-		return html.includes('index.html') ? 'index.html'
-			: [...html].sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)[0];
+		if (html.length) {
+			return html.includes('index.html') ? 'index.html'
+				: [...html].sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length)[0];
+		}
+		// No written pages: the drawn page nearest the root of the site.
+		const ui = this.pages.filter(p => p.file.endsWith('.ui'));
+		return [...ui].sort((a, b) => a.route.split('/').length - b.route.split('/').length
+			|| a.route.length - b.route.length || a.file.localeCompare(b.file))[0]?.file;
 	}
 
 	/**
@@ -459,9 +473,13 @@ export class VibezPagesEditor extends EditorPane {
 		}
 
 		const isHtml = (p: PageNode) => /\.html?$/i.test(p.file);
+		const isUi = (p: PageNode) => p.file.endsWith('.ui');
 		const dynamic = (p: PageNode) => /\[/.test(p.route);
-		const framework = this.pages.filter(p => !isHtml(p));
-		const shown = this.order(this.pages.filter(p => (appUrl ? true : isHtml(p)) && !dynamic(p)));
+		// Written pages and drawn pages both stand on their own. Only pages a
+		// framework builds need the app running before there is anything to show.
+		const framework = this.pages.filter(p => !isHtml(p) && !isUi(p));
+		await this.serveUiPages();
+		const shown = this.order(this.pages.filter(p => (appUrl ? true : isHtml(p) || isUi(p)) && !dynamic(p)));
 		const pages: CanvasPage[] = shown.map(p => {
 			const path = isHtml(p) ? urlPathOfFile(p.file) : p.route;
 			return { id: p.id, route: isHtml(p) ? routeOfPath(path) : p.route, file: p.file, url: origin + encodeURI(path), match: routeOfPath(path), path };
@@ -480,7 +498,9 @@ export class VibezPagesEditor extends EditorPane {
 		if (skipped) {
 			notes.push(`${skipped} file${skipped === 1 ? ' was' : 's were'} too large or unreadable and skipped.`);
 		}
-		const status = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${appUrl ? `from ${appUrl}` : 'this folder’s files'}${notes.length ? ' · ' + notes.join(' ') : ''}`;
+		const drawn = shown.filter(isUi).length;
+		const source = appUrl ? `from ${appUrl}` : drawn === shown.length && drawn ? 'from this folder’s .ui pages' : 'this folder’s files';
+		const status = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${source}${notes.length ? ' · ' + notes.join(' ') : ''}`;
 		const focus = VibezPagesEditor.focusNext;
 		VibezPagesEditor.focusNext = undefined;
 		this.post({
@@ -488,8 +508,53 @@ export class VibezPagesEditor extends EditorPane {
 			elements: ELEMENTS.map(({ id, name, group, description, glyph, html }) => ({ id, name, group, description, glyph, html })),
 			elementCss: ELEMENT_CSS,
 			emptyTitle: framework.length && !appUrl ? 'Start the app to see its pages' : 'No pages found',
-			note: notes.join(' ') || 'Open a folder with .html pages, or a Next.js app with its dev server running.',
+			note: notes.join(' ') || 'Make a page with + Add page, or open a folder with .ui or .html pages, or a Next.js app with its dev server running.',
 		});
+	}
+
+	/**
+	 * Compiles the project's `.ui` pages and hands them to the site to serve.
+	 *
+	 * A `.ui` page has no HTML of its own: the file says what the page is, and
+	 * the HTML is made from it. Compiling here, from what has been read, means
+	 * the canvas shows a page as its file stands now, whether or not anyone has
+	 * ever opened it in the page editor.
+	 */
+	private async serveUiPages(): Promise<void> {
+		const linked: Linked = new Map();
+		for (const [file, text] of this.sources) {
+			if (file.endsWith('.vi')) {
+				linked.set(file, parseViExports(text));
+			}
+		}
+		const routes = new Map(this.pages.filter(p => p.file.endsWith('.ui')).map(p => [p.file, p.route]));
+		const built: Record<string, string> = {};
+		for (const [file, route] of routes) {
+			const parsed = parseDoc(this.sources.get(file) ?? '');
+			if (!parsed.ok) {
+				continue;
+			}
+			// Everything a page names, it names relative to itself, so each of
+			// those names has to be resolved from where the page sits.
+			const dir = file.slice(0, file.lastIndexOf('/') + 1);
+			const near: Record<string, string> = {};
+			for (const [other, to] of routes) {
+				near[posix.relative(dir, other) || posix.basename(other)] = to;
+			}
+			const mine: Linked = new Map();
+			for (const name of parsed.doc.links) {
+				const exports = linked.get(posix.normalize(posix.join(dir, name)));
+				if (exports) {
+					mine.set(name, exports);
+				}
+			}
+			try {
+				built[route] = compileUi(parsed.doc, { linked: mine, routes: near });
+			} catch {
+				// A page that cannot be compiled is left out rather than breaking the canvas.
+			}
+		}
+		await this.capture.sitePages(built).catch(() => undefined);
 	}
 
 	/** Home first, then pages in the order a visitor would reach them. */

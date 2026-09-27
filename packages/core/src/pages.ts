@@ -9,6 +9,57 @@ function normalize(path: string): string {
   for (const p of path.split('/')) { if (p === '..') { parts.pop(); } else if (p && p !== '.') { parts.push(p); } }
   return '/' + parts.join('/');
 }
+/** The address a `.ui` page answers to: what it says, or its file name. */
+export function uiRoute(file: string, source: string): string {
+  let declared: unknown;
+  try { declared = (JSON.parse(source) as { route?: unknown }).route; } catch { declared = undefined; }
+  const path = typeof declared === 'string' && declared.trim() ? declared.trim() : file.replace(/\.ui$/, '').split('/').pop()!;
+  return normalize(path.replace(/\/+$/, ''));
+}
+
+/**
+ * Every page a `.ui` file links to, and where in the file the link is written.
+ *
+ * A `.ui` file is JSON rather than markup, so its links are read from the
+ * document instead of scanned for: a `link` element, or anything whose click
+ * navigates. Both name another `.ui` file relative to this one.
+ */
+function uiLinks(file: string, source: string, routes: ReadonlyMap<string, { scope: string; path: string }>): PageLink[] {
+  let doc: { root?: unknown };
+  try { doc = JSON.parse(source) as { root?: unknown }; } catch { return []; }
+  const dir = file.slice(0, file.lastIndexOf('/') + 1);
+  const lines = source.split('\n');
+  const links: PageLink[] = [];
+  // Where the last link to the same page was found, so two links to one page
+  // do not both point at the first one.
+  const from = new Map<string, number>();
+  const add = (to: string, label: string): void => {
+    if (typeof to !== 'string' || !to) { return; }
+    const external = /^(?:[a-z][\w+.-]*:|\/\/)/i.test(to);
+    const resolved = external ? '' : normalize(to.startsWith('/') ? to : dir + to).slice(1);
+    const target = !external && routes.has(resolved) ? resolved : null;
+    // The line the address is written on, so "open" lands on it.
+    const start = from.get(to) ?? 0;
+    const found = lines.findIndex((text, i) => i >= start && text.includes(JSON.stringify(to)));
+    const at = found < 0 ? lines.findIndex(text => text.includes(JSON.stringify(to))) : found;
+    if (at >= 0) { from.set(to, at + 1); }
+    links.push({
+      label: label || to, href: to, file, line: at < 0 ? 1 : at + 1, target,
+      status: external ? 'external' : target ? 'resolved' : 'unresolved',
+    });
+  };
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== 'object') { return; }
+    const n = node as { kind?: string; to?: string; label?: string; text?: string; on?: { run?: string; to?: string }; children?: unknown[] };
+    const words = n.label ?? n.text ?? '';
+    if (n.kind === 'link' && typeof n.to === 'string') { add(n.to, words); }
+    if (n.on?.run === 'navigate' && typeof n.on.to === 'string') { add(n.on.to, words); }
+    for (const child of n.children ?? []) { walk(child); }
+  };
+  walk(doc.root);
+  return links;
+}
+
 function route(file: string): { scope: string; path: string } | null {
   if (/\.html?$/.test(file)) { return { scope: 'html', path: normalize(file.replace(/index\.html?$/, '').replace(/\.html?$/, '')) }; }
   const app = /^(.*?)(?:src\/)?app\/(.*)page\.[jt]sx?$/.exec(file);
@@ -22,7 +73,15 @@ function route(file: string): { scope: string; path: string } | null {
 export function discoverPages(files: ReadonlyMap<string, string>): PageMap {
   const routes = new Map<string, { scope: string; path: string }>();
   for (const file of files.keys()) { const r = route(file); if (r) { routes.set(file, r); } }
+  // A `.ui` file is a page too, and says for itself what address it answers to.
+  const ui = new Map<string, { scope: string; path: string }>();
+  for (const [file, source] of files) {
+    if (file.endsWith('.ui')) { ui.set(file, { scope: 'ui', path: uiRoute(file, source) }); }
+  }
   const pages: PageNode[] = [];
+  for (const [file, r] of ui) {
+    pages.push({ id: file, route: r.path, file, links: uiLinks(file, files.get(file) ?? '', ui) });
+  }
   const imported = (file: string, seen = new Set<string>()): string[] => {
     if (seen.has(file)) { return []; } seen.add(file);
     const found = [file];

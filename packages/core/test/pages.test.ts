@@ -94,3 +94,47 @@ test('handlers are described in plain words', () => {
  assert.equal(e.summary, 'A button. Clicking it counts up and changes text on the page.');
  assert.match(e.actions[0]!.title, /handled by the whole page/); assert.match(e.actions[0]!.detail, /\[data-add\]/);
 });
+
+// A `.ui` file is a page you draw rather than write, and belongs on the site
+// canvas beside the written ones. Its address and its links are read from the
+// document, since there is no markup to scan.
+const uiPage = (route: string, children: unknown[] = []) =>
+ JSON.stringify({ vibez: 'vibez.ui/1', name: route, route, theme: 'paper', links: [], root: { id: 'page', kind: 'frame', children } }, null, 1);
+
+test('.ui pages are pages, at the address they name', () => {
+ const pages = scan({
+  'pages/home.ui': uiPage('/', [{ id: 'l1', kind: 'link', label: 'Our menu', to: 'menu.ui' }]),
+  'pages/menu.ui': uiPage('/menu'),
+ });
+ assert.deepEqual(pages.map(p => p.route).sort(), ['/', '/menu']);
+ const home = pages.find(p => p.file === 'pages/home.ui')!;
+ assert.equal(home.links[0]!.target, 'pages/menu.ui');
+ assert.equal(home.links[0]!.label, 'Our menu');
+ assert.equal(home.links[0]!.status, 'resolved');
+});
+
+test('.ui pages fall back to their file name, and say when a link goes nowhere', () => {
+ const pages = scan({
+  'pages/about.ui': JSON.stringify({ root: { kind: 'frame', children: [{ kind: 'link', label: 'Gone', to: 'missing.ui' }] } }),
+  'pages/shop.ui': uiPage('/shop', [{ kind: 'button', label: 'Home', on: { run: 'navigate', to: 'about.ui' } }]),
+ });
+ assert.equal(pages.find(p => p.file === 'pages/about.ui')!.route, '/about');
+ assert.equal(pages.find(p => p.file === 'pages/about.ui')!.links[0]!.status, 'unresolved');
+ // A button that navigates is a link between pages, the same as an anchor.
+ assert.equal(pages.find(p => p.file === 'pages/shop.ui')!.links[0]!.target, 'pages/about.ui');
+});
+
+test('a .ui page that is not valid JSON is skipped, not thrown over', () => {
+ const pages = scan({ 'pages/broken.ui': '{ not json', 'pages/ok.ui': uiPage('/ok') });
+ assert.deepEqual(pages.map(p => p.route).sort(), ['/broken', '/ok']);
+ assert.deepEqual(pages.find(p => p.file === 'pages/broken.ui')!.links, []);
+});
+
+test('two links to one page point at their own lines', () => {
+ const pages = scan({
+  'a.ui': uiPage('/a', [{ kind: 'link', label: 'One', to: 'b.ui' }, { kind: 'link', label: 'Two', to: 'b.ui' }]),
+  'b.ui': uiPage('/b'),
+ });
+ const [first, second] = pages.find(p => p.file === 'a.ui')!.links;
+ assert.notEqual(first!.line, second!.line);
+});
