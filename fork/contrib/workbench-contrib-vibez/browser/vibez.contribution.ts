@@ -28,6 +28,8 @@ import { VibezFlowsView } from './vibezFlowsView.js';
 import { VibezQueueView } from './vibezQueueView.js';
 import { VibezTeamView } from './vibezTeamView.js';
 import { VibezTeamLiveContribution } from './vibezTeamLive.js';
+// Open Vibez editors come back after a reload or restart.
+import './vibezEditorSerializers.js';
 import { IVibezQueueService } from '../../../../platform/vibez/common/vibezQueueService.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
 import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
