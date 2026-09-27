@@ -74,6 +74,8 @@ const UI_FILES: Record<string, string> = {
   'render.ts': 'vibezUiRender.ts',
   'compile.ts': 'vibezUiCompile.ts',
   'templates.ts': 'vibezUiTemplates.ts',
+  'library.ts': 'vibezUiLibrary.ts',
+  'canvasEdit.ts': 'vibezUiCanvasEdit.ts',
 };
 for (const [from, to] of Object.entries(UI_FILES)) {
   let source = readFileSync(join('packages/ui/src', from), 'utf8');

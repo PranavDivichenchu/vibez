@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   blankDoc, insert, move, remove, duplicate, wrap, find, flatten, update, parseDoc, serialize, allIds,
   CATALOG, makeId, parseViExports, valueChoices, actionChoices, autoArgs, brokenLinks, resolve,
-  renderDoc, compile, TEMPLATES, THEMES, type UiDoc, type UiNode, type VNode, type Linked,
+  renderDoc, compile, TEMPLATES, THEMES, libraryNode, type UiDoc, type UiNode, type VNode, type Linked,
 } from '../src/index.ts';
 
 const add = (doc: UiDoc, label: string, parent = 'page', index = 999): { doc: UiDoc; id: string } => {
@@ -270,4 +270,38 @@ test('a page that cannot reach its logic says so instead of passing samples off 
   assert.match(html, /missed\.push\(v\.name\)/);
   assert.match(html, /Showing samples/);
   assert.match(html, /warned=true/);
+});
+
+// ---------------------------------------------------------------- the site canvas on a drawn page
+
+test('a hand edit on the canvas is kept as CSS and drawn over the element', () => {
+  let doc = blankDoc();
+  const t = add(doc, 'Title'); doc = t.doc;
+  doc = update(doc, t.id, { css: { color: 'rgb(200, 30, 30)', 'margin-left': '24px' } } as never);
+  const html = compile(doc, { linked: new Map() });
+  // It reaches the page, and says which element it belongs to.
+  assert.match(html, /color:rgb\(200, 30, 30\)/);
+  assert.match(html, /margin-left:24px/);
+  assert.match(html, new RegExp(`data-vz-node="${t.id}"`));
+});
+
+test('the canvas library builds its items out of the page\'s own parts', () => {
+  const ids = new Set<string>();
+  const id = (kind: string) => { const made = makeId(kind, ids); ids.add(made); return made; };
+  const card = libraryNode('card', id)!;
+  assert.equal(card.kind, 'frame');
+  assert.deepEqual((card as { children: UiNode[] }).children.map((c) => c.kind), ['text', 'text', 'link']);
+  assert.equal(libraryNode('button', id)?.kind, 'button');
+  assert.equal(libraryNode('contact-form', id)?.kind, 'frame');
+  // Every item it builds is a page the compiler accepts.
+  for (const element of ['title', 'hero', 'cards-3', 'newsletter', 'gallery', 'divider', 'spacer', 'figure']) {
+    const node = libraryNode(element, id);
+    assert.ok(node, element);
+    let doc = blankDoc();
+    doc = insert(doc, 'page', 0, node!);
+    assert.match(compile(doc, { linked: new Map() }), /^<!doctype html>/, element);
+  }
+  // What a drawn page has no part for is said, not faked.
+  assert.equal(libraryNode('video', id), undefined);
+  assert.equal(libraryNode('map', id), undefined);
 });

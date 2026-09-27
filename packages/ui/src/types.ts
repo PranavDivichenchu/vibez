@@ -67,6 +67,13 @@ interface Base {
   name?: string;
   size: Size;
   hidden?: boolean;
+  /**
+   * How this element was changed by hand on the site canvas: colours, sizes,
+   * spacing, where it was dragged to. Plain CSS, laid over what the element's
+   * own settings draw, so the canvas edits a drawn page exactly the way it
+   * edits one written in HTML — and the change is kept in the page's file.
+   */
+  css?: Record<string, string>;
 }
 
 export type Direction = 'column' | 'row' | 'grid';

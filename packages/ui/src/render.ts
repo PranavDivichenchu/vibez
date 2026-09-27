@@ -171,6 +171,8 @@ function renderNode(node: UiNode, parent: FrameNode | undefined, theme: Theme, o
     if (options.mode === 'design') out.style['opacity'] = '0.35';
     else out.style['display'] = 'none';
   }
+  // Changes made by hand on the canvas go on last, so they win.
+  if (node.css) Object.assign(out.style, node.css);
   out.nodeId = node.id;
   return out;
 }

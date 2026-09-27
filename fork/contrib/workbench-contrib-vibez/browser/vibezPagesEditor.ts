@@ -23,8 +23,9 @@ import { IWorkspaceContextService } from '../../../../platform/workspace/common/
 import { IVibezCaptureService } from '../../../../platform/vibez/common/vibezCapture.js';
 import { EditError, moveElement, removeElement, setAttribute, setStyle, setText } from '../../../../platform/vibez/common/vibezEdit.js';
 import { ELEMENT_CSS, ELEMENTS, insertElement } from '../../../../platform/vibez/common/vibezElements.js';
-import { discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
-import { parseDoc } from '../../../../platform/vibez/common/vibezUiOps.js';
+import { annotateHtml, discoverPages, explainElement, routeOfPath, urlPathOfFile, ElementInfo, GraphLike, PageNode } from '../../../../platform/vibez/common/vibezPages.js';
+import { parseDoc, serialize as serializeUi } from '../../../../platform/vibez/common/vibezUiOps.js';
+import { applyCanvasEdit, CanvasOp } from '../../../../platform/vibez/common/vibezUiCanvasEdit.js';
 import { Linked, parseViExports } from '../../../../platform/vibez/common/vibezUiLinks.js';
 import { compile as compileUi } from '../../../../platform/vibez/common/vibezUiCompile.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
@@ -89,6 +90,8 @@ export class VibezPagesEditor extends EditorPane {
 	private folder: URI | undefined;
 	private readonly watchScope = this._register(new DisposableStore());
 	private sources = new Map<string, string>();
+	/** The HTML each .ui page was last served as, so a click maps back to its element. */
+	private built = new Map<string, string>();
 	private pages: PageNode[] = [];
 	private graph: GraphLike | null = null;
 	/** The page to bring into view the next time the canvas loads. */
@@ -313,7 +316,7 @@ export class VibezPagesEditor extends EditorPane {
 	private async edit(file: string, at: number | null, tag: string, ops: EditOp[]): Promise<void> {
 		const fail = (reason: string, reload = false) => this.post({ type: 'editFailed', file, reason, reload });
 		if (file.endsWith('.ui')) {
-			return fail(`${file} is a page you draw. Open it to change it — double-click the page, or open the file.`);
+			return this.editPage(file, at, tag, ops, fail);
 		}
 		if (!this.folder || !/\.html?$/i.test(file) || !this.sources.has(file)) {
 			return fail('Only the HTML files in this folder can be edited on the canvas.');
@@ -478,6 +481,43 @@ export class VibezPagesEditor extends EditorPane {
 		siteHistory.notify({ files: changes.map(c => c.file), structural: true });
 	}
 
+	/**
+	 * An edit made on the canvas, applied to the `.ui` page it came from.
+	 *
+	 * A drawn page has no HTML of its own to rewrite: what is on screen was
+	 * generated from the document, and every element in it carries the id of
+	 * the element it was generated from. So the edit is translated — this text,
+	 * this element moved, this one gone — and written to the file, which the
+	 * canvas then redraws from.
+	 */
+	private async editPage(file: string, at: number | null, tag: string, ops: EditOp[], fail: (reason: string, reload?: boolean) => void): Promise<void> {
+		if (!this.folder) {
+			return fail('Open a folder first.');
+		}
+		const resource = URI.joinPath(this.folder, file);
+		if (this.textFiles.isDirty(resource)) {
+			return fail(`${file} has unsaved changes in an editor. Save or revert them, then try again.`);
+		}
+		const parsed = parseDoc(this.sources.get(file) ?? '');
+		if (!parsed.ok) {
+			return fail(`${file} could not be read: ${parsed.reason}`);
+		}
+		// The page as it was compiled is what the canvas's offsets point into.
+		const result = applyCanvasEdit(parsed.doc, this.built.get(file) ?? '', at, ops as CanvasOp[], tag || undefined);
+		if (!result.ok) {
+			return fail(result.reason, result.reload);
+		}
+		const doc = result.doc;
+		try {
+			await this.files.writeFile(resource, VSBuffer.fromString(serializeUi(doc)));
+		} catch (error) {
+			return fail(`Could not save ${file}: ${error}`);
+		}
+		this.sources.set(file, serializeUi(doc));
+		this.post({ type: 'edited', file, at });
+		await this.load();
+	}
+
 	private async write(resource: URI, file: string, html: string): Promise<void> {
 		await this.files.writeFile(resource, VSBuffer.fromString(html));
 		this.sources.set(file, html);
@@ -576,6 +616,7 @@ export class VibezPagesEditor extends EditorPane {
 		}
 		const routes = new Map(this.pages.filter(p => p.file.endsWith('.ui')).map(p => [p.file, p.route]));
 		const built: Record<string, string> = {};
+		this.built.clear();
 		for (const [file, route] of routes) {
 			const parsed = parseDoc(this.sources.get(file) ?? '');
 			if (!parsed.ok) {
@@ -596,7 +637,12 @@ export class VibezPagesEditor extends EditorPane {
 				}
 			}
 			try {
-				built[route] = compileUi(parsed.doc, { linked: mine, routes: near });
+				// The canvas reports where an element starts as an offset into the
+				// page *before* it was marked up (that is how a page written in
+				// HTML maps back to its file), so that is the text to keep.
+				const page = compileUi(parsed.doc, { linked: mine, routes: near });
+				built[route] = annotateHtml(page);
+				this.built.set(file, page);
 			} catch {
 				// A page that cannot be compiled is left out rather than breaking the canvas.
 			}

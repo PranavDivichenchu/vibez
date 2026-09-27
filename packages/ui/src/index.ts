@@ -6,3 +6,5 @@ export * from './links.ts';
 export * from './render.ts';
 export * from './compile.ts';
 export * from './templates.ts';
+export * from './library.ts';
+export * from './canvasEdit.ts';

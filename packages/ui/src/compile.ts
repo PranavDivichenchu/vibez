@@ -79,6 +79,9 @@ export function compile(doc: UiDoc, options: CompileOptions): string {
     if (node.phone) phoneRules.push(`.${cls}{${css(node.phone)}}`);
     const attrs: string[] = [`class="${cls}"`];
     for (const [k, v] of Object.entries(node.attrs)) attrs.push(v === '' ? k : `${k}="${escapeHtml(v)}"`);
+    // Which element of the page this is, so an edit made on the canvas can be
+    // written back to the document rather than to the HTML it generated.
+    if (node.nodeId) attrs.push(`data-vz-node="${escapeHtml(node.nodeId)}"`);
     if (node.bind) attrs.push(`data-bind="${escapeHtml(JSON.stringify(node.bind))}"`);
     if (node.action) attrs.push(`data-action="${escapeHtml(JSON.stringify(node.action))}"`);
     const open = `<${node.tag} ${attrs.join(' ')}>`;

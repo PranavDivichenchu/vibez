@@ -108,7 +108,10 @@ export class VibezSiteServer {
 		// `/menu`, `/menu/` and `/menu.html` are the same page, as for a static host.
 		const route = path.replace(/\.html?$/i, '').replace(/\/+$/, '') || '/';
 		const html = this.built.get(route);
-		return html === undefined ? undefined : this.send(response, 200, html, false);
+		// Marked up and editable, the same as a page read off disk: the canvas
+		// needs the offsets to select and move things, and every editing
+		// gesture in the bridge is gated on the page being editable at all.
+		return html === undefined ? undefined : this.send(response, 200, html, true);
 	}
 
 	private preview(pathname: string, response: ServerResponse): boolean {
