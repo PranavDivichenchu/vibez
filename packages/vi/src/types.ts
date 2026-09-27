@@ -53,6 +53,24 @@ export type ComputeOp = MathOp
   | 'now' | 'parseDate' | 'formatDate' | 'addDuration' | 'dateDifference' | 'before' | 'after'
   | 'toString' | 'toNumber' | 'toBoolean' | 'toDate' | 'toUrl' | 'cast';
 
+/**
+ * The list blocks that run one of the file's Functions on every item. A
+ * visual language has no lambdas, but it already has Functions, so the block
+ * names one (`fn` in its config) instead of taking a function on a wire.
+ * `inputs` is how many inputs that function must take: the item, or for
+ * Reduce the running total and then the item. `boolean` means the function
+ * must answer true or false for each item.
+ */
+export type ListFnOp = 'map' | 'filter' | 'reduce' | 'some' | 'every';
+export const LIST_FN_OPS: Record<ListFnOp, { name: string; inputs: number; boolean: boolean }> = {
+  map: { name: 'Map', inputs: 1, boolean: false },
+  filter: { name: 'Filter', inputs: 1, boolean: true },
+  reduce: { name: 'Reduce', inputs: 2, boolean: false },
+  some: { name: 'Some', inputs: 1, boolean: true },
+  every: { name: 'Every', inputs: 1, boolean: true },
+};
+export const isListFnOp = (op: string): op is ListFnOp => Object.prototype.hasOwnProperty.call(LIST_FN_OPS, op);
+
 export interface AuthoredDataPin { name: string; type?: ViType }
 
 /** What a block's header and the search dropdown's dot color it by. `debugging` is the palette's neutral gray — it was held back from the other four on purpose, for exactly this: comments and other organization aids, and the blocks that only exist to help you find a problem. */
@@ -66,7 +84,8 @@ export type AuthoredConfig =
 	| { kind: 'loop'; item: string; itemType: ViType; mode?: 'forEach' | 'for' | 'forWithBreak' | 'while' | 'break' | 'continue'; maxIterations?: number }
 	| { kind: 'literal'; value: unknown; type: ViType }
 	| { kind: 'variable'; name: string; type: ViType; mode: 'get' | 'set'; mutable: boolean }
-	| { kind: 'compute'; op: ComputeOp; label?: string; inputs?: AuthoredDataPin[]; outputs?: AuthoredDataPin[] }
+	/** `fn` is only for the list blocks in `LIST_FN_OPS`: the name of the file's Function they run on each item. */
+	| { kind: 'compute'; op: ComputeOp; label?: string; inputs?: AuthoredDataPin[]; outputs?: AuthoredDataPin[]; fn?: string }
 	| { kind: 'data'; query: string; returns: ViType; op?: 'query' | 'findOne' | 'findMany' | 'count' | 'aggregate' | 'cacheGet' | 'environment' | 'currentUser'; resource?: string }
 	| { kind: 'effect'; op: string; label?: string; inputs?: AuthoredDataPin[]; outputs?: AuthoredDataPin[]; resource?: string; durationMs?: number; attempts?: number }
 	| { kind: 'external'; method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; mode?: 'request' | 'decode' }

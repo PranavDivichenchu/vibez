@@ -2,7 +2,7 @@ import { blankGraph } from './ops.ts';
 import type { GNode, SemanticKey } from '../../core/src/types.ts';
 import { helperFor } from './runtime.ts';
 import { callableIn, hasErrors, validateGraph, type CompileIssue } from './validate.ts';
-import { configOf, methodKey, type AuthoredConfig, type AuthoredGraph, type ComputeOp, type MathOp, type ViAction, type ViClass, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { configOf, isListFnOp, methodKey, type AuthoredConfig, type AuthoredGraph, type ComputeOp, type MathOp, type ViAction, type ViClass, type ViType, type ViValue, type ViVariable } from './types.ts';
 import { classIssues, parentsFirst, requiredFields } from './classes.ts';
 
 /**
@@ -16,9 +16,9 @@ import { classIssues, parentsFirst, requiredFields } from './classes.ts';
  * data dependencies backward, run whatever impure steps it needs in
  * topological order, then return the expression).
  *
- * A block with no wire into a required pin, an unresolved `call`, or a
- * `compute` op nothing can run yet (see `runtime.ts`'s `UNSUPPORTED_OPS`) is
- * always a *validation* error, caught by `validate.ts` before any of this
+ * A block with no wire into a required pin, an unresolved `call`, or a list
+ * block (Map, Filter, …) without a function it can run is always a
+ * *validation* error, caught by `validate.ts` before any of this
  * runs — this file assumes it is only ever handed a graph with none.
  */
 
@@ -147,6 +147,10 @@ function computeExpr(n: GNode, config: Extract<AuthoredConfig, { kind: 'compute'
     return `({ ${inputs.map((p, i) => `${JSON.stringify(p.name)}: ${args[i]}`).join(', ')} })`;
   }
   const helper = helperFor(config.op);
+  // Map, Filter, Reduce, Some and Every hand the helper the function they
+  // run, which is an async function declared in this same module (see
+  // compileFile), so the helper's promise is awaited here.
+  if (helper && isListFnOp(config.op)) return `(await ${helper.name}(${[...args, ident(config.fn ?? '')].join(', ')}))`;
   return helper ? `${helper.name}(${args.join(', ')})` : `/* unsupported: ${config.op} */ undefined`;
 }
 
@@ -476,6 +480,8 @@ export interface CompileFileOptions {
   /** Variables declared at file scope, available to every graph in the file. */
   variables: ViVariable[];
   classes?: ViClass[];
+  /** This file's own functions, which Map, Filter, Reduce, Some and Every can run. */
+  functions?: ViAction[];
 }
 
 export interface CompiledExport {
@@ -517,7 +523,7 @@ function parameterIds(inputs: { name: string }[], ctx: ExportCtx): string[] {
 function compileAction(name: string, graph: AuthoredGraph, decl: { inputs: { name: string; type: ViType }[]; returns?: ViType }, opts: CompileFileOptions, visibility: 'export' | 'private' | 'method' = 'export', inMethod?: { class: string; method: string }): CompiledExport {
   const ctx = newCtx(graph, opts);
   if (inMethod) ctx.inMethod = inMethod;
-  const issues = validateGraph(graph, { requiresReturn: decl.returns !== undefined, callable: ctx.callable, variables: opts.variables, classes: ctx.classes, ...(inMethod ? { inMethod } : {}) });
+  const issues = validateGraph(graph, { requiresReturn: decl.returns !== undefined, callable: ctx.callable, variables: opts.variables, classes: ctx.classes, functions: opts.functions ?? [], ...(inMethod ? { inMethod } : {}) });
   const params = parameterIds(decl.inputs, ctx).join(', ');
   if (hasErrors(issues)) {
     return { name, issues, code: refusalStub(name, params, issues, visibility), imports: new Map(), usedOps: new Set(), stubs: new Map() };
@@ -541,7 +547,7 @@ function compileValue(name: string, graph: AuthoredGraph, decl: { returns?: ViTy
   // Legacy files authored before values gained a Start node remain runnable;
   // opening one in the editor migrates it to the execution-driven shape.
   const ctx = newCtx(graph, opts);
-  const issues = validateGraph(graph, { requiresReturn: true, callable: ctx.callable, variables: opts.variables });
+  const issues = validateGraph(graph, { requiresReturn: true, callable: ctx.callable, variables: opts.variables, functions: opts.functions ?? [] });
   if (hasErrors(issues)) {
     return { name, issues, code: refusalStub(name, '', issues), imports: new Map(), usedOps: new Set(), stubs: new Map() };
   }
@@ -617,7 +623,7 @@ export function compileFile(
     const message = problems.map((p) => p.message).join(' ');
     return { ok: false, code: `throw new Error(${JSON.stringify(message)});`, issues: problems.map((p) => ({ nodeId: '' as SemanticKey, exportName: p.className, severity: 'error' as const, message: p.message })) };
   }
-  const opts: CompileFileOptions = { actions: [...actions, ...functions], siblings, importFor, variables, classes };
+  const opts: CompileFileOptions = { actions: [...actions, ...functions], siblings, importFor, variables, classes, functions };
   const results: CompiledExport[] = [];
   for (const value of values) {
     const graph = (Object.prototype.hasOwnProperty.call(logic, value.name) ? logic[value.name] : undefined) ?? blankGraph(value.name);

@@ -1,7 +1,7 @@
-import { UNSUPPORTED_OPS } from './runtime.ts';
 import type { GNode, PortType, SemanticKey } from '../../core/src/types.ts';
 import { makeNode, type PortContext } from './ops.ts';
-import { categoryOf, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type MathOp, type ObjectOp, type ViAction, type ViClass, type ViType, type ViVariable } from './types.ts';
+import { listFnProblem } from './validate.ts';
+import { categoryOf, LIST_FN_OPS, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type ListFnOp, type MathOp, type ObjectOp, type ViAction, type ViClass, type ViType, type ViVariable } from './types.ts';
 import { allFields, allMethods, parentMethod } from './classes.ts';
 
 /**
@@ -66,6 +66,14 @@ const effect = (group: string, label: string, op: string, inputs: AuthoredDataPi
 const boundary = (label: string, op: Extract<AuthoredConfig, { kind: 'boundary' }>['op'], hint: string, type?: ViType): CatalogEntry => ({
   kind: 'boundary', group: 'Errors & Validation', label, hint, keywords: [label, op, 'validation', 'error'],
   config: () => ({ kind: 'boundary', op, ...(type ? { type } : {}) }),
+});
+// A list block with no function chosen yet: it is refused until one is set
+// as `fn` in its settings. Search also offers one ready to run for each
+// function that fits ("Map with label", see `listFnItems`), so searching
+// "map" finds both.
+const listFn = (label: string, op: ListFnOp, hint: string): CatalogEntry => ({
+  kind: 'compute', group: 'Lists', label, hint, keywords: [label, op, 'list', 'function', 'each'],
+  config: () => ({ kind: 'compute', op }),
 });
 const organize = (label: string, mode: Extract<AuthoredConfig, { kind: 'group' }>['mode'], hint: string): CatalogEntry => ({
   kind: 'group', group: 'Debugging', label, hint, keywords: [label, mode, 'organize'], config: () => ({ kind: 'group', mode, name: label, text: '' }),
@@ -169,11 +177,11 @@ export const CATALOG: CatalogEntry[] = [
   pure('Lists', 'Reverse', 'reverse', [pin('list', 'List')], listOut),
   pure('Lists', 'Sort', 'sort', [pin('list', 'List'), pin('field', 'String')], listOut),
   pure('Lists', 'Unique', 'unique', [pin('list', 'List')], listOut),
-  pure('Lists', 'Filter', 'filter', [pin('list', 'List'), pin('predicate', 'Object')], listOut),
-  pure('Lists', 'Map', 'map', [pin('list', 'List'), pin('transform', 'Object')], listOut),
-  pure('Lists', 'Reduce', 'reduce', [pin('list', 'List'), pin('reducer', 'Object'), pin('initial')], [pin('result')]),
-  pure('Lists', 'Some', 'some', [pin('list', 'List'), pin('predicate', 'Object')], boolOut),
-  pure('Lists', 'Every', 'every', [pin('list', 'List'), pin('predicate', 'Object')], boolOut),
+  listFn('Filter', 'filter', 'Keep the items a function says true for'),
+  listFn('Map', 'map', 'Run a function on every item and list what it returns'),
+  listFn('Reduce', 'reduce', 'Combine every item into one value with a function'),
+  listFn('Some', 'some', 'Whether a function says true for at least one item'),
+  listFn('Every', 'every', 'Whether a function says true for every item'),
 
   // Objects, maps and JSON
   pure('Objects', 'Make Object', 'makeObject', [pin('fields', 'Object')], objectOut),
@@ -274,7 +282,7 @@ export interface SearchItem {
 
 function catalogItem(entry: CatalogEntry, ctx: PortContext): SearchItem {
   const config = entry.config();
-  const unavailable = config.kind === 'data' || config.kind === 'effect' || (config.kind === 'boundary' && config.op !== 'throw') || (config.kind === 'compute' && UNSUPPORTED_OPS.has(config.op));
+  const unavailable = config.kind === 'data' || config.kind === 'effect' || (config.kind === 'boundary' && config.op !== 'throw');
   return {
     id: `block:${entry.kind}:${entry.label}`,
     kind: 'block',
@@ -313,6 +321,33 @@ function callItem(file: string, action: ViAction, group: 'Actions' | 'Functions'
     keywords: [action.name, file],
     make: (taken) => makeNode('call', { kind: 'call', file, name: action.name }, taken, { target: action }),
   };
+}
+
+const LIST_FN_HINTS: Record<ListFnOp, (fn: string) => string> = {
+  map: (fn) => `Run ${fn} on every item and list what it returns`,
+  filter: (fn) => `Keep the items ${fn} says true for`,
+  reduce: (fn) => `Combine every item into one value with ${fn}, starting from initial`,
+  some: (fn) => `Whether ${fn} says true for at least one item`,
+  every: (fn) => `Whether ${fn} says true for every item`,
+};
+
+/** "Map with label", "Filter with isCheap": one per list block and each of this file's functions it could run. */
+function listFnItems(functions: ViAction[], ctx: PortContext): SearchItem[] {
+  return functions.flatMap((fn) => (Object.keys(LIST_FN_OPS) as ListFnOp[])
+    .filter((op) => listFnProblem(op, fn.name, [fn]) === undefined)
+    .map((op): SearchItem => {
+      const block = LIST_FN_OPS[op].name;
+      return {
+        id: `list:${op}:${fn.name}`,
+        kind: 'block',
+        label: `${block} with ${fn.name}`,
+        hint: LIST_FN_HINTS[op](fn.name),
+        group: 'Lists',
+        category: categoryOf('compute'),
+        keywords: [block, op, fn.name, 'list', 'function', 'each'],
+        make: (taken) => makeNode('compute', { kind: 'compute', op, fn: fn.name }, taken, { ...ctx, target: fn }),
+      };
+    }));
 }
 
 function objectItem(op: ObjectOp, cls: string, label: string, hint: string, keywords: string[], ctx: PortContext, extra: { field?: string; method?: string } = {}): SearchItem {
@@ -378,6 +413,9 @@ export function searchIndex(input: SearchIndexInput): SearchItem[] {
   }
   for (const { file, action } of input.actions) items.push(callItem(file, action, 'Actions'));
   for (const { file, action } of input.functions) items.push(callItem(file, action, 'Functions'));
+  // List blocks run functions from this file only; a function in another file
+  // would need importing into the helper call, which nothing does yet.
+  items.push(...listFnItems(input.functions.filter(({ file }) => file === '').map(({ action }) => action), input.ctx));
   items.push(...classItems(input.classes ?? [], input.ctx, input.inMethod));
   return items;
 }
