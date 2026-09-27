@@ -194,10 +194,18 @@ function fill(root,item){
 function nextOutside(w,n){var s=n;while(s){if(s.nextElementSibling){w.currentNode=s.nextElementSibling;return s.nextElementSibling;}s=s.parentElement;if(!s||s===document.body){return null;}}return null;}
 function toast(t){var d=document.createElement('div');d.className='vz-toast';d.textContent=t;document.body.appendChild(d);setTimeout(function(){d.remove();},3200);}
 function url(f,n){return C.api+'/vibez/'+encodeURIComponent(f)+'/'+encodeURIComponent(n);}
+var warned=false;
 function refresh(){
+  var missed=[];
   return Promise.all(C.values.map(function(v){
-    return fetch(url(v.file,v.name)).then(function(r){if(!r.ok){throw 0;}return r.json();}).then(function(j){live[key(v.file,v.name)]=j;},function(){});
-  })).then(function(){fill(document.body);});
+    return fetch(url(v.file,v.name)).then(function(r){if(!r.ok){throw 0;}return r.json();}).then(function(j){live[key(v.file,v.name)]=j;},function(){missed.push(v.name);});
+  })).then(function(){
+    fill(document.body);
+    // Falling back to the samples looks exactly like working, so the page has
+    // to say it: a page quietly showing made-up numbers is worse than one that
+    // admits nothing answered.
+    if(missed.length&&!warned){warned=true;toast('Showing samples: nothing answered for '+missed.join(', ')+'. Is the logic running?');}
+  });
 }
 function act(a,item){
   if(a.run==='navigate'){location.href=C.routes[a.to]||a.to;return;}

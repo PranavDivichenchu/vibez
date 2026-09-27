@@ -260,3 +260,14 @@ test('the built page keeps the answer and shows it', () => {
   assert.match(html, /answers\[key\(a\.file,a\.name\)\]=answer/);
   assert.match(html, /if\(r\.from==='answer'\)/);
 });
+
+test('a page that cannot reach its logic says so instead of passing samples off as real', () => {
+  let doc = blankDoc();
+  const t = add(doc, 'Text'); doc = t.doc;
+  doc = update(doc, t.id, { bind: { from: 'vi', file: 'shop.vi', name: 'orgName' } });
+  const html = compile(doc, { linked });
+  // The failure is noticed rather than swallowed, and said once.
+  assert.match(html, /missed\.push\(v\.name\)/);
+  assert.match(html, /Showing samples/);
+  assert.match(html, /warned=true/);
+});
