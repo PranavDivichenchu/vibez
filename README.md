@@ -137,9 +137,6 @@ of the page is hidden.
   (links to it elsewhere are left alone and counted). ⌘Z brings either back.
   The home page, and a page's `<html>`, `<head>`, `<body>` and `<main>`,
   cannot be deleted.
-- **Drag to delete**: drag an element off its page and onto the element
-  panel (or, when the panel is closed, the strip on the left that says "Drop
-  here to delete"). It is deleted; ⌘Z brings it back.
 - **Link a button or link to a page**: double-click it, then choose the page
   under **Links to**, or press **Pick a page** and click the page (its name
   or the page itself). "Another address…" takes any URL.

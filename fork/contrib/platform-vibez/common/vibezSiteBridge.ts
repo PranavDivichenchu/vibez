@@ -258,7 +258,6 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + '.vz-ov.vz-flash{border-color:#22C55E;background:rgba(34,197,94,.12);transition:none}'
   + '.vz-ghost{position:fixed;z-index:2147483646;pointer-events:none;display:none;border:2px dashed #2563EB;border-radius:6px;background:rgba(37,99,235,.10);box-sizing:border-box}'
   + '.vz-ov.vz-mark{border:3px solid #3B82F6;background:rgba(59,130,246,.14);box-shadow:0 0 0 4px rgba(59,130,246,.25);transition:none}'
-  + 'html.vz-trash .vz-lifted,html.vz-trash .vz-dragging{opacity:.35!important;outline:2px dashed #E5484D!important;outline-offset:2px}'
   + '.vz-chip{position:fixed;z-index:2147483647;pointer-events:none;display:none;padding:3px 7px;border-radius:4px;background:#1D4ED8;color:#fff;font:600 11px/1.4 -apple-system,system-ui,sans-serif;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)}'
   + '.vz-chip i{font-style:normal;opacity:.75;font-weight:500;margin-left:6px}'
   + '.vz-drop{position:fixed;z-index:2147483647;pointer-events:none;background:#2563EB;border-radius:2px;box-shadow:0 0 0 2px rgba(255,255,255,.9);display:none}'
@@ -267,7 +266,7 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + '.vz-lifted{opacity:.92!important;box-shadow:0 12px 32px rgba(0,0,0,.28)!important;transition:none!important;z-index:2147483000!important;position:relative}'
   + '.vz-guide{position:fixed;z-index:2147483647;pointer-events:none;background:#EC4899;display:none}'
   + '.vz-into{position:fixed;z-index:2147483645;pointer-events:none;border:2px dashed #22C55E;border-radius:6px;background:rgba(34,197,94,.06);display:none;box-sizing:border-box}';
-var hover, chip, sel, flash, mark, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null, marked = null, overTrash = false;
+var hover, chip, sel, flash, mark, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null, marked = null;
 function box(o, el){
   if (!el) { o.style.display = 'none'; return; }
   var r = el.getBoundingClientRect();
@@ -667,13 +666,10 @@ on(document, 'pointermove', function(e){
     drag.el.style.pointerEvents = 'none';
     document.documentElement.classList.add('vz-drag');
     hovered = null; refresh();
-    overTrash = false;
-    /* Keep the pointer while dragging, so moving over the canvas (to the element panel) still reaches this page. */
+    /* Keep the pointer while dragging, even when it leaves the page. */
     try { document.documentElement.setPointerCapture(press.id); drag.captured = press.id; } catch (x) {}
     post({ type: 'dragStart' });
   }
-  /* Where the pointer is, so the canvas can tell when it is over the element panel (drop there to delete). */
-  post({ type: 'dragAt', x: e.clientX, y: e.clientY });
   if (drag.free) { freeMove(e); return; }
   if (e.clientY < 40) { scrollBy(0, -14); } else if (e.clientY > innerHeight - 40) { scrollBy(0, 14); }
   drag.target = dropAt(e.clientX, e.clientY);
@@ -681,17 +677,8 @@ on(document, 'pointermove', function(e){
 }, true);
 function endDrag(commit){
   if (!drag) { press = null; return; }
-  /* Dropped on the element panel: put it back where it was, and delete it instead. */
-  var trashed = commit && overTrash;
-  if (trashed) { commit = false; }
-  overTrash = false;
-  document.documentElement.classList.remove('vz-trash');
   if (drag.captured !== undefined) { try { document.documentElement.releasePointerCapture(drag.captured); } catch (x) {} }
   post({ type: 'dragEnd' });
-  if (trashed) {
-    var gone = drag.el;
-    setTimeout(function(){ post({ type: 'deleteKey', at: Number(gone.getAttribute('data-vz-at')), tag: gone.tagName.toLowerCase(), text: info(gone).text }); }, 0);
-  }
   var d = drag.target, el = drag.el, free = drag.free, held = drag;
   el.classList.remove('vz-dragging'); el.classList.remove('vz-lifted'); el.style.pointerEvents = '';
   if (!el.getAttribute('style')) { el.removeAttribute('style'); }
@@ -780,7 +767,6 @@ on(window, 'message', function(e){
     if (up) { selected = up; refresh(); post({ type: 'inspect', info: info(up) }); }
   }
   if (m.type === 'cancelDrag') { endDrag(false); }
-  if (m.type === 'overTrash') { overTrash = !!m.on; document.documentElement.classList.toggle('vz-trash', overTrash); }
   if (m.type === 'mark') {
     marked = m.key ? keyed[m.key] || null : null;
     if (marked) { var mr = marked.getBoundingClientRect(); if (mr.bottom < 0 || mr.top > innerHeight) { marked.scrollIntoView({ block: 'center' }); } }
