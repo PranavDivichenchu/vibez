@@ -132,3 +132,20 @@ test('Claude Code\'s own edits reach the team through the hooks', async (t) => {
   const after = await pranav.snapshot();
   assert.deepEqual(after.claims.filter((c) => c.person === 'Ashmith'), []);
 });
+
+// A teammate is shown the lines an edit touched. Finding the new text in the
+// finished file lands on the first copy of it, which for anything repeated is
+// the wrong place — and then the wrong function gets named too.
+test('the lines come from what the tool reported, not from searching for the text', () => {
+  const text = ['function total() {', '  return 0;', '}', '', 'function shipping() {', '  return 0;', '}'].join('\n');
+  const reported = changedLines(text, { new_string: '  return 0;' }, 'Edit', { structuredPatch: [{ newStart: 6, newLines: 1 }] });
+  assert.deepEqual(reported, [6, 6]);
+  assert.deepEqual(changedSymbols(text, reported!), ['shipping']);
+});
+
+test('with nothing reported, the text it replaced pins the place when that is unique', () => {
+  const text = ['function total() {', '  return 0;', '}', '', 'function shipping() {', '  return 0; // free', '}'].join('\n');
+  const guessed = changedLines(text, { old_string: '  return 0; // free', new_string: '  return 0; // free' }, 'Edit');
+  assert.deepEqual(guessed, [6, 6]);
+  assert.deepEqual(changedSymbols(text, guessed!), ['shipping']);
+});

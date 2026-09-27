@@ -91,6 +91,12 @@ export class TeamSession {
     return this.members.find((m) => m.name.toLowerCase() === wanted);
   }
 
+  /** Everyone on the team going by this name. Nothing makes names unique. */
+  usersByName(name: string): Member[] {
+    const wanted = name.trim().toLowerCase();
+    return this.members.filter((m) => m.name.toLowerCase() === wanted);
+  }
+
   /**
    * Take over an agent row this person already has, instead of starting a
    * new one: an agent's MCP server and its edit hook are separate processes
@@ -190,10 +196,20 @@ export class TeamSession {
     return fresh;
   }
 
-  /** Release some of this agent's claims, or all of them. */
+  /**
+   * Release some of this agent's claims, or all of them.
+   *
+   * Scoped to this person, not to this session's agent row. Claims outlive the
+   * window that made them: after a restart the old agent's claims are still on
+   * the server and still warn everyone else off those files, but this session
+   * has no agent id, so letting go used to release nothing and say it had
+   * worked. Row-level security already limits an update to your own claims.
+   */
   async release(paths?: string[]): Promise<number> {
-    if (!this.agentId) return 0;
-    const filter: Record<string, string> = { agent_id: `eq.${this.agentId}`, released_at: 'is.null' };
+    const filter: Record<string, string> = this.agentId
+      ? { agent_id: `eq.${this.agentId}`, released_at: 'is.null' }
+      : { user_id: `eq.${this.rest.userId}`, workspace_id: `eq.${this.workspaceId}`, released_at: 'is.null' };
+    if (!this.agentId && !this.rest.userId) return 0;
     if (paths?.length) filter['path'] = `in.(${paths.map((p) => `"${normalizePath(p).replace(/"/g, '')}"`).join(',')})`;
     const released = await this.rest.update('team_claims', filter, { released_at: new Date().toISOString() });
     return released.length;
@@ -218,9 +234,17 @@ export class TeamSession {
   private async recipient(to: string): Promise<string | null> {
     if (/^(everyone|all|team)$/i.test(to.trim())) return null;
     await this.loadMembers();
-    const member = this.userByName(to);
-    if (!member) throw new TeamError(`Nobody on the team is called ${to}. The team: ${this.members.map((m) => m.name).join(', ')}.`);
-    return member.user_id;
+    // Two people can go by one name, and one of them can be you. Sending to
+    // whichever row happened to come first put the message in the sender's own
+    // thread, where the person it was meant for could never see it.
+    const matches = this.usersByName(to);
+    const others = matches.filter((m) => m.user_id !== this.rest.userId);
+    if (!matches.length) throw new TeamError(`Nobody on the team is called ${to}. The team: ${this.members.map((m) => m.name).join(', ')}.`);
+    if (!others.length) throw new TeamError(`${to} is you. Send it to someone else, or to everyone.`);
+    if (others.length > 1) {
+      throw new TeamError(`${others.length} people on the team are called ${to}, so it is not clear who this is for. Ask one of them to change their name in the Team view.`);
+    }
+    return others[0]!.user_id;
   }
 
   async message(to: string, body: string): Promise<void> {

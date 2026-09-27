@@ -36,6 +36,10 @@ interface HookInput {
     content?: string;
     edits?: { old_string?: string; new_string?: string }[];
   };
+  /** What the tool reported doing. Claude Code puts the real diff here. */
+  tool_response?: {
+    structuredPatch?: { newStart?: number; newLines?: number }[];
+  };
 }
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -54,8 +58,22 @@ function teamPath(projectDir: string, cwd: string, file: string): string | undef
   return path.startsWith('.vibez/') || path.startsWith('.git/') ? undefined : path;
 }
 
-/** Which lines of the file the edit left changed, from what was written. */
-export function changedLines(text: string, input: NonNullable<HookInput['tool_input']>, tool: string): [number, number] | undefined {
+/**
+ * Which lines of the file the edit left changed.
+ *
+ * The tool says where it wrote, and that is taken when it does. Searching the
+ * finished file for the text that was written finds the *first* copy of it,
+ * which for anything repeated — `});`, a second `return 0;`, an added import —
+ * is the wrong place, and a teammate is then shown a confident, precise,
+ * wrong line to look at. The search is kept only for when nothing was reported.
+ */
+export function changedLines(text: string, input: NonNullable<HookInput['tool_input']>, tool: string, response?: HookInput['tool_response']): [number, number] | undefined {
+  const patch = (response?.structuredPatch ?? []).filter((h) => typeof h.newStart === 'number');
+  if (patch.length) {
+    const first = Math.min(...patch.map((h) => h.newStart!));
+    const last = Math.max(...patch.map((h) => h.newStart! + Math.max(0, (h.newLines ?? 1) - 1)));
+    return [Math.max(1, first), Math.max(1, last)];
+  }
   const lineAt = (index: number): number => text.slice(0, index).split('\n').length;
   if (tool === 'Write') {
     return [1, Math.max(1, text.split('\n').length)];
@@ -65,10 +83,13 @@ export function changedLines(text: string, input: NonNullable<HookInput['tool_in
   let last = 0;
   for (const piece of pieces) {
     if (!piece) continue;
-    const at = text.indexOf(piece);
-    if (at < 0) continue;
-    first = Math.min(first, lineAt(at));
-    last = Math.max(last, lineAt(at + piece.length));
+    // Anchored on what was replaced, when that is known and unique: the new
+    // text may appear many times, but the old text was at one place.
+    const old = tool === 'MultiEdit' ? undefined : input.old_string;
+    const anchor = old && text.indexOf(old) >= 0 && text.indexOf(old) === text.lastIndexOf(old) ? text.indexOf(old) : text.indexOf(piece);
+    if (anchor < 0) continue;
+    first = Math.min(first, lineAt(anchor));
+    last = Math.max(last, lineAt(anchor + piece.length));
   }
   return last ? [first, last] : undefined;
 }
@@ -159,7 +180,7 @@ async function main(): Promise<void> {
       } catch {
         // A deleted or unreadable file still counts as edited.
       }
-      const lines = changedLines(text, input.tool_input ?? {}, input.tool_name!);
+      const lines = changedLines(text, input.tool_input ?? {}, input.tool_name!, input.tool_response);
       const symbols = lines && input.tool_name !== 'Write' ? changedSymbols(text, lines) : [];
       const meta: EditMeta = { tool: input.tool_name!, ...(lines ? { lines } : {}), ...(symbols.length ? { symbols } : {}) };
       await team.claim([path], 'editing');

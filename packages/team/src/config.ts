@@ -105,11 +105,28 @@ export async function joinTeam(dir: string, opts: { code: string; as: string; ur
   if (!url || !anonKey) throw new TeamError(`There is no ${PROJECT_FILE} here yet. Pass --url and --key for the team's Supabase project.`);
   const rest = new SupabaseRest(url, anonKey);
   const session = await rest.signInAnonymously();
-  const workspaceId = await rest.rpc<string>('team_join_workspace', { p_code: opts.code, p_member_name: opts.as });
-  writePersonal(url, workspaceId, { name: opts.as, session });
-  if (project && project.team.workspaceId !== workspaceId) {
-    throw new TeamError(`That code is for a different team than the one in ${project.file}.`);
+  // The team this folder belongs to, checked before anything is written: a
+  // code for someone else's team used to add you to it and only then say the
+  // code was wrong, leaving you in a team you never meant to join.
+  const expect = project?.team.workspaceId;
+  const join = (args: Record<string, unknown>) => rest.rpc<string>('team_join_workspace', { p_code: opts.code, p_member_name: opts.as, ...args });
+  let workspaceId: string;
+  try {
+    workspaceId = expect ? await join({ p_expect: expect }) : await join({});
+  } catch (error) {
+    const said = String(error);
+    if (expect && /different team/i.test(said)) {
+      throw new TeamError(`That code is for a different team than the one in ${project!.file}.`);
+    }
+    // A team whose server predates this check: fall back to the old call and
+    // check here, which is late but still better than not checking.
+    if (!expect || !/could not find the function|PGRST202/i.test(said)) throw error;
+    workspaceId = await join({});
+    if (workspaceId !== expect) {
+      throw new TeamError(`That code is for a different team than the one in ${project!.file}.`);
+    }
   }
+  writePersonal(url, workspaceId, { name: opts.as, session });
   if (!project) {
     const [ws] = await rest.select<{ name: string }>('team_workspaces', { id: `eq.${workspaceId}`, select: 'name' });
     return { workspaceId, file: writeProject(dir, { url, anonKey, workspaceId, name: ws?.name ?? 'Team' }) };
