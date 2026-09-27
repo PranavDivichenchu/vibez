@@ -154,8 +154,10 @@ test('options list exactly what an element can connect to', async () => {
 
 test('building compiles to .vibez/build', async () => {
   const { text } = await call('ui_build', { path: 'pages/dashboard.ui' });
-  assert.match(text, /Compiled pages\/dashboard\.ui to \.vibez\/build\/dashboard\.html/);
-  assert.match(readFileSync(join(root, '.vibez/build/dashboard.html'), 'utf8'), /^<!doctype html>/);
+  // The build mirrors the source tree, so two pages of the same name in
+  // different folders cannot land on top of each other.
+  assert.match(text, /Compiled pages\/dashboard\.ui to \.vibez\/build\/pages\/dashboard\.html/);
+  assert.match(readFileSync(join(root, '.vibez/build/pages/dashboard.html'), 'utf8'), /^<!doctype html>/);
 });
 
 test('vi_run compiles and runs a value or action for real, with no page involved', async () => {

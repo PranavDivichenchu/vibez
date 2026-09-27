@@ -243,6 +243,28 @@ export interface LogicEditResult {
   touched: Set<string>;
 }
 
+/**
+ * What a block's settings mean, whichever op set them.
+ *
+ * "Make Object with Fields" reads `fields` as a pin per field, named by it.
+ * That translation used to happen only when a block was added, so setting
+ * `fields` on one that already existed looked like it worked, changed no pins,
+ * and left a `fields` key in the file that every later read showed as if it
+ * meant something. It is done here so both ops agree, and so a key left behind
+ * by the old behaviour is cleaned up the next time the block is set.
+ */
+function settingsFor(current: AuthoredConfig | undefined, merged: Record<string, unknown>): AuthoredConfig {
+  if (current?.kind !== 'compute' || current.op !== 'makeObject') return merged as AuthoredConfig;
+  const { fields, ...rest } = merged;
+  if (fields && typeof fields === 'object') {
+    const list = Array.isArray(fields)
+      ? (fields as { name: string; type?: ViType }[])
+      : Object.entries(fields as Record<string, ViType>).map(([name, type]) => ({ name, type }));
+    return { ...rest, inputs: list.map((f) => (f.type ? { name: f.name, type: f.type } : { name: f.name })) } as AuthoredConfig;
+  }
+  return rest as AuthoredConfig;
+}
+
 export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings): LogicEditResult {
   let doc = start;
   const log: string[] = [];
@@ -391,15 +413,7 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           let node = item.make(takenIds(found.graph));
           let graph = addNode(found.graph, node);
           if (op.config) {
-            const current = configOf(node);
-            // A Make Object block given fields gets one pin per field, named by it.
-            if (current?.kind === 'compute' && current.op === 'makeObject' && op.config['fields'] && typeof op.config['fields'] === 'object') {
-              const fields = op.config['fields'] as Record<string, ViType> | { name: string; type?: ViType }[];
-              const list = Array.isArray(fields) ? fields : Object.entries(fields).map(([name, type]) => ({ name, type }));
-              const { fields: _f, ...rest } = op.config;
-              op.config = { ...rest, inputs: list.map((f) => (f.type ? { name: f.name, type: f.type } : { name: f.name })) };
-            }
-            const merged = { ...(configOf(node) ?? {}), ...op.config } as AuthoredConfig;
+            const merged = settingsFor(configOf(node), { ...(configOf(node) ?? {}), ...op.config });
             graph = updateConfig(graph, node.id, merged, targetContext(doc, merged, ctx, siblings));
             node = graph.nodes.find((n) => n.id === node.id)!;
           }
@@ -417,7 +431,7 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           const current = configOf(node);
           if (!current) throw new VibezError(`${id} has no settings to change.`);
           if ('kind' in op.config && op.config['kind'] !== current.kind) throw new VibezError(`A block's kind cannot change; delete it and add a ${String(op.config['kind'])} block instead.`);
-          const merged = { ...current, ...op.config } as AuthoredConfig;
+          const merged = settingsFor(current, { ...current, ...op.config });
           const ctx = targetContext(doc, merged, contextFor(found.where, found.decl, doc), siblings);
           const graph = updateConfig(found.graph, id, merged, ctx);
           doc = store(doc, found.where, op.graph, pruneEdges(graph));

@@ -38,8 +38,18 @@ import { registerTeamTools } from './teamTools.ts';
 
 const VALUE_TYPES = ['String', 'Number', 'Boolean', 'Url', 'Date', 'Object', 'List'] as const;
 
-/** Where a `.vi` file's compiled module lands — flat by basename, the same convention the editor's own build output and `.ui`'s `.vibez/build/<name>.html` already use. */
-const buildPathFor = (relativeVi: string): string => posix.join('.vibez', 'build', `${basename(relativeVi, '.vi')}.vi.js`);
+/**
+ * Where a file's build output lands: under `.vibez/build`, in the same shape
+ * as the source.
+ *
+ * It used to be flat, named by the file alone, so `marketing/home.ui` and
+ * `app/home.ui` — an ordinary way to lay a site out — compiled to one file,
+ * the second quietly replacing the first, and a link between them pointed at
+ * the wrong page. Mirroring the folders cannot collide, and keeps links
+ * between built pages the same shape as the links between the sources.
+ */
+const buildPathFor = (relative: string, extension: string): string =>
+  posix.join('.vibez', 'build', relative.replace(/\.(?:ui|vi)$/, '') + extension);
 
 type Reply = { content: { type: 'text'; text: string }[]; isError?: boolean };
 const say = (text: string): Reply => ({ content: [{ type: 'text', text }] });
@@ -373,9 +383,13 @@ export function createVibezServer(root: string): McpServer {
   }, ({ path }) => guard(async () => {
     const doc = await ws.readPage(path);
     const linked = await ws.linkedFor(path);
+    const out = buildPathFor(path, '.html');
     const routes: Record<string, string> = {};
-    for (const page of await ws.find(['.ui'])) routes[posix.relative(posix.dirname(path), page)] = `./${basename(page, '.ui')}.html`;
-    const out = `.vibez/build/${basename(path, '.ui')}.html`;
+    for (const page of await ws.find(['.ui'])) {
+      // As the page writes it, pointed at where the other page is built.
+      const to = posix.relative(posix.dirname(out), buildPathFor(page, '.html'));
+      routes[posix.relative(posix.dirname(path), page)] = to.startsWith('.') ? to : `./${to}`;
+    }
     await ws.write(out, compile(doc, { linked, routes }));
     const broken = await problems(path, doc);
     return say(`Compiled ${path} to ${out}.${broken.length ? `\nBroken links: ${broken.join('; ')}` : '\nNo broken links.'}`);

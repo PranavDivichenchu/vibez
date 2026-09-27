@@ -270,13 +270,19 @@ export function blankGraph(name: string): AuthoredGraph {
 export function scaffold(name: string, ctx: PortContext): AuthoredGraph {
   const graph = blankGraph(name);
   const taken = new Set<SemanticKey>();
+  // Fixed ids, not minted ones. A graph that has never been saved is built
+  // fresh every time it is asked for, so a random id would be a different id
+  // on the next read — and anyone who wrote down what they were just shown,
+  // an agent above all, would find it gone. Ids only have to be unique inside
+  // one graph, and a scaffold holds at most one of each.
+  const START = 'entry-start' as SemanticKey;
+  const RESULT = 'return-value' as SemanticKey;
   if (ctx.pure) {
-    graph.nodes = [makeNode('return', { kind: 'return' }, taken, ctx)];
+    graph.nodes = [{ ...makeNode('return', { kind: 'return' }, taken, ctx), id: RESULT }];
     return graph;
   }
-  const entry = makeNode('entry', { kind: 'entry' }, taken, ctx);
-  taken.add(entry.id);
-  const ret = makeNode('return', { kind: 'return' }, taken, ctx);
+  const entry = { ...makeNode('entry', { kind: 'entry' }, taken, ctx), id: START };
+  const ret = { ...makeNode('return', { kind: 'return' }, taken, ctx), id: RESULT };
   graph.nodes = [entry, ret];
   return addEdge(graph, entry.id, 'exec:out', ret.id, 'exec');
 }
