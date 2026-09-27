@@ -265,6 +265,19 @@ function linkValue(doc: UiDoc, node: UiNode, key: 'shows' | 'repeat', raw: unkno
       throw new VibezError(`${ref.file} has no value called ${ref.name}. It has: ${exports.values.map((v) => v.name).join(', ') || 'no values yet'}.`);
     }
   }
+  if (ref.from === 'answer') {
+    const exports = ctx.linked.get(ref.file);
+    if (!exports) {
+      throw new VibezError(`There is no ${ref.file} next to this page. .vi files it can use: ${[...ctx.linked.keys()].join(', ') || 'none yet (create one with vi_declare)'}.`);
+    }
+    const action = exports.actions.find((a) => a.name === ref.name);
+    if (!action) {
+      throw new VibezError(`${ref.file} has no action called ${ref.name}. Its actions: ${exports.actions.map((a) => a.name).join(', ') || 'none yet'}.`);
+    }
+    if (!action.returns) {
+      throw new VibezError(`${ref.name} does not answer with anything, so there is nothing to show. Give it a return type in ${ref.file} first.`);
+    }
+  }
   const choices = valueChoices(doc, node.id, slot, ctx.linked);
   const wanted = formatValue(ref);
   if (!choices.some((c) => formatValue(c.ref) === wanted)) {
@@ -273,7 +286,7 @@ function linkValue(doc: UiDoc, node: UiNode, key: 'shows' | 'repeat', raw: unkno
     throw new VibezError(`A ${key === 'repeat' ? 'repeating frame' : node.kind} needs ${SLOT_WORDS[slot]}, and ${raw} is not one.${where} Values that fit here: ${fitting.join(', ') || 'none yet'}.`);
   }
   let next = update(doc, node.id, (key === 'shows' ? { bind: ref } : { repeat: ref }) as NodePatch);
-  if (ref.from === 'vi' && !next.links.includes(ref.file)) next = updateDoc(next, { links: [...next.links, ref.file] });
+  if ((ref.from === 'vi' || ref.from === 'answer') && !next.links.includes(ref.file)) next = updateDoc(next, { links: [...next.links, ref.file] });
   return { doc: next, said: key === 'repeat' ? `repeats for each of ${raw}` : `shows ${raw}` };
 }
 

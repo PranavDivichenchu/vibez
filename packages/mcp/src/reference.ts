@@ -69,9 +69,11 @@ References are written the same way everywhere, in and out:
 | \`item.customer\` | a field of the current item, inside a frame that repeats |
 | \`input.email\` | what was typed into the input saved as \`email\` |
 | \`dashboard.vi#inviteTeammate\` | an action, for onClick / onEnter |
+| \`answer:orders.vi#place\` | what that action answered when it last ran |
 | \`go:gallery.ui\` | open another page (or \`go:https://…\`) |
 
 - \`shows\` on a text, image or gallery. Text takes words and numbers, an image a picture address, a gallery a List.
+- To show the result of a button press, \`shows\` an \`answer:\` — the page keeps what the action answered and redraws when it runs. It is empty until then. The action needs a return type.
 - \`repeat\` on a frame takes a List. The frame's children are drawn once per item, and inside it \`item.<field>\` is available.
 - \`onClick\` on a button or frame, \`onEnter\` on an input. An action's inputs fill themselves from page inputs with the same name; override with \`args\`, e.g. \`{ "email": "input.email" }\`.
 - Set any of them to \`null\` to disconnect.
