@@ -1,4 +1,4 @@
-import type { ActionRef, FrameNode, Ratio, Sizing, UiDoc, UiNode, ValueRef } from './types.ts';
+import type { ActionRef, ColorToken, FrameNode, Ratio, Sizing, UiDoc, UiNode, ValueRef } from './types.ts';
 import { themeById, type Theme } from './themes.ts';
 import { asText, resolve, type Scope } from './links.ts';
 
@@ -96,7 +96,7 @@ const el = (tag: string, style: Record<string, string> = {}, extra: Partial<VNod
 
 export function renderDoc(doc: UiDoc, options: RenderOptions): VNode {
   const theme = themeById(doc.theme);
-  const root = renderNode(doc.root, undefined, theme, options, options.scope);
+  const root = renderNode(doc.root, undefined, theme, options, options.scope, 'page');
   root.style['font-family'] = theme.font.body;
   root.style['color'] = theme.colors.text;
   root.style['-webkit-font-smoothing'] = 'antialiased';
@@ -104,7 +104,36 @@ export function renderDoc(doc: UiDoc, options: RenderOptions): VNode {
   return root;
 }
 
-function renderNode(node: UiNode, parent: FrameNode | undefined, theme: Theme, options: RenderOptions, scope: Scope): VNode {
+/** How light a colour is to the eye (WCAG relative luminance), from #rrggbb. */
+function luminance(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0.5;
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = parseInt(m[1]!.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+/**
+ * The colour a piece of text is drawn in, on whatever it sits on. Text in
+ * the same colour as its background (accent words on an accent chip) would
+ * vanish, so below a readable contrast it becomes the theme's text or
+ * inverse colour, whichever reads better there.
+ */
+export function readableColor(theme: Theme, token: ColorToken, backdrop: ColorToken): string {
+  const color = theme.colors[token];
+  const behind = theme.colors[backdrop];
+  if (contrast(color, behind) >= 2.5) return color;
+  return contrast(theme.colors.text, behind) >= contrast(theme.colors.inverse, behind) ? theme.colors.text : theme.colors.inverse;
+}
+
+function renderNode(node: UiNode, parent: FrameNode | undefined, theme: Theme, options: RenderOptions, scope: Scope, backdrop: ColorToken): VNode {
   const phone = options.phone ?? false;
   const desk = sizeStyle(node.size, parent, false);
   const mobile = sizeStyle(node.size, parent, true);
@@ -116,15 +145,15 @@ function renderNode(node: UiNode, parent: FrameNode | undefined, theme: Theme, o
   }
   let out: VNode;
   switch (node.kind) {
-    case 'frame': out = renderFrame(node, theme, options, scope, style); break;
-    case 'text': out = renderText(node, theme, options, scope, style); break;
+    case 'frame': out = renderFrame(node, theme, options, scope, style, backdrop); break;
+    case 'text': out = renderText(node, theme, options, scope, style, backdrop); break;
     case 'button': out = renderButton(node, theme, style); break;
     case 'input': out = renderInput(node, theme, options, scope, style); break;
     case 'image': out = renderImage(node, theme, options, scope, style); break;
     case 'gallery': out = renderGallery(node, theme, options, scope, style); break;
     case 'link': {
       out = el('a', {
-        ...style, color: theme.colors[node.color], 'text-decoration': 'underline', 'text-underline-offset': '3px',
+        ...style, color: readableColor(theme, node.color, backdrop), 'text-decoration': 'underline', 'text-underline-offset': '3px',
         'font-size': theme.text.body.size, 'font-weight': '500', cursor: 'pointer',
       }, { text: node.label });
       const to = node.to.endsWith('.ui') && options.routeOf ? options.routeOf(node.to) : node.to;
@@ -174,7 +203,7 @@ function frameLayout(node: FrameNode, theme: Theme): { style: Record<string, str
   return { style, phone };
 }
 
-function renderFrame(node: FrameNode, theme: Theme, options: RenderOptions, scope: Scope, style: Record<string, string>): VNode {
+function renderFrame(node: FrameNode, theme: Theme, options: RenderOptions, scope: Scope, style: Record<string, string>, backdrop: ColorToken): VNode {
   const layout = frameLayout(node, theme);
   const out = el(node.id === 'page' ? 'main' : 'div', { ...style, ...layout.style });
   if (layout.phone) {
@@ -183,7 +212,9 @@ function renderFrame(node: FrameNode, theme: Theme, options: RenderOptions, scop
   }
   if (node.on) out.action = node.on;
 
-  const drawChildren = (childScope: Scope): VNode[] => node.children.map((child) => renderNode(child, node, theme, options, childScope));
+  // Children sit on this frame's fill, or on whatever it sits on when it has none.
+  const behind: ColorToken = node.fill ?? backdrop;
+  const drawChildren = (childScope: Scope): VNode[] => node.children.map((child) => renderNode(child, node, theme, options, childScope, behind));
 
   if (node.repeat) {
     out.bind = { kind: 'repeat', ref: node.repeat };
@@ -220,7 +251,7 @@ function markCopy(node: VNode): void {
 
 const TEXT_TAG = { title: 'h1', heading: 'h2', subheading: 'h3', body: 'p', caption: 'p', label: 'span' } as const;
 
-function renderText(node: Extract<UiNode, { kind: 'text' }>, theme: Theme, options: RenderOptions, scope: Scope, style: Record<string, string>): VNode {
+function renderText(node: Extract<UiNode, { kind: 'text' }>, theme: Theme, options: RenderOptions, scope: Scope, style: Record<string, string>, backdrop: ColorToken): VNode {
   const t = theme.text[node.variant];
   const shown = node.bind ? asText(resolve(node.bind, scope)) : undefined;
   const out = el(TEXT_TAG[node.variant], {
@@ -230,7 +261,7 @@ function renderText(node: Extract<UiNode, { kind: 'text' }>, theme: Theme, optio
     'font-size': t.size,
     'font-weight': String(t.weight),
     'line-height': t.line,
-    color: theme.colors[node.color],
+    color: readableColor(theme, node.color, backdrop),
     'text-align': node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
     'overflow-wrap': 'break-word',
     ...(t.tracking ? { 'letter-spacing': t.tracking } : {}),

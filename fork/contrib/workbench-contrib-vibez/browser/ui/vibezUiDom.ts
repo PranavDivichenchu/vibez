@@ -18,6 +18,8 @@ import { describeRef } from '../../../../../platform/vibez/common/vibezUiLinks.j
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const ICONS: Record<string, string> = {
+	panelLeft: 'M3 4h18v16H3zM9 4v16',
+	panelRight: 'M3 4h18v16H3zM15 4v16',
 	stack: 'M4 5h16v5H4zM4 14h16v5H4z',
 	row: 'M3 5h8v14H3zM13 5h8v14h-8z',
 	grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',

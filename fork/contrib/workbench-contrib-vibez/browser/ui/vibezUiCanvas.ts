@@ -92,6 +92,8 @@ export class VibezUiCanvas extends Disposable {
 	private panX = 0;
 	private panY = 0;
 	private fitted = false;
+	/** Told after the page is fitted again, so the toolbar's zoom reads right. */
+	onDidFit: (() => void) | undefined;
 	/** Set once someone pans or zooms; until then the page keeps fitting the space it has. */
 	private touched = false;
 	private lastWidth = 0;
@@ -130,6 +132,13 @@ export class VibezUiCanvas extends Disposable {
 
 		this.installCamera();
 		this.installPointer();
+		// The canvas settles to its real width after the editor opens (the side
+		// panels lay out a moment later), and the workbench is not told about
+		// that. Fitting only when it is told left the page a tiny thumbnail, so
+		// the canvas watches its own size and fits again until you zoom or pan.
+		const resize = new ResizeObserver(() => this.layout());
+		resize.observe(this.element);
+		this._register(toDisposable(() => resize.disconnect()));
 		this._register(toDisposable(() => this.toastTimer && clearTimeout(this.toastTimer)));
 	}
 
@@ -191,6 +200,7 @@ export class VibezUiCanvas extends Disposable {
 		this.touched = false;
 		this.lastWidth = rect.width;
 		this.applyCamera();
+		this.onDidFit?.();
 	}
 
 	layout(): void {
