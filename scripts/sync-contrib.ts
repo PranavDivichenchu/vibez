@@ -8,7 +8,8 @@ import { forkDir } from './fork-dir.ts';
  * The repo keeps the canonical copy under fork/contrib so a fresh clone plus
  * `npm run fork:build` reproduces the product. Everything here is a NEW file in
  * upstream's tree, which is why the merge cost stays near zero: new files never
- * conflict. The three edits below are the only places upstream is touched.
+ * conflict. Workbench imports are wired below; fork/apply.ts wires the Electron
+ * main-process services and channels.
  */
 const dir = forkDir();
 
@@ -49,4 +50,4 @@ for (const [file, marker, anchor, insert] of EDITS) {
 	console.log(`  ${file} wired`);
 }
 
-console.log('\n  app.ts is edited by hand (service + channel); see fork/README.md\n');
+console.log('\n  Electron main-process wiring is maintained by fork/apply.ts\n');

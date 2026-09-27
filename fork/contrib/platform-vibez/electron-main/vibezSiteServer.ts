@@ -192,10 +192,16 @@ export class VibezSiteServer {
 			if (stat) { full = html; }
 		}
 		if (!stat || !stat.isFile()) {
-			return this.send(response, 404, `<!doctype html><meta charset=utf-8><title>Not found</title>
+			const html = `<!doctype html><meta charset=utf-8><title>Not found</title>
 <body style="font:15px/1.6 -apple-system,system-ui,sans-serif;padding:48px;color:#333">
 <h1 style="font-size:22px">No page at ${escapeHtml(path)}</h1>
-<p>Nothing in this folder answers that address, so a visitor following a link here would see an error.</p></body>`, false);
+<p>Nothing in this folder answers that address, so a visitor following a link here would see an error.</p></body>`;
+			if (this.visitor(request, response)) {
+				response.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+				response.end(html);
+				return;
+			}
+			return this.send(response, 404, html, false);
 		}
 		const type = TYPES[extname(full).toLowerCase()] ?? 'application/octet-stream';
 		if (type.startsWith('text/html')) {
@@ -221,6 +227,9 @@ export class VibezSiteServer {
 	private proxy(incoming: IncomingMessage, outgoing: ServerResponse): void {
 		const base = new URL(this.target);
 		const target = new URL(incoming.url ?? '/', base.origin);
+		const visitor = this.visitor(incoming, outgoing);
+		// This flag belongs to the Vibez preview server, not the user's app.
+		target.searchParams.delete(VIEW_PARAM);
 		const upstream = (base.protocol === 'https:' ? httpsRequest : httpRequest)({
 			hostname: target.hostname,
 			port: target.port,
@@ -244,7 +253,8 @@ export class VibezSiteServer {
 			const chunks: Buffer[] = [];
 			response.on('data', chunk => chunks.push(chunk as Buffer));
 			response.on('end', async () => {
-				const html = injectAtHeadStart(Buffer.concat(chunks).toString('utf8'), siteBridgeScript(await this.nodes(), false));
+				const source = Buffer.concat(chunks).toString('utf8');
+				const html = visitor ? source : injectAtHeadStart(source, siteBridgeScript(await this.nodes(), false));
 				delete headers['content-length'];
 				outgoing.writeHead(response.statusCode ?? 200, headers);
 				outgoing.end(html);
