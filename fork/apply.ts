@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forkDir } from '../scripts/fork-dir.ts';
 
@@ -25,6 +25,28 @@ const upstream = JSON.parse(readFileSync(productPath, 'utf8')) as Record<string,
 const overlay = JSON.parse(readFileSync(join(root, 'fork/overlay/product.json'), 'utf8')) as Record<string, unknown>;
 writeFileSync(productPath, `${JSON.stringify({ ...upstream, ...overlay }, null, '\t')}\n`);
 console.log(`  product.json: ${Object.keys(overlay).length} keys set`);
+
+const iconPng = join(root, 'fork/overlay/resources/vibez.png');
+const iconIcns = join(root, 'fork/overlay/resources/vibez.icns');
+const iconIco = join(root, 'fork/overlay/resources/vibez.ico');
+const iconTargets = [
+	[iconPng, join(vscodeDir, 'resources/linux/code.png')],
+	[iconIcns, join(vscodeDir, 'resources/darwin/code.icns')],
+	[iconIco, join(vscodeDir, 'resources/win32/code.ico')],
+] as const;
+
+for (const [sourceIcon, targetIcon] of iconTargets) {
+	mkdirSync(dirname(targetIcon), { recursive: true });
+	copyFileSync(sourceIcon, targetIcon);
+}
+
+// Development builds already on disk do not recreate the Electron bundle on
+// every compile, so keep its displayed Finder/Dock icon in sync as well.
+const builtAppResources = join(vscodeDir, '.build/electron/Vibez.app/Contents/Resources');
+if (existsSync(builtAppResources)) {
+	copyFileSync(iconIcns, join(builtAppResources, 'Vibez.icns'));
+}
+console.log('  application icon: synced macOS, Windows, and Linux resources');
 
 execFileSync(process.execPath, ['scripts/sync-core.ts'], { stdio: 'inherit' });
 execFileSync(process.execPath, ['scripts/sync-contrib.ts'], { stdio: 'inherit' });
