@@ -265,8 +265,30 @@ css.textContent = '.vz-ov{position:fixed;pointer-events:none;z-index:2147483646;
   + 'html.vz-drag,html.vz-drag *{cursor:grabbing!important;user-select:none!important}'
   + '.vz-lifted{opacity:.92!important;box-shadow:0 12px 32px rgba(0,0,0,.28)!important;transition:none!important;z-index:2147483000!important;position:relative}'
   + '.vz-guide{position:fixed;z-index:2147483647;pointer-events:none;background:#EC4899;display:none}'
+  + '.vz-pulse{position:fixed;pointer-events:none;z-index:2147483645;display:none;box-sizing:border-box;border:2px solid rgba(168,85,247,.95);border-radius:6px;animation:vz-pulse .8s ease-out 3}'
+  + '@keyframes vz-pulse{0%{box-shadow:0 0 0 0 rgba(168,85,247,.6);background:rgba(168,85,247,.18)}100%{box-shadow:0 0 0 14px rgba(168,85,247,0);background:rgba(168,85,247,0)}}'
   + '.vz-into{position:fixed;z-index:2147483645;pointer-events:none;border:2px dashed #22C55E;border-radius:6px;background:rgba(34,197,94,.06);display:none;box-sizing:border-box}';
 var hover, chip, sel, flash, mark, drop, gx, gy, into, selected = null, hovered = null, hoverKey = null, marked = null;
+/* Elements changed from outside the canvas, each with the ring pulsing around it. */
+var pulses = [];
+function pulse(ids){
+  var els = [];
+  (ids || []).forEach(function(id){
+    var found = document.querySelectorAll('[data-vz-node="' + String(id).replace(/["\\]/g, '') + '"]');
+    for (var i = 0; i < found.length && els.length < 60; i++) { els.push(found[i]); }
+  });
+  if (!els.length) { return; }
+  var inView = els.some(function(el){ var r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+  if (!inView) { els[0].scrollIntoView({ block: 'center' }); }
+  els.forEach(function(el){
+    var o = document.createElement('div'); o.className = 'vz-pulse';
+    document.documentElement.appendChild(o);
+    var p = { o: o, el: el };
+    pulses.push(p);
+    box(o, el);
+    setTimeout(function(){ o.remove(); pulses = pulses.filter(function(x){ return x !== p; }); }, 2450);
+  });
+}
 function box(o, el){
   if (!el) { o.style.display = 'none'; return; }
   var r = el.getBoundingClientRect();
@@ -286,7 +308,7 @@ function showChip(el){
   chip.style.top = (top < 2 ? r.bottom + 4 : top) + 'px';
   chip.style.left = Math.max(2, Math.min(r.left, innerWidth - chip.offsetWidth - 4)) + 'px';
 }
-function refresh(){ box(hover, mode === 'inspect' ? hovered : null); showChip(hovered); box(sel, selected); if (mark) { box(mark, marked); } }
+function refresh(){ box(hover, mode === 'inspect' ? hovered : null); showChip(hovered); box(sel, selected); if (mark) { box(mark, marked); } pulses.forEach(function(p){ box(p.o, p.el); }); }
 function setMode(m){
   mode = m;
   document.documentElement.style.cursor = '';
@@ -772,6 +794,7 @@ on(window, 'message', function(e){
     if (marked) { var mr = marked.getBoundingClientRect(); if (mr.bottom < 0 || mr.top > innerHeight) { marked.scrollIntoView({ block: 'center' }); } }
     refresh();
   }
+  if (m.type === 'pulse') { pulse(m.nodes); }
   if (m.type === 'flash') {
     var el = keyed[m.key];
     if (!el) { return; }

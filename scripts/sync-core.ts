@@ -80,6 +80,7 @@ const UI_FILES: Record<string, string> = {
   'themeEdit.ts': 'vibezUiThemeEdit.ts',
   'connect.ts': 'vibezUiConnect.ts',
   'project.ts': 'vibezUiProject.ts',
+  'changes.ts': 'vibezUiChanges.ts',
 };
 for (const [from, to] of Object.entries(UI_FILES)) {
   let source = readFileSync(join('packages/ui/src', from), 'utf8');

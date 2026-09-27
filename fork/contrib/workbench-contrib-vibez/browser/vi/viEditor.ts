@@ -741,10 +741,46 @@ export class VibezViEditor extends EditorPane {
 		this.lastWritten = text;
 		this.past.push(this.doc);
 		this.future = [];
+		const was = this.graph;
 		this.doc = parsed.doc;
 		this.refreshPanels();
 		this.reopenCurrent();
+		this.pulseChanged(was);
 		this.say(localize('vibez.vi.changedOutside', "The file changed outside the editor. ⌘Z undoes it."));
+	}
+
+	/**
+	 * After an edit from outside (an agent, a teammate, the file's text): the
+	 * blocks and wires of the open graph that are new or different pulse, so
+	 * what changed is plain without comparing the graph to memory.
+	 */
+	private pulseChanged(before: AuthoredGraph | undefined): void {
+		const after = this.graph;
+		if (!after) {
+			return;
+		}
+		const old = new Map((before?.nodes ?? []).map(n => [n.id, JSON.stringify(n)]));
+		const wire = (e: { from: { node: string; port: string }; to: { node: string; port: string } }) => `${e.from.node}|${e.from.port}>${e.to.node}|${e.to.port}`;
+		const oldWires = new Set((before?.edges ?? []).map(wire));
+		const pulse = (el: Element | undefined) => {
+			if (!el) {
+				return;
+			}
+			el.classList.remove('vz-pulse');
+			void (el as HTMLElement).getBoundingClientRect();
+			el.classList.add('vz-pulse');
+			setTimeout(() => el.classList.remove('vz-pulse'), 2500);
+		};
+		for (const [id, view] of this.views) {
+			if (old.get(id) !== JSON.stringify(view.node)) {
+				pulse(view.card);
+			}
+		}
+		for (const edge of after.edges) {
+			if (!oldWires.has(wire(edge))) {
+				pulse(this.wires.get(edge.id));
+			}
+		}
 	}
 
 	/** Every `.vi` file in the workspace, and what it offers, for `call` targets. */

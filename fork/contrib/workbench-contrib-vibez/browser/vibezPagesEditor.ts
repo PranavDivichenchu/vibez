@@ -29,6 +29,7 @@ import { applyCanvasEdit, CanvasOp, nodeAt } from '../../../../platform/vibez/co
 import { applyConnect, connectPanel, ConnectKey, ConnectOption, ConnectPanel } from '../../../../platform/vibez/common/vibezUiConnect.js';
 import { Linked, parseViExports } from '../../../../platform/vibez/common/vibezUiLinks.js';
 import { compile as compileUi } from '../../../../platform/vibez/common/vibezUiCompile.js';
+import { changedLogic, changedNodes, nodesUsing } from '../../../../platform/vibez/common/vibezUiChanges.js';
 import { EditorPane } from '../../../browser/parts/editor/editorPane.js';
 import { EditorInput } from '../../../common/editor/editorInput.js';
 import { IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
@@ -508,10 +509,54 @@ export class VibezPagesEditor extends EditorPane {
 			const file = uri.path.startsWith(root) ? uri.path.slice(root.length) : undefined;
 			const text = await this.files.readFile(uri).then(c => c.value.toString(), () => undefined);
 			if (!file || text !== this.sources.get(file)) {
+				const before = new Map(this.sources);
 				await this.load();
+				const items = this.changedSince(before);
+				if (Object.keys(items).length) {
+					this.post({ type: 'pulse', items });
+				}
 				return;
 			}
 		}
+	}
+
+	/**
+	 * What an edit from outside the canvas changed on each drawn page, as the
+	 * elements to pulse: the ones that are new or different, and the ones
+	 * showing or running logic that changed.
+	 */
+	private changedSince(before: Map<string, string>): Record<string, string[]> {
+		const logic = new Map<string, Set<string>>();
+		for (const [file, text] of this.sources) {
+			if (file.endsWith('.vi') && before.get(file) !== text) {
+				logic.set(file, changedLogic(before.get(file), text));
+			}
+		}
+		const items: Record<string, string[]> = {};
+		for (const [file, text] of this.sources) {
+			if (!file.endsWith('.ui')) {
+				continue;
+			}
+			const after = parseDoc(text);
+			if (!after.ok) {
+				continue;
+			}
+			const ids = new Set<string>();
+			if (before.get(file) !== text) {
+				const was = before.has(file) ? parseDoc(before.get(file)!) : undefined;
+				changedNodes(was?.ok ? was.doc : undefined, after.doc).forEach(id => ids.add(id));
+			}
+			const dir = file.slice(0, file.lastIndexOf('/') + 1);
+			for (const [vi, names] of logic) {
+				if (names.size) {
+					nodesUsing(after.doc, posix.relative(dir, vi) || posix.basename(vi), names).forEach(id => ids.add(id));
+				}
+			}
+			if (ids.size) {
+				items[file] = [...ids];
+			}
+		}
+		return items;
 	}
 
 	/**

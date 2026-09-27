@@ -59,6 +59,9 @@ button,input{font:inherit;color:inherit}
 .card iframe{display:block;width:100%;height:100%;border:0;background:#fff}
 .card.target{box-shadow:0 0 0 6px var(--accent),0 10px 40px rgba(0,0,0,.35)}
 .card.flash{animation:flash 1.1s ease-out}
+/* Changed by someone or something else: an agent, a teammate, the file's text, its logic. */
+.card.pulse{animation:vzpulse .8s ease-out 3}
+@keyframes vzpulse{0%{box-shadow:0 0 0 0 rgba(168,85,247,.85),0 10px 40px rgba(0,0,0,.35)}100%{box-shadow:0 0 0 16px rgba(168,85,247,0),0 10px 40px rgba(0,0,0,.35)}}
 @keyframes flash{0%{box-shadow:0 0 0 14px rgba(34,197,94,.9),0 10px 40px rgba(0,0,0,.35)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0),0 10px 40px rgba(0,0,0,.35)}}
 #wires{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
 #wires .w{fill:none;stroke:var(--muted);stroke-opacity:.35;stroke-width:1.5;vector-effect:non-scaling-stroke}
@@ -666,6 +669,8 @@ window.addEventListener('message', function(e){
       if (S.sel && S.sel.c === c && !(S.cur && S.cur.c === c && !panel.hidden)) { S.sel = null; updateDel(); }
       c.path = m.path; c.errors = 0; c.links = []; tell(c, { type: 'mode', mode: S.mode, drag: S.drag }); badges(c); drawWires();
       if (c.restore) { tell(c, { type: 'restore', sy: c.restore.sy, at: c.restore.at, report: c.restore.report }); c.restore = null; }
+      c.alive = true;
+      pulseCard(c);
     }
     else if (m.type === 'links') { c.links = m.items || []; c.sy = m.sy; badges(c); fullHeight(c, m.dh); drawWires(); }
     else if (m.type === 'move') { move(c, m); }
@@ -737,6 +742,11 @@ window.addEventListener('message', function(e){
     notice(m.text, false);
   } else if (m.type === 'notice') {
     notice(m.text, !!m.bad);
+  } else if (m.type === 'pulse') {
+    // The canvas has just been redrawn for it: each page pulses once it has loaded.
+    S.pulse = { items: m.items || {}, until: Date.now() + 10000, done: [] };
+    S.cards.forEach(function(c){ if (c.alive) { pulseCard(c); } });
+    if (Object.keys(S.pulse.items).length && !S.saving) { notice('Changed outside the canvas. What changed is pulsing.', false); }
   }
 });
 
@@ -749,6 +759,15 @@ vscode.postMessage({ type: 'ready' });
 `;
 
 const SCRIPT_D = String.raw`
+function pulseCard(c){
+  var p = S.pulse;
+  if (!p || p.until < Date.now() || p.done.indexOf(c) >= 0) { return; }
+  var ids = p.items[fileOf(c)];
+  if (!ids || !ids.length) { return; }
+  p.done.push(c);
+  tell(c, { type: 'pulse', nodes: ids });
+  c.card.classList.remove('pulse'); void c.card.offsetWidth; c.card.classList.add('pulse');
+}
 function fileOf(c){
   var t = S.match[routeOf(c.path || c.page.path)];
   return (t && t.page.file) || c.page.file;

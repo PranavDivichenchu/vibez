@@ -11,3 +11,4 @@ export * from './canvasEdit.ts';
 export * from './themeEdit.ts';
 export * from './connect.ts';
 export * from './project.ts';
+export * from './changes.ts';
