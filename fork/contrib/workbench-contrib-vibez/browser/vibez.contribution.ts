@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { VibezPagesEditor, VibezPagesInput } from './vibezPagesEditor.js';
+import { VibezDashboardEditor } from './vibezDashboardEditor.js';
+import { VibezDashboardInput } from './vibezDashboardInput.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -39,8 +41,6 @@ import { VIEWLET_ID as EXPLORER_CONTAINER_ID } from '../../files/common/files.js
 import { IViewContainersRegistry, IViewsRegistry, ViewContainer, ViewContainerLocation, Extensions as ViewExtensions } from '../../../common/views.js';
 import { VibezPreviewEditor } from './vibezPreviewEditor.js';
 import { VibezPreviewEditorInput } from './vibezPreviewEditorInput.js';
-import { VibezUiEditor } from './ui/vibezUiEditor.js';
-import { VibezUiEditorInput } from './ui/vibezUiEditorInput.js';
 import { VibezViEditor } from './vi/viEditor.js';
 import { VibezViEditorInput } from './vi/viEditorInput.js';
 import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
@@ -51,11 +51,6 @@ import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '.
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(VibezEditor, VibezEditor.ID, localize('vibez.pane', "Graph")),
 	[new SyncDescriptor(VibezEditorInput)]
-);
-
-Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-	EditorPaneDescriptor.create(VibezUiEditor, VibezUiEditor.ID, localize('vibez.uiPane', "Page")),
-	[new SyncDescriptor(VibezUiEditorInput)]
 );
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
@@ -147,17 +142,24 @@ class VibezContribution extends Disposable implements IWorkbenchContribution {
 			{ createEditorInput: ({ resource }) => ({ editor: new VibezEditorInput(resource) }) }
 		));
 
-		// A .ui file is a page, built by dragging. The text of it is still one
-		// "Open as text" away, for anyone who wants the JSON.
+		// A .ui file is a page of the site, and a site is the thing you work on:
+		// opening one brings up the canvas with every page on it, scrolled to
+		// the one that was clicked. The text of it is still one "Open as text"
+		// away, for anyone who wants the JSON.
 		this._register(editorResolverService.registerEditor(
 			'**/*.ui',
 			{
-				id: VibezUiEditor.ID,
+				id: VibezPagesEditor.ID,
 				label: localize('vibez.ui.editor.label', "Vibez page"),
 				priority: RegisteredEditorPriority.default
 			},
-			{ singlePerResource: true },
-			{ createEditorInput: ({ resource }) => ({ editor: new VibezUiEditorInput(resource) }) }
+			{ singlePerResource: false },
+			{
+				createEditorInput: ({ resource }) => {
+					VibezPagesEditor.focusOn(resource);
+					return { editor: new VibezPagesInput() };
+				}
+			}
 		));
 
 		// A .vi file is logic, built as a node graph. Double-clicking it is the
@@ -221,14 +223,14 @@ registerAction2(class extends Action2 {
 		const slug = name.trim().toLowerCase().replace(/\s+/g, '-');
 		// Beside the page that is open, or in pages/ at the top of the folder.
 		const active = editorService.activeEditor;
-		const base = active instanceof VibezUiEditorInput ? dirname(active.resource) : URI.joinPath(folder.uri, 'pages');
+		const base = active?.resource && active.resource.path.endsWith('.ui') ? dirname(active.resource) : URI.joinPath(folder.uri, 'pages');
 		let target = URI.joinPath(base, `${slug}.ui`);
 		for (let n = 2; await fileService.exists(target); n++) {
 			target = URI.joinPath(base, `${slug}-${n}.ui`);
 		}
 		// Empty on purpose: an empty page opens on the template chooser.
 		await fileService.writeFile(target, VSBuffer.fromString(''));
-		await editorService.openEditor(new VibezUiEditorInput(target), { pinned: true });
+		await editorService.openEditor({ resource: target, options: { pinned: true } });
 	}
 });
 
@@ -255,6 +257,20 @@ registerAction2(class extends Action2 {
 		}
 		const flow = URI.joinPath(folder.uri, '.vibez', 'flows', 'default.flow');
 		await editorService.openEditor(new VibezEditorInput(flow), { pinned: true });
+	}
+});
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(VibezDashboardEditor, VibezDashboardEditor.ID, localize('vibez.dashboard', "Dashboard")),
+	[new SyncDescriptor(VibezDashboardInput)]
+);
+
+registerAction2(class extends Action2 {
+	constructor() {
+		super({ id: 'vibez.openDashboard', title: localize2('vibez.openDashboard', "Vibez: Open Dashboard"), f1: true });
+	}
+	async run(accessor: ServicesAccessor): Promise<void> {
+		await accessor.get(IEditorService).openEditor(new VibezDashboardInput(), { pinned: true });
 	}
 });
 

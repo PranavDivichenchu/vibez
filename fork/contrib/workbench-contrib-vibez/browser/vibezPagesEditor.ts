@@ -10,7 +10,7 @@ import * as dom from '../../../../base/browser/dom.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { posix } from '../../../../base/common/path.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { DisposableStore } from '../../../../base/common/lifecycle.js';
+import { DisposableStore, toDisposable } from '../../../../base/common/lifecycle.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorOptions } from '../../../../platform/editor/common/editor.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
@@ -87,11 +87,27 @@ export class VibezPagesEditor extends EditorPane {
 	private generation = 0;
 	private fresh = true;
 	private folder: URI | undefined;
+	private readonly watchScope = this._register(new DisposableStore());
 	private sources = new Map<string, string>();
 	private pages: PageNode[] = [];
 	private graph: GraphLike | null = null;
-	/** Set by the dashboard: the page to bring into view the next time the canvas loads. */
+	/** The page to bring into view the next time the canvas loads. */
 	static focusNext: string | undefined;
+
+	/**
+	 * Open the canvas on one page.
+	 *
+	 * Clicking a `.ui` file opens the site, not the file on its own: the canvas
+	 * comes up with every page on it and scrolls to the one that was asked for,
+	 * which is the page you clicked. The path is workspace-relative, the way
+	 * the canvas names its pages.
+	 */
+	static focusOn(resource: URI): void {
+		VibezPagesEditor.focusResource = resource;
+	}
+
+	/** The page a click asked for, named the way the canvas names its pages. */
+	private static focusResource: URI | undefined;
 
 	constructor(
 		group: IEditorGroup,
@@ -145,6 +161,30 @@ export class VibezPagesEditor extends EditorPane {
 		} else if (this.ready) {
 			await this.load();
 		}
+		this.watchPages();
+	}
+
+	/**
+	 * A page or its logic changing on disk redraws the canvas.
+	 *
+	 * The canvas is where pages are built now, and a `.ui` file is edited from
+	 * plenty of places besides this window — an agent, the text of the file,
+	 * another person. Without this it kept showing whatever it had compiled
+	 * when it opened, which looks exactly like an edit that did not take.
+	 */
+	private watchPages(): void {
+		this.watchScope.clear();
+		let pending: number | undefined;
+		this.watchScope.add(this.files.onDidFilesChange(e => {
+			const touched = [...e.rawAdded, ...e.rawDeleted, ...e.rawUpdated];
+			if (!touched.some(uri => uri.path.endsWith('.ui') || uri.path.endsWith('.vi'))) {
+				return;
+			}
+			// A save can arrive as several events; redraw once they settle.
+			dom.getWindow(this.container).clearTimeout(pending);
+			pending = dom.getWindow(this.container).setTimeout(() => { if (this.ready) { void this.load(); } }, 250);
+		}));
+		this.watchScope.add(toDisposable(() => dom.getWindow(this.container).clearTimeout(pending)));
 	}
 
 
@@ -503,8 +543,13 @@ export class VibezPagesEditor extends EditorPane {
 		const drawn = shown.filter(isUi).length;
 		const source = appUrl ? `from ${appUrl}` : drawn === shown.length && drawn ? 'from this folder’s .ui pages' : 'this folder’s files';
 		const status = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${source}${notes.length ? ' · ' + notes.join(' ') : ''}`;
-		const focus = VibezPagesEditor.focusNext;
+		let focus = VibezPagesEditor.focusNext;
 		VibezPagesEditor.focusNext = undefined;
+		const asked = VibezPagesEditor.focusResource;
+		VibezPagesEditor.focusResource = undefined;
+		if (asked && this.folder && asked.path.startsWith(`${this.folder.path}/`)) {
+			focus = asked.path.slice(this.folder.path.length + 1);
+		}
 		this.post({
 			type: 'init', pages, fresh, appUrl, suggest, status, focus, home: appUrl ? null : this.homeFile(), notice: this.takeNotice(),
 			elements: ELEMENTS.map(({ id, name, group, description, glyph, html }) => ({ id, name, group, description, glyph, html })),
