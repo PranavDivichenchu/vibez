@@ -25,6 +25,25 @@ selects a rectangle; Shift/Ctrl/Cmd-click toggles nodes. Selected nodes move
 together, and the context menu offers cleanup and deletion. Logic and Details
 can collapse to make room for the graph and chat.
 
+## Classes and objects in .vi logic
+
+A `.vi` file can declare **classes**: blueprints for objects, listed under
+**Objects → Classes** in the logic editor. A class has fields (each with a type,
+and an optional starting value) and methods, each of which is its own graph
+where **This** is the object it runs on. A class can **extend** another: it gets
+all of the parent's fields and methods, a method with the same name replaces
+the parent's (an override), and **Parent <method>** runs the parent's version
+from inside it.
+
+Every class adds blocks to the search: **New Dog** (asks for each field without
+a starting value, the parent's included), **Get/Set Dog.name**, **Dog.describe**
+(runs the object's own class's version, so overrides win), and **Is a Dog**.
+Objects are shared, so setting a field changes that object everywhere it is
+used, and an object sent to a page arrives as its fields. Classes compile to
+real JavaScript classes. Agents get the same through the MCP (`declare` with
+`what: "class"` or `"method"`), and `vi_run` tests a method on an object made
+for the test.
+
 ## Development
 
 Use Node **22.18+** and install dependencies with `npm install`.

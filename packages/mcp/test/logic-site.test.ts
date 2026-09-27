@@ -108,7 +108,7 @@ test('logic refusals name what would work, and change nothing', async () => {
   assert.match(kinds.text, /is a run wire and .* takes a value; they cannot connect/);
 
   const missing = await call('vi_edit', { path: 'logic/pricing.vi', ops: [{ op: 'add', graph: 'Nope', block: 'Divide (÷)' }] });
-  assert.match(missing.text, /There is no value, action or function called Nope. This file has: currency, UnitPrice/);
+  assert.match(missing.text, /There is no value, action, function or method called Nope. This file has: currency, UnitPrice/);
 
   const endpoint = await call('vi_edit', { path: 'logic/pricing.vi', ops: [{ op: 'delete', graph: 'UnitPrice', id: start }] });
   assert.match(endpoint.text, /is the start of UnitPrice and cannot be deleted/);

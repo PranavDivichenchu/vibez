@@ -20,7 +20,7 @@ import { outlinePage, summarizePage, formatValue, formatAction } from './notatio
 import { applyOps, type Op } from './edit.ts';
 import { reference } from './reference.ts';
 import { outlineFlow } from './flows.ts';
-import { applyLogicOps, blocksFor, compileIssues, contextFor, locate, outlineGraph, outlineLogic, VI_TYPES, type LogicOp, type Siblings } from './logic.ts';
+import { applyLogicOps, blocksAt, compileIssues, locate, outlineGraph, outlineLogic, VI_TYPES, type LogicOp, type Siblings } from './logic.ts';
 import { addPage, applySiteOps, deletePage, htmlFiles, library, outlineHtml, siteMap, type SiteOp } from './site.ts';
 import { registerTeamTools } from './teamTools.ts';
 
@@ -76,10 +76,15 @@ const viType = z.enum(VI_TYPES);
 const logicOpSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('declare'),
-    what: z.enum(['value', 'action', 'function', 'variable']).describe('value = page data; action = something a page runs; function = reusable logic; variable = shared state'),
+    what: z.enum(['value', 'action', 'function', 'variable', 'class', 'method']).describe('value = page data; action = something a page runs; function = reusable logic; variable = shared state; class = a blueprint for objects (fields, methods, optional extends); method = something objects of a class can do (needs class)'),
     name: z.string(),
     type: viType.optional().describe('For a value or variable.'),
-    fields: z.record(z.string(), viType).optional().describe('For a List or Object value: the fields of one item.'),
+    fields: z.union([
+      z.record(z.string(), viType),
+      z.array(z.object({ name: z.string(), type: viType, initial: z.unknown().optional(), about: z.string().optional() })),
+    ]).optional().describe('For a List or Object value: { field: Type } for one item. For a class: [{ name, type, initial? }]; a field with an initial value is filled in automatically, one without is asked for by New.'),
+    extends: z.string().optional().describe('For a class: the class it extends; it gets all of that class\'s fields and methods, and a method with the same name replaces the parent\'s.'),
+    class: z.string().optional().describe('For a method: the class it belongs to. Its graph is then named Class.method.'),
     sample: z.unknown().optional().describe('For a value: realistic example data the page shows before the logic runs.'),
     inputs: z.array(z.object({ name: z.string(), type: viType })).optional().describe('For an action or function.'),
     returns: viType.optional().describe('For an action or function.'),
@@ -158,7 +163,7 @@ export function createVibezServer(root: string): McpServer {
     {
       instructions: 'Vibez apps are .ui pages (visual layout), .vi files (logic drawn as graphs, exposing values and actions to pages), '
         + 'and plain HTML pages. Call vibez_overview first and vibez_reference for the vocabulary. '
-        + 'Pages: ui_read then ui_edit. Logic: vi_read, vi_blocks, then vi_edit, and vi_run to test. HTML: site_map, site_read, then site_edit. '
+        + 'Pages: ui_read then ui_edit. Logic: vi_read, vi_blocks, then vi_edit (values, actions, functions, variables, and classes with fields, methods and inheritance), and vi_run to test. HTML: site_map, site_read, then site_edit. '
         + 'Pages reference .vi exports as file.vi#name. '
         + 'On a team project, other people\'s agents may be working too: team_status shows them, team_start says what you are doing and claims your files, '
         + 'and edits warn when they touch files another agent holds.',
@@ -415,7 +420,7 @@ export function createVibezServer(root: string): McpServer {
       + 'With graph: that one graph block by block, with every port (id and type), what feeds each input, the run order and the problems.',
     inputSchema: {
       path: z.string().describe('Path of the .vi file.'),
-      graph: z.string().optional().describe('A value, action or function name to read in full.'),
+      graph: z.string().optional().describe('A value, action, function or method (Class.method) to read in full.'),
     },
     annotations: { readOnlyHint: true },
   }, ({ path, graph }) => guard(async () => {
@@ -433,14 +438,14 @@ export function createVibezServer(root: string): McpServer {
       + 'data, HTTP, this file\'s variables (Get/Set) and callable actions and functions. Each result shows its ports.',
     inputSchema: {
       path: z.string(),
-      graph: z.string().describe('The value, action or function the blocks are for.'),
+      graph: z.string().describe('The value, action, function or method (Class.method) the blocks are for.'),
       search: z.string().optional().describe('Words to filter by, like "divide", "text", "list", "if".'),
     },
     annotations: { readOnlyHint: true },
   }, ({ path, graph, search }) => guard(async () => {
     const doc = await readLogic(path);
     const located = locate(doc, graph);
-    const items = blocksFor(located.doc, contextFor(located.where, located.decl), await siblingsOf(path)).filter((b) => matches(b, search ?? ''));
+    const items = blocksAt(located, await siblingsOf(path)).filter((b) => matches(b, search ?? ''));
     if (!items.length) return say(`No blocks match "${search}".`);
     const lines = [`${items.length} block${items.length > 1 ? 's' : ''}${search ? ` matching "${search}"` : ''} (use the name in quotes with vi_edit add):`];
     let group = '';
@@ -590,22 +595,29 @@ export function createVibezServer(root: string): McpServer {
 
   server.registerTool('vi_run', {
     title: 'Test .vi logic',
-    description: 'Compiles a .vi file for real and runs one value, action or function directly — no page, no browser, no server to start. '
-      + 'The fastest way to check logic while building it. Refuses with the exact reason if the block isn\'t connected properly yet.',
+    description: 'Compiles a .vi file for real and runs one value, action, function or class method directly — no page, no browser, no server to start. '
+      + 'The fastest way to check logic while building it. Refuses with the exact reason if the block isn\'t connected properly yet. '
+      + 'A method (Class.method) runs on a new object made from `object`, the way New makes one.',
     inputSchema: {
       path: z.string().describe('Path of the .vi file, like pages/dashboard.vi.'),
-      export: z.string().describe('The value, action or function name to test.'),
-      args: z.record(z.string(), z.unknown()).optional().describe('Named inputs, for an action that takes them.'),
+      export: z.string().describe('The value, action or function name to test, or Class.method.'),
+      args: z.record(z.string(), z.unknown()).optional().describe('Named inputs, for an action, function or method that takes them.'),
+      object: z.record(z.string(), z.unknown()).optional().describe('For a method: the new object\'s field values, like { "name": "Rex", "age": 3 }. Fields left out get their starting value.'),
     },
-  }, ({ path, export: exportName, args }) => guard(async () => {
+  }, ({ path, export: exportName, args, object }) => guard(async () => {
     if (!path.endsWith('.vi')) throw new VibezError(`${path} must end in .vi.`);
     const parsed = parseViDoc(await ws.read(path));
     if (!parsed.ok) throw new VibezError(`${path}: ${parsed.reason}`);
     const doc = parsed.doc;
     const value = doc.exports.values.find((v) => v.name === exportName);
-    const action = [...doc.exports.actions, ...(doc.functions ?? [])].find((a) => a.name === exportName);
+    const dot = exportName.indexOf('.');
+    const methodClass = dot > 0 ? doc.classes?.find((c) => c.name === exportName.slice(0, dot)) : undefined;
+    const method = methodClass?.methods.find((m) => m.name === exportName.slice(dot + 1));
+    const action = [...doc.exports.actions, ...(doc.functions ?? [])].find((a) => a.name === exportName) ?? method;
     if (!value && !action) {
-      throw new VibezError(`${path} has no value or action called ${exportName}. It offers: ${[...doc.exports.values, ...doc.exports.actions].map((e) => e.name).join(', ') || 'nothing yet'}.`);
+      const offers = [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].map((e) => e.name)
+        .concat((doc.classes ?? []).flatMap((c) => c.methods.map((m) => `${c.name}.${m.name}`)));
+      throw new VibezError(`${path} has no value, action, function or method called ${exportName}. It offers: ${offers.join(', ') || 'nothing yet'}.`);
     }
 
     // Compile every dependency against the same snapshot and run in a fresh
@@ -624,7 +636,7 @@ export function createVibezServer(root: string): McpServer {
       let warnings: string[] = [];
       for (const source of sources) {
         const siblings = new Map(sources.filter(other => other !== source).map(other => [posix.relative(posix.dirname(source.path), other.path), [...other.doc.exports.actions, ...(other.doc.functions ?? [])]]));
-        const result = compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? []);
+        const result = compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? [], source.doc.classes ?? [], source.doc.methods ?? {});
         if (source.path === path) {
           const issues = result.issues.filter(issue => issue.exportName === exportName);
           const errors = issues.filter(issue => issue.severity === 'error');
@@ -636,12 +648,21 @@ export function createVibezServer(root: string): McpServer {
       const target = pathToFileURL(ws.path(`${build}/${basename(path, '.vi')}.vi.js`)).href;
       const kind = value ? 'values' : doc.exports.actions.some(a => a.name === exportName) ? 'actions' : 'functions';
       const callArgs = (action?.inputs ?? []).map(input => (args ?? {})[input.name]);
-      const runner = `const mod = await import(${JSON.stringify(target)}); const fn = mod.__vibezTest[${JSON.stringify(kind)}][${JSON.stringify(exportName)}]; const result = await fn(...${JSON.stringify(callArgs)}); console.log(${JSON.stringify(exportName + ' -> ')} + (JSON.stringify(result, null, 2) ?? 'undefined'));`;
+      const report = `console.log(${JSON.stringify(exportName + ' -> ')} + (JSON.stringify(result, null, 2) ?? 'undefined'));`;
+      const runner = method && methodClass
+        // A method runs on a fresh object, made exactly as New makes one; the object is shown afterwards, so a method that changes its fields can be checked too.
+        ? `const mod = await import(${JSON.stringify(target)}); const Cls = mod.__vibezTest.classes[${JSON.stringify(methodClass.name)}]; const obj = new Cls(${JSON.stringify(object ?? {})}); const result = await obj[${JSON.stringify(method.name)}](...${JSON.stringify(callArgs)}); ${report} console.log('object afterwards -> ' + JSON.stringify(obj));`
+        : `const mod = await import(${JSON.stringify(target)}); const fn = mod.__vibezTest[${JSON.stringify(kind)}][${JSON.stringify(exportName)}]; const result = await fn(...${JSON.stringify(callArgs)}); ${report}`;
       const { stdout, stderr } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', runner], { timeout: 10_000, maxBuffer: 1024 * 1024 });
       return say([stdout.trim(), stderr.trim(), ...warnings.map(warning => `Warning: ${warning}`)].filter(Boolean).join('\n'));
     } catch (error) {
       if (error instanceof VibezError) throw error;
-      return refuse(`${exportName} could not finish: ${(error as Error).message}`);
+      const message = (error as Error).message;
+      if (message.includes('Maximum call stack size exceeded')) {
+        return refuse(`${exportName} never finished: something in it keeps calling itself (for example, a method that runs its own name on This). `
+          + 'To build on a parent class\'s version of a method, use the "Parent <method>" block instead of calling the method again.');
+      }
+      return refuse(`${exportName} could not finish: ${message.split('\n').filter((line) => !line.trim().startsWith('at ')).join('\n').slice(0, 1500)}`);
     } finally {
       await rm(ws.path(build), { recursive: true, force: true });
     }

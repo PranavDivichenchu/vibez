@@ -2,7 +2,8 @@ import { blankGraph } from './ops.ts';
 import type { GNode, SemanticKey } from '../../core/src/types.ts';
 import { helperFor } from './runtime.ts';
 import { callableIn, hasErrors, validateGraph, type CompileIssue } from './validate.ts';
-import { configOf, type AuthoredConfig, type AuthoredGraph, type ComputeOp, type MathOp, type ViAction, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { configOf, methodKey, type AuthoredConfig, type AuthoredGraph, type ComputeOp, type MathOp, type ViAction, type ViClass, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { classIssues, parentsFirst, requiredFields } from './classes.ts';
 
 /**
  * The `.vi` graph compiler: turns one export's authored graph into a real
@@ -50,7 +51,14 @@ interface ExportCtx {
   stubs: Map<string, string>;
   /** Authored input name -> collision-free JavaScript parameter identifier. */
   params: Map<string, string>;
+  classes: ViClass[];
+  inMethod?: { class: string; method: string };
 }
+
+/** A class's name in the generated code. */
+function classId(name: string): string { return `__vi_class_${ident(name)}`; }
+/** A field or method, read off an object by its authored name, whatever characters it has. */
+const member = (name: string | undefined): string => `[${JSON.stringify(name ?? '')}]`;
 
 function temp(ctx: ExportCtx, hint: string): string {
   ctx.counter.n += 1;
@@ -113,6 +121,11 @@ function emitExpr(atNode: SemanticKey, atPort: string, ctx: ExportCtx): string {
   }
   if (from.kind === 'group' && config?.kind === 'group' && (config.mode === 'reroute' || config.mode === 'namedReroute')) return emitExpr(src.node, 'value', ctx);
   if (from.kind === 'compute' && config?.kind === 'compute') return computeExpr(from, config, ctx);
+  if (from.kind === 'object' && config?.kind === 'object') {
+    if (config.op === 'self') return 'this';
+    if (config.op === 'get') return `(${emitExpr(from.id, 'object', ctx)})?.${member(config.field)}`;
+    if (config.op === 'isA') return `(${emitExpr(from.id, 'object', ctx)} instanceof ${classId(config.class)})`;
+  }
 
   // An impure node reached before it ran — a well-formed graph never wires
   // one this way (see validate.ts), so this is a safety net, not a path.
@@ -129,6 +142,10 @@ function computeExpr(n: GNode, config: Extract<AuthoredConfig, { kind: 'compute'
   if (config.op === 'pow') return `(${args[0]} ** ${args[1]})`;
   if (Object.prototype.hasOwnProperty.call(MATH_SYMBOLS, config.op)) return `(${args[0]} ${MATH_SYMBOLS[config.op as keyof typeof MATH_SYMBOLS]} ${args[1]})`;
 
+  // Make Object with a pin per field ({ name, price }) builds that object directly.
+  if (config.op === 'makeObject' && inputs.length && !(inputs.length === 1 && inputs[0]!.name === 'fields')) {
+    return `({ ${inputs.map((p, i) => `${JSON.stringify(p.name)}: ${args[i]}`).join(', ')} })`;
+  }
   const helper = helperFor(config.op);
   return helper ? `${helper.name}(${args.join(', ')})` : `/* unsupported: ${config.op} */ undefined`;
 }
@@ -209,6 +226,26 @@ function emitImpure(n: GNode, config: AuthoredConfig | undefined, ctx: ExportCtx
       const resultPort = n.ports.out.find((p) => p.kind === 'data');
       const id = resultPort ? capture(resultPort.id, config.name) : temp(ctx, config.name);
       return [`const ${id} = await ${target}(${args.join(', ')});`];
+    }
+    case 'object': {
+      if (config?.kind !== 'object') return [];
+      if (config.op === 'new') {
+        const fields = requiredFields(ctx.classes, config.class).map((f) => `${JSON.stringify(f.name)}: ${dataIn(`field:${f.name}`)}`);
+        const id = capture('object', config.class);
+        return [`const ${id} = new ${classId(config.class)}({ ${fields.join(', ')} });`];
+      }
+      if (config.op === 'set') {
+        const id = capture('object', config.class);
+        return [`const ${id} = ${dataIn('object')};`, `${id}${member(config.field)} = ${dataIn('value')};`];
+      }
+      if (config.op === 'call' || config.op === 'super') {
+        const args = n.ports.in.filter((p) => p.kind === 'data' && p.id.startsWith('in:')).map((p) => dataIn(p.id));
+        const receiver = config.op === 'super' ? 'super' : `(${dataIn('object')})`;
+        const resultPort = n.ports.out.find((p) => p.kind === 'data');
+        const id = resultPort ? capture(resultPort.id, config.method ?? 'result') : temp(ctx, 'call');
+        return [`const ${id} = await ${receiver}${member(config.method)}(${args.join(', ')});`];
+      }
+      return [];
     }
     case 'boundary':
       return emitBoundaryStatement(n, config, ctx);
@@ -438,6 +475,7 @@ export interface CompileFileOptions {
   importFor: (file: string) => string;
   /** Variables declared at file scope, available to every graph in the file. */
   variables: ViVariable[];
+  classes?: ViClass[];
 }
 
 export interface CompiledExport {
@@ -459,6 +497,7 @@ function newCtx(graph: AuthoredGraph, opts: CompileFileOptions): ExportCtx {
     importFor: opts.importFor,
     imports: new Map(),
     stubs: new Map(), params: new Map(),
+    classes: opts.classes ?? [],
   };
 }
 
@@ -475,16 +514,18 @@ function parameterIds(inputs: { name: string }[], ctx: ExportCtx): string[] {
   });
 }
 
-function compileAction(name: string, graph: AuthoredGraph, decl: { inputs: { name: string; type: ViType }[]; returns?: ViType }, opts: CompileFileOptions, visibility: 'export' | 'private' = 'export'): CompiledExport {
+function compileAction(name: string, graph: AuthoredGraph, decl: { inputs: { name: string; type: ViType }[]; returns?: ViType }, opts: CompileFileOptions, visibility: 'export' | 'private' | 'method' = 'export', inMethod?: { class: string; method: string }): CompiledExport {
   const ctx = newCtx(graph, opts);
-  const issues = validateGraph(graph, { requiresReturn: decl.returns !== undefined, callable: ctx.callable, variables: opts.variables });
+  if (inMethod) ctx.inMethod = inMethod;
+  const issues = validateGraph(graph, { requiresReturn: decl.returns !== undefined, callable: ctx.callable, variables: opts.variables, classes: ctx.classes, ...(inMethod ? { inMethod } : {}) });
   const params = parameterIds(decl.inputs, ctx).join(', ');
   if (hasErrors(issues)) {
     return { name, issues, code: refusalStub(name, params, issues, visibility), imports: new Map(), usedOps: new Set(), stubs: new Map() };
   }
   const entry = graph.nodes.find((n) => n.kind === 'entry');
   const body = entry ? emitChain(execTarget(graph, entry.id, 'exec:out'), new Set(), ctx) : [];
-  const code = hasErrors(ctx.issues) ? refusalStub(name, params, ctx.issues, visibility) : `${visibility === 'export' ? 'export ' : ''}async function ${ident(name)}(${params}) {\n${indent(body).join('\n') || '  return;'}\n}`;
+  const header = visibility === 'method' ? `async ${member(name)}(${params})` : `${visibility === 'export' ? 'export ' : ''}async function ${ident(name)}(${params})`;
+  const code = hasErrors(ctx.issues) ? refusalStub(name, params, ctx.issues, visibility) : `${header} {\n${indent(body).join('\n') || '  return;'}\n}`;
   return { name, issues: [...issues, ...ctx.issues], code, imports: ctx.imports, usedOps: ctx.usedOps, stubs: ctx.stubs };
 }
 
@@ -527,10 +568,10 @@ function compileValue(name: string, graph: AuthoredGraph, decl: { returns?: ViTy
   return { name, issues: [...issues, ...ctx.issues], code, imports: ctx.imports, usedOps: ctx.usedOps, stubs: ctx.stubs };
 }
 
-function refusalStub(name: string, params: string, issues: CompileIssue[], visibility: 'export' | 'private' = 'export'): string {
+function refusalStub(name: string, params: string, issues: CompileIssue[], visibility: 'export' | 'private' | 'method' = 'export'): string {
   const reasons = issues.filter((i) => i.severity === 'error').map((i) => i.message);
   return [
-    `${visibility === 'export' ? 'export ' : ''}async function ${ident(name)}(${params}) {`,
+    visibility === 'method' ? `async ${member(name)}(${params}) {` : `${visibility === 'export' ? 'export ' : ''}async function ${ident(name)}(${params}) {`,
     `  // This block can't compile yet:`,
     ...reasons.map((r) => `  //  - ${r.replace(/\n/g, ' ')}`),
     `  throw new Error(${literalExpr(`${name} isn't ready to run: ${reasons.join('; ')}`)});`,
@@ -559,6 +600,7 @@ export function compileFile(
   values: ViValue[], actions: ViAction[], logic: Record<string, AuthoredGraph>,
   siblings: Map<string, ViAction[]>, importFor: (file: string) => string,
   functions: ViAction[] = [], helpers: Record<string, AuthoredGraph> = {}, variables: ViVariable[] = [],
+  classes: ViClass[] = [], methods: Record<string, AuthoredGraph> = {},
 ): CompileFileResult {
   // A `call` may target a reusable function exactly as freely as an exposed
   // action — the only difference is a function is never mounted over HTTP —
@@ -570,7 +612,12 @@ export function compileFile(
     const message = `Duplicate declaration: ${duplicate.name}. Give each value, action and function a unique name.`;
     return { ok: false, code: `throw new Error(${JSON.stringify(message)});`, issues: [{ nodeId: '' as SemanticKey, exportName: duplicate.name, severity: 'error', message }] };
   }
-  const opts: CompileFileOptions = { actions: [...actions, ...functions], siblings, importFor, variables };
+  const problems = classIssues(classes, declared.map((d) => d.name)).filter((i) => i.severity === 'error');
+  if (problems.length) {
+    const message = problems.map((p) => p.message).join(' ');
+    return { ok: false, code: `throw new Error(${JSON.stringify(message)});`, issues: problems.map((p) => ({ nodeId: '' as SemanticKey, exportName: p.className, severity: 'error' as const, message: p.message })) };
+  }
+  const opts: CompileFileOptions = { actions: [...actions, ...functions], siblings, importFor, variables, classes };
   const results: CompiledExport[] = [];
   for (const value of values) {
     const graph = (Object.prototype.hasOwnProperty.call(logic, value.name) ? logic[value.name] : undefined) ?? blankGraph(value.name);
@@ -584,6 +631,28 @@ export function compileFile(
     const graph = (Object.prototype.hasOwnProperty.call(helpers, fn.name) ? helpers[fn.name] : undefined) ?? blankGraph(fn.name);
     if (graph) results.push(compileAction(fn.name, graph, { inputs: fn.inputs, ...(fn.returns !== undefined ? { returns: fn.returns } : {}) }, opts, 'export'));
   }
+
+  // Classes: each becomes a JavaScript class whose methods are its method
+  // graphs, so an object runs its own class's version of a method (overrides
+  // work) and Call Parent is `super`.
+  const methodResults: CompiledExport[] = [];
+  const classCode: string[] = [];
+  const defaultFor = (type: ViType): unknown => type === 'Number' ? 0 : type === 'Boolean' ? false : type === 'List' ? [] : type === 'Object' ? {} : '';
+  for (const cls of parentsFirst(classes)) {
+    const own = cls.fields.map((f) => `    this${member(f.name)} = fields${member(f.name)} !== undefined ? fields${member(f.name)} : ${literalExpr(f.initial !== undefined ? f.initial : defaultFor(f.type))};`);
+    const body = cls.methods.map((m) => {
+      const key = methodKey(cls.name, m.name);
+      const graph = (Object.prototype.hasOwnProperty.call(methods, key) ? methods[key] : undefined) ?? blankGraph(key);
+      const result = compileAction(m.name, graph, { inputs: m.inputs, ...(m.returns !== undefined ? { returns: m.returns } : {}) }, opts, 'method', { class: cls.name, method: m.name });
+      methodResults.push({ ...result, name: key });
+      return indent([result.code]).join('\n');
+    });
+    const ctor = [`  constructor(fields = {}) {`, ...(cls.extends ? ['    super(fields);'] : []), ...own, '  }'];
+    classCode.push([`export class ${classId(cls.name)}${cls.extends ? ` extends ${classId(cls.extends)}` : ''} {`, ...ctor, ...body, '}'].join('\n'));
+  }
+  results.push(...methodResults);
+  // Each class is also exported under its own name, for code that imports the compiled module.
+  const classAliases = classes.map((c) => `export { ${classId(c.name)} as ${/^[A-Za-z_$][\w$]*$/.test(c.name) ? c.name : JSON.stringify(c.name)} };`);
 
   const allImports = new Map<string, Set<string>>();
   const allOps = new Set<ComputeOp>();
@@ -601,15 +670,17 @@ export function compileFile(
   const helperLines = [...allOps].map((op) => helperFor(op)).filter((h): h is NonNullable<ReturnType<typeof helperFor>> => h !== undefined)
     .map((h) => `const ${h.name} = (${h.params.join(', ')}) => (${h.body});`);
   const stubLines = [...allStubs].map(([fn, message]) => `async function ${fn}() {\n  // TODO: ${message}\n  throw new Error(${literalExpr(`${fn}: not connected to anything real yet`)});\n}`);
-  const defaultFor = (type: ViType): unknown => type === 'Number' ? 0 : type === 'Boolean' ? false : type === 'List' ? [] : type === 'Object' ? {} : '';
   const variableLines = variables.map((variable) => `${variable.mutable ? 'let' : 'const'} ${variableId(variable.name)} = ${literalExpr(variable.initial ?? defaultFor(variable.type))};`);
   const compiledNames = new Set(results.map((result) => result.name));
   const manifestGroup = (items: { name: string }[]) => `{ ${items.filter((item) => compiledNames.has(item.name)).map((item) => `[${JSON.stringify(item.name)}]: ${ident(item.name)}`).join(', ')} }`;
-  const testManifest = `export const __vibezTest = { values: ${manifestGroup(values)}, actions: ${manifestGroup(actions)}, functions: ${manifestGroup(functions)} };`;
+  const classManifest = `{ ${classes.map((c) => `[${JSON.stringify(c.name)}]: ${classId(c.name)}`).join(', ')} }`;
+  const testManifest = `export const __vibezTest = { values: ${manifestGroup(values)}, actions: ${manifestGroup(actions)}, functions: ${manifestGroup(functions)}, classes: ${classManifest} };`;
   const code = [
     importLines.join('\n'),
     [...helperLines, ...variableLines, ...stubLines].join('\n'),
-    results.map((r) => r.code).join('\n\n'),
+    classCode.join('\n\n'),
+    results.filter((r) => !methodResults.includes(r)).map((r) => r.code).join('\n\n'),
+    classAliases.join('\n'),
     testManifest,
   ].filter(Boolean).join('\n\n');
 
@@ -642,14 +713,18 @@ export function compileServer(files: ServerFile[], port = 4310): string {
   const importLines: string[] = [];
   const valueEntries: string[] = [];
   const actionEntries: string[] = [];
+  // Keyed by file name alone: a page names a .vi file relative to itself
+  // (\`../logic/shop.vi\` from pages/), and logic file names are unique in a
+  // project (the shared build folder requires it), so the name is enough.
+  const fileName = (path: string): string => path.split('/').pop() ?? path;
   files.forEach((file, i) => {
     const ns = `mod_${i}`;
     importLines.push(`import * as ${ns} from ${JSON.stringify(file.moduleSpecifier)};`);
     for (const value of file.exports.values) {
-      valueEntries.push(`  ${JSON.stringify(`${file.relative}\u0000${value.name}`)}: ${ns}.__vibezTest?.values[${JSON.stringify(value.name)}] ?? ${ns}[${JSON.stringify(value.name)}],`);
+      valueEntries.push(`  ${JSON.stringify(`${fileName(file.relative)}\u0000${value.name}`)}: ${ns}.__vibezTest?.values[${JSON.stringify(value.name)}] ?? ${ns}[${JSON.stringify(value.name)}],`);
     }
     for (const action of file.exports.actions) {
-      actionEntries.push(`  ${JSON.stringify(`${file.relative}\u0000${action.name}`)}: { fn: ${ns}.__vibezTest?.actions[${JSON.stringify(action.name)}] ?? ${ns}[${JSON.stringify(action.name)}], inputs: ${JSON.stringify(action.inputs.map((i) => i.name))} },`);
+      actionEntries.push(`  ${JSON.stringify(`${fileName(file.relative)}\u0000${action.name}`)}: { fn: ${ns}.__vibezTest?.actions[${JSON.stringify(action.name)}] ?? ${ns}[${JSON.stringify(action.name)}], inputs: ${JSON.stringify(action.inputs.map((i) => i.name))} },`);
     }
   });
 
@@ -695,7 +770,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const match = url.pathname.match(/^\\/vibez\\/([^/]+)\\/([^/]+)$/);
   if (!match) { res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'not found' })); return; }
-  const key = \`\${decodeURIComponent(match[1])}\\u0000\${decodeURIComponent(match[2])}\`;
+  const key = \`\${decodeURIComponent(match[1]).split('/').pop()}\\u0000\${decodeURIComponent(match[2])}\`;
   label = \`\${req.method} \${decodeURIComponent(match[1])}#\${decodeURIComponent(match[2])}\`;
   const started = Date.now();
   res.on('finish', () => console.log(\`\${label} -> \${res.statusCode} (\${Date.now() - started} ms)\`));

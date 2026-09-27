@@ -1,7 +1,8 @@
 import { UNSUPPORTED_OPS } from './runtime.ts';
 import type { GNode, PortType, SemanticKey } from '../../core/src/types.ts';
 import { makeNode, type PortContext } from './ops.ts';
-import { categoryOf, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type MathOp, type ViAction, type ViType, type ViVariable } from './types.ts';
+import { categoryOf, type AuthoredConfig, type AuthoredDataPin, type AuthoredKind, type Category, type ComputeOp, type MathOp, type ObjectOp, type ViAction, type ViClass, type ViType, type ViVariable } from './types.ts';
+import { allFields, allMethods, parentMethod } from './classes.ts';
 
 /**
  * Every block the search dropdown can offer, the Unreal/Blueprints way: type
@@ -110,7 +111,12 @@ export const CATALOG: CatalogEntry[] = [
   pure('Values', 'Is Empty', 'isEmpty', [pin('value')], boolOut),
 
   // Boolean and comparison
-  ...MATH_OPS.map((m): CatalogEntry => pure('Math & Logic', m.label, m.op, numberPins, ['==', '!=', '<', '>', '<=', '>=', '&&', '||', 'xor'].includes(m.op) ? boolOut : numberOut, ['compute', 'math', ...m.keywords], 'Combine or compare two values')),
+  // Equals and Not Equals compare any two values (text with text, numbers with numbers): typed Number pins
+  // made comparing two names insert a conversion to Number on both sides, and "Rex" never equalled "Rex".
+  ...MATH_OPS.map((m): CatalogEntry => pure('Math & Logic', m.label, m.op,
+    m.op === '==' || m.op === '!=' ? [pin('a'), pin('b')] : m.op === '&&' || m.op === '||' || m.op === 'xor' ? [pin('a', 'Boolean'), pin('b', 'Boolean')] : numberPins,
+    ['==', '!=', '<', '>', '<=', '>=', '&&', '||', 'xor'].includes(m.op) ? boolOut : numberOut, ['compute', 'math', ...m.keywords], m.op === '==' || m.op === '!=' ? 'Compare two values of the same kind: text, numbers or true/false' : 'Combine or compare two values')),
+  pure('Text', 'Text Equals', '==', [pin('a', 'String'), pin('b', 'String')], boolOut, ['same text', 'string equals', 'compare text', 'match'], 'Whether two pieces of text are exactly the same'),
   pure('Math & Logic', 'Not', 'not', [pin('value', 'Boolean')], boolOut),
   pure('Math & Logic', 'Negate', 'negate', [pin('value', 'Number')], numberOut),
   pure('Math & Logic', 'Absolute Value', 'abs', [pin('value', 'Number')], numberOut),
@@ -146,6 +152,7 @@ export const CATALOG: CatalogEntry[] = [
 
   // Lists
   pure('Lists', 'Make List', 'makeList', [pin('item 1'), pin('item 2')], listOut),
+  ...[3, 4, 5, 6].map((n) => pure('Lists', `Make List (${n} items)`, 'makeList', Array.from({ length: n }, (_, i) => pin(`item ${i + 1}`)), listOut, ['make list', 'list of', `${n}`])),
   pure('Lists', 'Get Item', 'listGet', [pin('list', 'List'), pin('index', 'Number')], [pin('item')]),
   pure('Lists', 'Set Item', 'listSet', [pin('list', 'List'), pin('index', 'Number'), pin('item')], listOut),
   pure('Lists', 'First', 'first', [pin('list', 'List')], [pin('item')]),
@@ -170,6 +177,8 @@ export const CATALOG: CatalogEntry[] = [
 
   // Objects, maps and JSON
   pure('Objects', 'Make Object', 'makeObject', [pin('fields', 'Object')], objectOut),
+  // Give it fields in the block's settings (or through vi_edit's config.fields) and it gets a pin per field.
+  pure('Objects', 'Make Object with Fields', 'makeObject', [pin('field 1'), pin('field 2')], objectOut, ['record', 'build object', 'fields', 'shape'], 'Build an object from named values, one pin per field'),
   pure('Objects', 'Break Object', 'breakObject', [pin('object', 'Object')], objectOut),
   pure('Objects', 'Get Field', 'getField', [pin('object', 'Object'), pin('field', 'String')], [pin('value')]),
   pure('Objects', 'Set Field', 'setField', [pin('object', 'Object'), pin('field', 'String'), pin('value')], objectOut),
@@ -248,7 +257,7 @@ export const CATALOG: CatalogEntry[] = [
   debug('Throw Error', 'throw', 'Stop here with a message, to test error handling'),
 ];
 
-export type SearchKind = 'block' | 'get' | 'set' | 'call';
+export type SearchKind = 'block' | 'get' | 'set' | 'call' | 'object';
 
 export interface SearchItem {
   id: string;
@@ -306,6 +315,45 @@ function callItem(file: string, action: ViAction, group: 'Actions' | 'Functions'
   };
 }
 
+function objectItem(op: ObjectOp, cls: string, label: string, hint: string, keywords: string[], ctx: PortContext, extra: { field?: string; method?: string } = {}): SearchItem {
+  const config: AuthoredConfig = { kind: 'object', op, class: cls, ...extra };
+  return {
+    id: `object:${op}:${cls}:${extra.field ?? extra.method ?? ''}`,
+    kind: 'object',
+    label,
+    hint,
+    group: 'Classes',
+    category: categoryOf('object'),
+    keywords: [cls, op, 'class', 'object', ...keywords],
+    make: (taken) => makeNode('object', config, taken, ctx),
+  };
+}
+
+/** Every block a class offers: make an object, read and change each field, run each method, check what an object is. */
+function classItems(classes: ViClass[], ctx: PortContext, inMethod?: { class: string; method: string }): SearchItem[] {
+  const items: SearchItem[] = [];
+  const withClasses: PortContext = { ...ctx, classes };
+  for (const cls of classes) {
+    items.push(objectItem('new', cls.name, `New ${cls.name}`, cls.about ?? `Make a ${cls.name} object`, ['new', 'make', 'create', 'instance'], withClasses));
+    for (const field of allFields(classes, cls.name)) {
+      items.push(objectItem('get', cls.name, `Get ${cls.name}.${field.name}`, `Read a ${cls.name}'s ${field.name} (${field.type})`, [field.name, 'get', 'read', 'field', 'property'], withClasses, { field: field.name }));
+      items.push(objectItem('set', cls.name, `Set ${cls.name}.${field.name}`, `Change a ${cls.name}'s ${field.name}`, [field.name, 'set', 'change', 'field', 'property'], withClasses, { field: field.name }));
+    }
+    for (const { owner, method } of allMethods(classes, cls.name)) {
+      const from = owner.name === cls.name ? '' : ` (from ${owner.name})`;
+      items.push(objectItem('call', cls.name, `${cls.name}.${method.name}`, `${method.about ?? `Run ${method.name} on a ${cls.name}`}${from}`, [method.name, 'method', 'call', 'run'], withClasses, { method: method.name }));
+    }
+    items.push(objectItem('isA', cls.name, `Is a ${cls.name}`, `Whether an object was made from ${cls.name} or a class that extends it`, ['is', 'instanceof', 'type', 'check'], withClasses));
+  }
+  if (inMethod) {
+    items.push(objectItem('self', inMethod.class, `This ${inMethod.class}`, `The ${inMethod.class} this method is running on`, ['this', 'self', 'me'], withClasses));
+    if (parentMethod(classes, inMethod.class, inMethod.method)) {
+      items.push(objectItem('super', inMethod.class, `Parent ${inMethod.method}`, `Run the parent class's version of ${inMethod.method}`, ['super', 'parent', 'base', 'inherited'], withClasses, { method: inMethod.method }));
+    }
+  }
+  return items;
+}
+
 export interface SearchIndexInput {
   /** What a call into this export's own signature should look like — irrelevant to most entries, but a `call` block needs it when it targets something in this same file. */
   ctx: PortContext;
@@ -315,6 +363,10 @@ export interface SearchIndexInput {
   actions: { file: string; action: ViAction }[];
   /** Private functions this graph can call, the same way. */
   functions: { file: string; action: ViAction }[];
+  /** The file's classes: each offers New, Get/Set per field, a call per method and Is a. */
+  classes?: ViClass[];
+  /** When the graph is a class method: This and Call Parent are offered too. */
+  inMethod?: { class: string; method: string };
 }
 
 /** Everything the search dropdown can show, unfiltered. Filtering by port and text happens in the caller/UI. */
@@ -326,6 +378,7 @@ export function searchIndex(input: SearchIndexInput): SearchItem[] {
   }
   for (const { file, action } of input.actions) items.push(callItem(file, action, 'Actions'));
   for (const { file, action } of input.functions) items.push(callItem(file, action, 'Functions'));
+  items.push(...classItems(input.classes ?? [], input.ctx, input.inMethod));
   return items;
 }
 

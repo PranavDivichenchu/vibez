@@ -179,6 +179,16 @@ test('two people\'s agents see each other, are warned before colliding, and pass
   assert.match(after.text, /you took over from Pranav/);
   assert.match(after.text, /holds site\/index\.html, pages\/dashboard\.ui#subtitle, logic\/menu\.vi\n/, 'a file already held is not claimed twice');
 
+  // Waiting wakes when a teammate writes; finishing with an unread question is held back.
+  const waiting2 = ashmith('team_wait', { seconds: 20 });
+  await new Promise((r) => setTimeout(r, 1500));
+  await pranav('team_message', { to: 'Ashmith', message: 'Can the menu item carry the plain name too?' });
+  const woke = await waiting2;
+  assert.match(woke.text, /^A teammate wrote:\n {2}message from Pranav: Can the menu item carry the plain name too\?/);
+  const early = await ashmith('team_done');
+  assert.match(early.text, /^Not finished yet: 1 message\(s\) from teammates are unread/);
+  await ashmith('team_inbox');
+
   // Done releases everything this agent holds (site/index.html once, the subtitle, logic/menu.vi).
   const done = await ashmith('team_done');
   assert.equal(done.text, 'done; released 3 claim(s).');

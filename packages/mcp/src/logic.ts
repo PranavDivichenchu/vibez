@@ -3,7 +3,8 @@ import {
   addEdge, addNode, compileFile, configOf, declareFunction, declareVariable, fits, functionGraphFor, graphFor, matches,
   parseDoc, removeEdge, removeFunction, removeNodePreservingFlow, removeVariable, renameFunction, renameVariable, searchIndex,
   serialize, setFunctionGraph, setGraph, takenIds, updateAction, updateConfig, updateValue, removeNode, pruneEdges,
-  type AuthoredConfig, type AuthoredGraph, type PortContext, type SearchItem, type ViAction, type ViDoc, type ViType, type ViValue, type ViVariable,
+  allFields, allMethods, classIssues, declareClass, declareMethod, methodGraphFor, removeClass, removeMethod, renameClass, setMethodGraph,
+  type AuthoredConfig, type AuthoredGraph, type PortContext, type SearchItem, type ViAction, type ViClass, type ViDoc, type ViField, type ViMethod, type ViType, type ViValue, type ViVariable,
 } from '../../vi/src/index.ts';
 import { VibezError } from './workspace.ts';
 
@@ -20,13 +21,24 @@ import { VibezError } from './workspace.ts';
 
 export const VI_TYPES = ['String', 'Number', 'Boolean', 'Url', 'Date', 'Object', 'List'] as const;
 
-export type Where = 'value' | 'action' | 'function';
+export type Where = 'value' | 'action' | 'function' | 'method';
 
 export interface Located {
   where: Where;
-  decl: ViValue | ViAction;
+  decl: ViValue | ViAction | ViMethod;
   graph: AuthoredGraph;
   doc: ViDoc;
+  /** For a method: the class it belongs to. */
+  cls?: string;
+}
+
+/** `Class.method`, split, when `name` names a method of one of the file's classes. */
+function methodOf(doc: ViDoc, name: string): { cls: ViClass; method: ViMethod } | undefined {
+  const dot = name.indexOf('.');
+  if (dot <= 0) return undefined;
+  const cls = doc.classes?.find((c) => c.name === name.slice(0, dot));
+  const method = cls?.methods.find((m) => m.name === name.slice(dot + 1));
+  return cls && method ? { cls, method } : undefined;
 }
 
 /** The graph for a value, action or function, with the file updated if it had to be created. */
@@ -46,31 +58,52 @@ export function locate(doc: ViDoc, name: string): Located {
     const { graph, doc: next } = functionGraphFor(doc, name);
     return { where: 'function', decl: fn, graph, doc: next };
   }
-  const all = [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].map((d) => d.name);
-  throw new VibezError(`There is no value, action or function called ${name}. This file has: ${all.join(', ') || 'nothing yet'}.`);
+  const found = methodOf(doc, name);
+  if (found) {
+    const { graph, doc: next } = methodGraphFor(doc, found.cls.name, found.method.name);
+    return { where: 'method', decl: found.method, graph, doc: next, cls: found.cls.name };
+  }
+  const all = [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].map((d) => d.name)
+    .concat((doc.classes ?? []).flatMap((c) => c.methods.map((m) => `${c.name}.${m.name}`)));
+  throw new VibezError(`There is no value, action, function or method called ${name}. This file has: ${all.join(', ') || 'nothing yet'}. A class's method is named Class.method.`);
 }
 
-const store = (doc: ViDoc, where: Where, name: string, graph: AuthoredGraph): ViDoc =>
-  where === 'function' ? setFunctionGraph(doc, name, graph) : setGraph(doc, name, graph);
+const store = (doc: ViDoc, where: Where, name: string, graph: AuthoredGraph): ViDoc => {
+  if (where === 'function') return setFunctionGraph(doc, name, graph);
+  if (where === 'method') {
+    const dot = name.indexOf('.');
+    return setMethodGraph(doc, name.slice(0, dot), name.slice(dot + 1), graph);
+  }
+  return setGraph(doc, name, graph);
+};
 
-export const contextFor = (where: Where, decl: ViValue | ViAction): PortContext =>
-  where === 'value'
+export const contextFor = (where: Where, decl: ViValue | ViAction | ViMethod, doc?: ViDoc): PortContext => ({
+  ...(where === 'value'
     ? { pure: false, inputs: [], returns: (decl as ViValue).type }
-    : { pure: false, inputs: (decl as ViAction).inputs, ...((decl as ViAction).returns ? { returns: (decl as ViAction).returns! } : {}) };
+    : { pure: false, inputs: (decl as ViAction).inputs, ...((decl as ViAction).returns ? { returns: (decl as ViAction).returns! } : {}) }),
+  classes: doc?.classes ?? [],
+});
 
 /** Other `.vi` files' callable actions and functions, keyed the way a call from this file names them. */
 export type Siblings = Map<string, { actions: ViAction[]; functions: ViAction[] }>;
 
-export function blocksFor(doc: ViDoc, ctx: PortContext, siblings: Siblings): SearchItem[] {
+export function blocksFor(doc: ViDoc, ctx: PortContext, siblings: Siblings, inMethod?: { class: string; method: string }): SearchItem[] {
   const local = (list: ViAction[] | undefined) => (list ?? []).map((action) => ({ file: '', action }));
   const other = (pick: 'actions' | 'functions') => [...siblings].flatMap(([file, s]) => s[pick].map((action) => ({ file, action })));
   return searchIndex({
-    ctx,
+    ctx: { ...ctx, classes: doc.classes ?? [] },
     variables: doc.variables ?? [],
     actions: [...local(doc.exports.actions), ...other('actions')],
     functions: [...local(doc.functions), ...other('functions')],
+    classes: doc.classes ?? [],
+    ...(inMethod ? { inMethod } : {}),
   });
 }
+
+/** The blocks for a located graph: in a method, This and Call Parent too. */
+export const blocksAt = (located: Located, siblings: Siblings): SearchItem[] =>
+  blocksFor(located.doc, contextFor(located.where, located.decl, located.doc), siblings,
+    located.where === 'method' && located.cls ? { class: located.cls, method: located.decl.name } : undefined);
 
 // ------------------------------------------------------------ reading
 
@@ -91,7 +124,7 @@ export function outlineGraph(located: Located, name: string, issues: { nodeId: s
   const signature = where === 'value'
     ? `: ${(decl as ViValue).type}`
     : `(${(decl as ViAction).inputs.map((i) => `${i.name}: ${i.type}`).join(', ')})${(decl as ViAction).returns ? ` → ${(decl as ViAction).returns}` : ''}`;
-  const lines = [`graph ${name}${signature} · ${where === 'value' ? 'page data' : where === 'action' ? 'page action' : 'function'}`, ''];
+  const lines = [`graph ${name}${signature} · ${where === 'value' ? 'page data' : where === 'action' ? 'page action' : where === 'method' ? `method of ${located.cls} (This is the ${located.cls} it runs on)` : 'function'}`, ''];
   const into = new Map<string, string>();
   for (const edge of graph.edges) into.set(`${edge.to.node}|${edge.to.port}`, `${edge.from.node}.${edge.from.port}`);
   lines.push('blocks:');
@@ -113,7 +146,7 @@ export function outlineGraph(located: Located, name: string, issues: { nodeId: s
 
 export function compileIssues(doc: ViDoc, siblings: Siblings): { exportName: string; nodeId: string; severity: string; message: string }[] {
   const map = new Map([...siblings].map(([file, s]) => [file, [...s.actions, ...s.functions]]));
-  const result = compileFile(doc.exports.values, doc.exports.actions, doc.logic, map, (file) => file, doc.functions ?? [], doc.helpers ?? {}, doc.variables ?? []);
+  const result = compileFile(doc.exports.values, doc.exports.actions, doc.logic, map, (file) => file, doc.functions ?? [], doc.helpers ?? {}, doc.variables ?? [], doc.classes ?? [], doc.methods ?? {});
   return result.issues;
 }
 
@@ -137,6 +170,20 @@ export function outlineLogic(path: string, doc: ViDoc, siblings: Siblings): stri
   const fns = doc.functions ?? [];
   lines.push(fns.length ? 'functions (called by other graphs):' : 'functions: none');
   for (const f of fns) lines.push(`  ${f.name}${sig(f)} · ${blocks(doc.helpers?.[f.name])} · ${status(f.name)}`);
+  const classes = doc.classes ?? [];
+  lines.push(classes.length ? 'classes (blueprints for objects):' : 'classes: none');
+  for (const c of classes) {
+    lines.push(`  class ${c.name}${c.extends ? ` extends ${c.extends}` : ''}${c.about ? ` · ${c.about}` : ''}`);
+    const fields = allFields(classes, c.name);
+    lines.push(`    fields: ${fields.map((f) => `${f.name}: ${f.type}${f.initial !== undefined ? ` = ${JSON.stringify(f.initial)}` : ''}${c.fields.includes(f) ? '' : ' (inherited)'}`).join(', ') || 'none'}`);
+    for (const { owner, method } of allMethods(classes, c.name)) {
+      const key = `${c.name}.${method.name}`;
+      const inherited = owner.name !== c.name;
+      const overrides = !inherited && c.extends && allMethods(classes, c.extends).some((m) => m.method.name === method.name);
+      lines.push(`    ${key}${sig(method as ViAction)}${inherited ? ` (inherited from ${owner.name})` : ` · ${blocks(doc.methods?.[key])} · ${status(key)}${overrides ? ` · replaces ${c.extends}'s version` : ''}`}`);
+    }
+  }
+  for (const issue of classIssues(classes)) lines.push(`  ${issue.severity}: ${issue.message}`);
   const vars = doc.variables ?? [];
   lines.push(vars.length ? 'variables:' : 'variables: none');
   for (const v of vars) lines.push(`  ${v.name}: ${v.type}${v.mutable ? ' (changeable)' : ' (read-only)'}${v.initial !== undefined ? ` = ${JSON.stringify(v.initial)}` : ''}`);
@@ -146,15 +193,19 @@ export function outlineLogic(path: string, doc: ViDoc, siblings: Siblings): stri
     for (const e of errors.slice(0, 20)) lines.push(`  ${e.exportName}: ${e.message}`);
     if (errors.length > 20) lines.push(`  …and ${errors.length - 20} more`);
   }
-  lines.push('', 'Read one graph with vi_read { path, graph: "<name>" }.');
+  lines.push('', 'Read one graph with vi_read { path, graph: "<name>" }; a method is named Class.method.');
   return lines.join('\n');
 }
 
 // ------------------------------------------------------------ editing
 
 export type LogicOp =
-  | { op: 'declare'; what: 'value' | 'action' | 'function' | 'variable'; name: string; type?: ViType; fields?: Record<string, ViType>; sample?: unknown;
-    inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean; initial?: unknown; about?: string }
+  | { op: 'declare'; what: 'value' | 'action' | 'function' | 'variable' | 'class' | 'method'; name: string; type?: ViType; fields?: Record<string, ViType> | ViField[]; sample?: unknown;
+    inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean; initial?: unknown; about?: string;
+    /** For a class: the class it extends. */
+    extends?: string;
+    /** For a method: the class it belongs to. */
+    class?: string }
   | { op: 'rename'; name: string; to: string }
   | { op: 'remove'; name: string }
   | { op: 'add'; graph: string; block: string; as?: string; config?: Record<string, unknown> }
@@ -202,7 +253,9 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
     const id = ref.startsWith('$') ? created[ref.slice(1)] : ref;
     if (!id) throw new VibezError(`Nothing earlier in this batch was named ${ref.slice(1)} (with "as").`);
     if (!graph.nodes.some((n) => n.id === id)) {
-      throw new VibezError(`There is no block ${id} in this graph. Blocks: ${graph.nodes.map((n) => `${n.id} (${n.label})`).join(', ')}.`);
+      // A name given with "as" earlier in the batch is used with a $ in front.
+      const hint = created[id] ? ` ${id} was named with "as" in this batch: write it $${id}.` : '';
+      throw new VibezError(`There is no block ${id} in this graph.${hint} Blocks: ${graph.nodes.map((n) => `${n.id} (${n.label})`).join(', ')}.`);
     }
     return id;
   };
@@ -219,6 +272,31 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           const taken = [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].some((d) => d.name === name);
           const inputs = (op.inputs ?? []).map((input) => ({ name: cleanName(input.name), type: input.type }));
           const about = op.about !== undefined ? { about: op.about } : {};
+          if (op.what === 'class') {
+            const fields: ViField[] = Array.isArray(op.fields) ? op.fields.map((f) => ({ ...f, name: cleanName(f.name) }))
+              : Object.entries(op.fields ?? {}).map(([fieldName, type]) => ({ name: cleanName(fieldName), type }));
+            if (!/^[A-Za-z_$][\w$]*$/.test(name)) throw new VibezError(`A class name is one word, like Dog or ShoppingCart; "${name}" has a space.`);
+            const existing = doc.classes?.find((c) => c.name === name);
+            const cls: ViClass = { name, fields, methods: existing?.methods ?? [], ...(op.extends ? { extends: op.extends } : {}), ...about };
+            const next = declareClass({ ...doc, vibez: 'vi/1' }, cls);
+            const problems = classIssues(next.classes, [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].map((d) => d.name)).filter((p) => p.severity === 'error' && p.className === name);
+            if (problems.length) throw new VibezError(problems.map((p) => p.message).join(' '));
+            doc = next;
+            log.push(`${existing ? 'updated' : 'declared'} class ${name}${op.extends ? ` extends ${op.extends}` : ''} with fields ${fields.map((f) => `${f.name}: ${f.type}${f.initial !== undefined ? ` = ${JSON.stringify(f.initial)}` : ''}`).join(', ') || '(none)'}`);
+            break;
+          }
+          if (op.what === 'method') {
+            const owner = op.class ? doc.classes?.find((c) => c.name === op.class) : undefined;
+            if (!owner) throw new VibezError(`A method needs class: one of ${(doc.classes ?? []).map((c) => c.name).join(', ') || 'this file\'s classes (declare one first)'}.`);
+            const method: ViMethod = { name, inputs, ...(op.returns ? { returns: op.returns } : {}), ...about };
+            const existed = owner.methods.some((m) => m.name === name);
+            doc = declareMethod(doc, owner.name, method);
+            doc = methodGraphFor(doc, owner.name, name).doc;
+            const key = `${owner.name}.${name}`;
+            log.push(`${existed ? 'updated' : 'declared'} method ${key}(${inputs.map((x) => `${x.name}: ${x.type}`).join(', ')})${op.returns ? ` → ${op.returns}` : ''}; its graph is ${key}`);
+            touched.add(key);
+            break;
+          }
           if (op.what === 'variable') {
             if (!op.type) throw new VibezError('A variable needs a type.');
             const variable: ViVariable = { name, type: op.type, mutable: op.mutable ?? true, ...(op.initial !== undefined ? { initial: op.initial } : {}), ...about };
@@ -228,6 +306,7 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           }
           if (op.what === 'value') {
             if (!op.type) throw new VibezError('A value needs a type: String, Number, Boolean, Url, Date, Object or List.');
+            if (Array.isArray(op.fields)) throw new VibezError('A value\'s fields are written { "field": "Type" }.');
             const value: ViValue = { name, type: op.type, ...(op.fields ? { fields: op.fields } : {}), ...(op.sample !== undefined ? { sample: op.sample } : {}), ...about };
             if (op.sample !== undefined && (op.type === 'List') !== Array.isArray(op.sample) && (op.type === 'List' || op.type === 'Object')) {
               throw new VibezError(`The sample for ${name} should be ${op.type === 'List' ? 'a list' : 'an object'}.`);
@@ -257,8 +336,15 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
         case 'rename': {
           const to = cleanName(op.to);
           const variable = doc.variables?.find((v) => v.name === op.name);
+          const cls = doc.classes?.find((c) => c.name === op.name);
+          const method = methodOf(doc, op.name);
           if (variable) {
             doc = renameVariable(doc, op.name, { ...variable, name: to });
+          } else if (cls) {
+            doc = renameClass(doc, op.name, { ...cls, name: to });
+          } else if (method) {
+            doc = declareMethod(doc, method.cls.name, { ...method.method, name: to }, method.method.name);
+            touched.add(`${method.cls.name}.${to}`);
           } else {
             const found = locate(doc, op.name);
             doc = found.doc;
@@ -271,8 +357,13 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           break;
         }
         case 'remove': {
+          const method = methodOf(doc, op.name);
           if (doc.variables?.some((v) => v.name === op.name)) {
             doc = removeVariable(doc, op.name);
+          } else if (doc.classes?.some((c) => c.name === op.name)) {
+            doc = removeClass(doc, op.name);
+          } else if (method) {
+            doc = removeMethod(doc, method.cls.name, method.method.name);
           } else if (doc.functions?.some((f) => f.name === op.name)) {
             doc = removeFunction(doc, op.name);
           } else if (doc.exports.values.some((v) => v.name === op.name) || doc.exports.actions.some((a) => a.name === op.name)) {
@@ -287,8 +378,8 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
         case 'add': {
           const found = locate(doc, op.graph);
           doc = found.doc;
-          const ctx = contextFor(found.where, found.decl);
-          const items = blocksFor(doc, ctx, siblings);
+          const ctx = contextFor(found.where, found.decl, doc);
+          const items = blocksAt(found, siblings);
           const wanted = op.block.trim().toLowerCase();
           const item = items.find((b) => b.label.toLowerCase() === wanted)
             ?? items.find((b) => b.id.toLowerCase() === wanted)
@@ -300,6 +391,14 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           let node = item.make(takenIds(found.graph));
           let graph = addNode(found.graph, node);
           if (op.config) {
+            const current = configOf(node);
+            // A Make Object block given fields gets one pin per field, named by it.
+            if (current?.kind === 'compute' && current.op === 'makeObject' && op.config['fields'] && typeof op.config['fields'] === 'object') {
+              const fields = op.config['fields'] as Record<string, ViType> | { name: string; type?: ViType }[];
+              const list = Array.isArray(fields) ? fields : Object.entries(fields).map(([name, type]) => ({ name, type }));
+              const { fields: _f, ...rest } = op.config;
+              op.config = { ...rest, inputs: list.map((f) => (f.type ? { name: f.name, type: f.type } : { name: f.name })) };
+            }
             const merged = { ...(configOf(node) ?? {}), ...op.config } as AuthoredConfig;
             graph = updateConfig(graph, node.id, merged, targetContext(doc, merged, ctx, siblings));
             node = graph.nodes.find((n) => n.id === node.id)!;
@@ -319,7 +418,7 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
           if (!current) throw new VibezError(`${id} has no settings to change.`);
           if ('kind' in op.config && op.config['kind'] !== current.kind) throw new VibezError(`A block's kind cannot change; delete it and add a ${String(op.config['kind'])} block instead.`);
           const merged = { ...current, ...op.config } as AuthoredConfig;
-          const ctx = targetContext(doc, merged, contextFor(found.where, found.decl), siblings);
+          const ctx = targetContext(doc, merged, contextFor(found.where, found.decl, doc), siblings);
           const graph = updateConfig(found.graph, id, merged, ctx);
           doc = store(doc, found.where, op.graph, pruneEdges(graph));
           touched.add(op.graph);

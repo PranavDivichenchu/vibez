@@ -110,6 +110,7 @@ test('inside a repeating frame, the item fields come first', () => {
 test('an action takes what was typed, matched by name', () => {
   let doc = blankDoc();
   const email = add(doc, 'Input'); doc = email.doc;
+  doc = update(doc, email.id, { field: 'email' });
   const [signUp] = actionChoices(linked);
   assert.deepEqual(autoArgs(doc, signUp!.inputs), { email: { from: 'input', name: 'email' } });
 });

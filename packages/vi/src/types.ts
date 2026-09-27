@@ -37,7 +37,7 @@ export interface ViExports {
 }
 
 /** Every kind of block the graph editor can place. */
-export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'boundary' | 'group' | 'debug' | 'call';
+export type AuthoredKind = 'entry' | 'return' | 'branch' | 'loop' | 'literal' | 'variable' | 'compute' | 'data' | 'effect' | 'external' | 'boundary' | 'group' | 'debug' | 'call' | 'object';
 
 /** One block per operator, the Unreal way, rather than a single "Compute" node with a free-text expression. */
 export type MathOp = '+' | '-' | '*' | '/' | '%' | 'pow' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | 'xor';
@@ -73,7 +73,18 @@ export type AuthoredConfig =
 	| { kind: 'boundary'; op: 'throw' | 'authorize' | 'requireRole' | 'validate' | 'safeCast'; value?: string; type?: ViType }
 	| { kind: 'group'; mode: 'reroute' | 'namedReroute' | 'comment' | 'region' | 'helper' | 'bookmark'; name?: string; text?: string }
 	| { kind: 'debug'; op: 'log' | 'throw'; level?: 'log' | 'warn' | 'error' }
-	| { kind: 'call'; file: string; name: string };
+	| { kind: 'call'; file: string; name: string }
+	/**
+	 * Classes and objects. `new` makes an object of a class, `get`/`set` read and
+	 * change one of its fields, `call` runs one of its methods (the object's own
+	 * version, so a child class's override wins), `self` is the object a method
+	 * is running on, `super` runs the parent class's version of the method being
+	 * written, and `isA` asks whether an object was made from a class (or a
+	 * child of it).
+	 */
+	| { kind: 'object'; op: ObjectOp; class: string; field?: string; method?: string };
+
+export type ObjectOp = 'new' | 'get' | 'set' | 'call' | 'self' | 'super' | 'isA';
 
 export function configOf(node: GNode): AuthoredConfig | undefined {
   const raw = node.config as (Record<string, unknown> & { kind?: string }) | undefined;
@@ -100,6 +111,7 @@ export function categoryOf(kind: AuthoredKind): Category {
 		case 'literal': case 'variable': case 'compute': return 'value';
 		case 'data': case 'effect': case 'external': return 'data';
 		case 'entry': case 'call': return 'event';
+		case 'object': return 'data';
 		case 'group': case 'debug': return 'debugging';
   }
 }
@@ -127,6 +139,40 @@ export interface ViVariable {
   about?: string;
 }
 
+/** One field of a class: a named, typed piece of every object made from it. */
+export interface ViField {
+  name: string;
+  type: ViType;
+  /** What a new object starts with. A field without one is asked for when the object is made. */
+  initial?: unknown;
+  about?: string;
+}
+
+/** Something every object of a class can do. Its logic is a graph, like a function's, with the object available as This. */
+export interface ViMethod {
+  name: string;
+  inputs: { name: string; type: ViType }[];
+  returns?: ViType;
+  about?: string;
+}
+
+/**
+ * A class: a blueprint for objects. It has fields every object carries and
+ * methods every object can do. A class can extend another, taking all of its
+ * fields and methods; a method with the same name as the parent's replaces it
+ * for objects of the child class (an override).
+ */
+export interface ViClass {
+  name: string;
+  extends?: string;
+  fields: ViField[];
+  methods: ViMethod[];
+  about?: string;
+}
+
+/** Where a method's graph is kept in `ViDoc.methods`. */
+export const methodKey = (className: string, method: string): string => `${className}.${method}`;
+
 export interface ViDoc {
   /** `'vi/0'` (exports only, the format before the graph editor existed) or `'vi/1'` (exports + logic). */
   vibez: string;
@@ -140,6 +186,10 @@ export interface ViDoc {
   functions?: ViAction[];
   /** One authored graph per reusable function, keyed by name — the internal counterpart to page-facing `logic`. */
   helpers?: Record<string, AuthoredGraph>;
+  /** Blueprints for objects: see `ViClass`. */
+  classes?: ViClass[];
+  /** One authored graph per class method, keyed by `Class.method` (see `methodKey`). */
+  methods?: Record<string, AuthoredGraph>;
 }
 
 export interface PortRef { node: string; port: string }

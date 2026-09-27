@@ -42,7 +42,7 @@ test('the tools an agent sees', async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
     'flow_read', 'site_add_page', 'site_delete_page', 'site_edit', 'site_library', 'site_map', 'site_read',
-    'team_accept', 'team_check', 'team_claim', 'team_done', 'team_handoff', 'team_inbox', 'team_message', 'team_recall', 'team_release', 'team_remember', 'team_start', 'team_status',
+    'team_accept', 'team_check', 'team_claim', 'team_done', 'team_handoff', 'team_inbox', 'team_message', 'team_recall', 'team_release', 'team_remember', 'team_start', 'team_status', 'team_wait',
     'ui_build', 'ui_create', 'ui_edit', 'ui_options', 'ui_read', 'vi_blocks', 'vi_declare', 'vi_edit', 'vi_read', 'vi_run', 'vibez_overview', 'vibez_reference',
   ]);
   const edit = tools.find((t) => t.name === 'ui_edit')!;
@@ -180,7 +180,7 @@ test('vi_run compiles and runs a value or action for real, with no page involved
 
   const missing = await call('vi_run', { path: 'pages/math.vi', export: 'nope' });
   assert.equal(missing.error, true);
-  assert.match(missing.text, /has no value or action called nope/);
+  assert.match(missing.text, /has no value, action, function or method called nope/);
 });
 
 test('a recorded flow reads as steps with what was noticed', async () => {

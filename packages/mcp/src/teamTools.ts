@@ -205,9 +205,15 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
   server.registerTool('team_message', {
     title: 'Message a teammate',
     description: 'Send a short message to one person on the team (their agents see it too), or to everyone.',
-    inputSchema: { to: z.string().describe('A teammate\'s name, or "everyone".'), text: z.string().min(1).max(4000) },
-  }, ({ to, text }) => run(async (t) => {
-    await t.message(to, text);
+    inputSchema: {
+      to: z.string().describe('A teammate\'s name, or "everyone".'),
+      text: z.string().min(1).max(4000).optional().describe('What to say.'),
+      message: z.string().min(1).max(4000).optional().describe('The same as text.'),
+    },
+  }, ({ to, text, message }) => run(async (t) => {
+    const body = text ?? message;
+    if (!body) throw new VibezError('Give the message as text.');
+    await t.message(to, body);
     return `sent to ${to}.`;
   })());
 
@@ -257,9 +263,46 @@ export function registerTeamTools(server: McpServer, root: string): TeamHooks {
 
   server.registerTool('team_done', {
     title: 'Finish on the team',
-    description: 'This agent is finished: every claim is released and it shows as done. Leave a note first with team_remember if others need to know something.',
-    inputSchema: {},
-  }, run(async (t) => `done; released ${await t.done()} claim(s).`));
+    description: 'This agent is finished: every claim is released and it shows as done. Leave a note first with team_remember if others need to know something. '
+      + 'If teammates have messaged and nothing has read it yet, it shows those messages instead of finishing, so a question is not left unanswered; answer them (team_message), or pass anyway: true.',
+    inputSchema: { anyway: z.boolean().optional().describe('Finish even with unread messages.') },
+  }, ({ anyway }) => run(async (t) => {
+    const unread = (await t.messages()).filter((m) => m.unread);
+    if (unread.length && !anyway) {
+      return [`Not finished yet: ${unread.length} message(s) from teammates are unread. Answer them with team_message (or take a handoff with team_accept), then call team_done again, or team_done { anyway: true }.`,
+        ...unread.map((m) => `  ${m.kind === 'handoff' ? `handoff ${m.id}` : 'message'} from ${m.from}: ${m.body}`)].join('\n');
+    }
+    return `done; released ${await t.done()} claim(s).`;
+  })());
+
+  server.registerTool('team_wait', {
+    title: 'Wait for a teammate',
+    description: 'Wait until a teammate sends a message or changes something (a file you name, or anything), for up to 90 seconds, then say what happened. '
+      + 'Use it instead of re-reading files over and over when you need another agent\'s work first.',
+    inputSchema: {
+      path: z.string().optional().describe('Only wake for changes to this file (or its elements).'),
+      seconds: z.number().int().min(5).max(90).optional().describe('How long to wait at most. Defaults to 60.'),
+    },
+  }, ({ path, seconds }) => run(async (t) => {
+    const watch = path ? onTeam(path).split('#')[0]! : undefined;
+    const since = (await t.snapshot()).activity[0]?.id ?? 0;
+    const deadline = Date.now() + (seconds ?? 60) * 1000;
+    const seenMessages = new Set((await t.messages()).filter((m) => m.unread).map((m) => m.id));
+    while (Date.now() < deadline) {
+      const unread = (await t.messages()).filter((m) => m.unread && !seenMessages.has(m.id));
+      if (unread.length) {
+        return ['A teammate wrote:', ...unread.map((m) => `  ${m.kind === 'handoff' ? `handoff ${m.id}` : 'message'} from ${m.from}: ${m.body}`), 'Read and mark them with team_inbox.'].join('\n');
+      }
+      const snap = await t.snapshot();
+      const news = snap.activity.filter((a) => a.id > since && a.person !== 'you' && (!watch || a.target.split('#')[0] === watch)
+        && ['edited', 'released', 'finished', 'handed off to', 'noted'].includes(a.verb));
+      if (news.length) {
+        return ['Something changed:', ...news.slice(0, 10).reverse().map((a) => `  ${a.person} ${a.verb}${a.target ? ` ${a.target}` : ''}${a.detail ? ` — ${a.detail}` : ''}`)].join('\n');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    return `Nothing new after ${seconds ?? 60} seconds${watch ? ` on ${watch}` : ''}. team_status shows what everyone is doing.`;
+  })());
 
   return {
     async pulse(path, summary, meta = {}) {

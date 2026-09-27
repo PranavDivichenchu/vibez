@@ -26,9 +26,9 @@ change appears on the canvas as it is written and is one ⌘Z away.
 | **Logic (.vi)** | |
 | `vi_read` | every value, action, function and variable and whether each is ready; or one graph block by block with ports, wiring and problems |
 | `vi_blocks` | the blocks a graph can use (the logic editor's own search), with their ports |
-| `vi_edit` | declare / rename / remove items; add, set, connect, disconnect and delete blocks; all or nothing |
+| `vi_edit` | declare / rename / remove items (values, actions, functions, variables, classes with fields and a parent, methods); add, set, connect, disconnect and delete blocks; all or nothing |
 | `vi_declare` | shortcut for declaring page values and actions, each with a starting Start → Return graph |
-| `vi_run` | compile and run one value, action or function in a fresh process, with logs and a 10-second timeout |
+| `vi_run` | compile and run one value, action, function or class method (`Class.method`, on an object made from `object`) in a fresh process, with logs and a 10-second timeout |
 | **Sites (plain HTML)** | |
 | `site_map` | every HTML page, its address, and every link on it, including the ones that go nowhere |
 | `site_read` | one page as its visible elements, each addressed by `@offset` |
@@ -44,7 +44,8 @@ change appears on the canvas as it is written and is one ⌘Z away.
 | `team_remember` / `team_recall` | leave a note (decision, gotcha, convention) on a file for every agent, and read them |
 | `team_message` / `team_inbox` | message a teammate or everyone; read what came in |
 | `team_handoff` / `team_accept` | pass a task, its next steps and its files to someone; take one over |
-| `team_done` | finish: every claim released |
+| `team_wait` | wait (up to 90 s) until a teammate messages or changes a file, instead of re-reading it |
+| `team_done` | finish: every claim released; held back while teammates' messages are unread |
 | **Measured runs** | |
 | `flow_read` | what actually ran: steps, timings, the critical path, problems noticed |
 

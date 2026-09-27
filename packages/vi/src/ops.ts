@@ -1,5 +1,6 @@
 import type { GEdge, GNode, Port, PortType, SemanticKey, Stats } from '../../core/src/types.ts';
-import { configOf, type AuthoredConfig, type AuthoredGraph, type AuthoredKind, type ComputeOp, type MathOp, type ViAction, type ViDoc, type ViExports, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { configOf, methodKey, type AuthoredConfig, type AuthoredGraph, type AuthoredKind, type ComputeOp, type MathOp, type ViAction, type ViClass, type ViDoc, type ViExports, type ViMethod, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { allFields, findMethod, parentMethod, requiredFields } from './classes.ts';
 
 /**
  * Every change to an authored `.vi` graph, as a pure function from one graph
@@ -38,6 +39,8 @@ export interface PortContext {
   target?: ViAction;
   /** Legacy pure graphs omit execution pins. New values, actions, and functions are execution-driven. */
   pure?: boolean;
+  /** The file's classes, for an object block's fields and methods. */
+  classes?: ViClass[];
 }
 
 /** The in/out ports a block needs, from its kind and config. Recomputed whenever either changes. */
@@ -144,12 +147,54 @@ export function portsFor(kind: AuthoredKind, config: AuthoredConfig, ctx: PortCo
         in: [port('exec', 'do', 'exec'), ...(ctx.target?.inputs ?? []).map((i) => port(`in:${i.name}`, i.name, 'data', toPortType(i.type)))],
         out: [port('exec:out', 'do', 'exec'), ...(ctx.target?.returns ? [port('result', 'result', 'data', toPortType(ctx.target.returns))] : [])],
       };
+    case 'object':
+      return objectPorts(config, ctx);
+  }
+}
+
+/** An object block's pins, from its class: the fields to fill in, the field to read or change, the method's inputs and result. */
+function objectPorts(config: AuthoredConfig, ctx: PortContext): { in: Port[]; out: Port[] } {
+  const c = config.kind === 'object' ? config : { kind: 'object' as const, op: 'self' as const, class: '' };
+  const object = (name = 'object') => port('object', name, 'data', 'Object');
+  const methodPins = (m: ViMethod | undefined) => ({
+    in: (m?.inputs ?? []).map((i) => port(`in:${i.name}`, i.name, 'data', toPortType(i.type))),
+    out: m?.returns ? [port('result', 'result', 'data', toPortType(m.returns))] : [],
+  });
+  switch (c.op) {
+    case 'new':
+      return {
+        in: [port('exec', 'do', 'exec'), ...requiredFields(ctx.classes, c.class).map((f) => port(`field:${f.name}`, f.name, 'data', toPortType(f.type)))],
+        out: [port('exec:out', 'do', 'exec'), port('object', c.class || 'object', 'data', 'Object')],
+      };
+    case 'get': {
+      const field = allFields(ctx.classes, c.class).find((f) => f.name === c.field);
+      return { in: [object(c.class || 'object')], out: [port('value', c.field ?? 'value', 'data', toPortType(field?.type))] };
+    }
+    case 'set': {
+      const field = allFields(ctx.classes, c.class).find((f) => f.name === c.field);
+      return {
+        in: [port('exec', 'do', 'exec'), object(c.class || 'object'), port('value', c.field ?? 'value', 'data', toPortType(field?.type))],
+        out: [port('exec:out', 'do', 'exec'), port('object', c.class || 'object', 'data', 'Object')],
+      };
+    }
+    case 'call': {
+      const pins = methodPins(findMethod(ctx.classes, c.class, c.method ?? '')?.method);
+      return { in: [port('exec', 'do', 'exec'), object(c.class || 'object'), ...pins.in], out: [port('exec:out', 'do', 'exec'), ...pins.out] };
+    }
+    case 'super': {
+      const pins = methodPins(parentMethod(ctx.classes, c.class, c.method ?? '')?.method);
+      return { in: [port('exec', 'do', 'exec'), ...pins.in], out: [port('exec:out', 'do', 'exec'), ...pins.out] };
+    }
+    case 'isA':
+      return { in: [object()], out: [port('result', `is a ${c.class}`, 'data', 'Boolean')] };
+    default:
+      return { in: [], out: [port('object', `this ${c.class}`.trim(), 'data', 'Object')] };
   }
 }
 
 const LABELS: Record<AuthoredKind, string> = {
   entry: 'Start', return: 'Return', branch: 'If', loop: 'For each', literal: 'Value', variable: 'Variable',
-  compute: 'Compute', data: 'Query', effect: 'Mutate', external: 'HTTP Request', boundary: 'Boundary', group: 'Group', debug: 'Debug', call: 'Call',
+  compute: 'Compute', data: 'Query', effect: 'Mutate', external: 'HTTP Request', boundary: 'Boundary', group: 'Group', debug: 'Debug', call: 'Call', object: 'Object',
 };
 
 const COMPARE_OPS = new Set<ComputeOp>(['==', '!=', '<', '>', '<=', '>=', '&&', '||', 'xor']);
@@ -177,6 +222,17 @@ export function labelFor(kind: AuthoredKind, config: AuthoredConfig): string {
   if (config.kind === 'boundary') return title(config.op);
   if (config.kind === 'group') return config.name || title(config.mode);
   if (config.kind === 'debug') return config.op === 'throw' ? 'Throw Error' : 'Print to Console';
+  if (config.kind === 'object') {
+    switch (config.op) {
+      case 'new': return `New ${config.class}`;
+      case 'get': return `Get ${config.class}.${config.field ?? ''}`;
+      case 'set': return `Set ${config.class}.${config.field ?? ''}`;
+      case 'call': return `${config.class}.${config.method ?? ''}`;
+      case 'super': return `Parent ${config.method ?? ''}`;
+      case 'isA': return `Is a ${config.class}`;
+      default: return `This ${config.class}`.trim();
+    }
+  }
   return LABELS[kind];
 }
 
@@ -385,6 +441,13 @@ export function parseDoc(text: string): { ok: true; doc: ViDoc } | { ok: false; 
   const functions: ViAction[] = Array.isArray(raw.functions)
     ? raw.functions.filter((a): a is ViAction => typeof a?.name === 'string').map((a) => ({ ...a, inputs: Array.isArray(a.inputs) ? a.inputs : [] }))
     : [];
+  const classes: ViClass[] = Array.isArray(raw.classes)
+    ? raw.classes.filter((c): c is ViClass => typeof c?.name === 'string').map((c) => ({
+      ...c,
+      fields: Array.isArray(c.fields) ? c.fields.filter((f) => typeof f?.name === 'string') : [],
+      methods: Array.isArray(c.methods) ? c.methods.filter((m) => typeof m?.name === 'string').map((m) => ({ ...m, inputs: Array.isArray(m.inputs) ? m.inputs : [] })) : [],
+    }))
+    : [];
   const variables: ViVariable[] = Array.isArray(raw.variables)
     ? raw.variables.filter((v): v is ViVariable => typeof v?.name === 'string' && typeof v.type === 'string')
     : [];
@@ -398,6 +461,8 @@ export function parseDoc(text: string): { ok: true; doc: ViDoc } | { ok: false; 
       ...(variables.length ? { variables } : {}),
       ...(functions.length ? { functions } : {}),
       ...(raw.helpers !== undefined ? { helpers: raw.helpers } : {}),
+      ...(classes.length ? { classes } : {}),
+      ...(raw.methods !== undefined ? { methods: raw.methods } : {}),
     },
   };
 }
@@ -470,9 +535,10 @@ function resolveGraph(doc: ViDoc, name: string, store: Record<string, AuthoredGr
 export function graphFor(doc: ViDoc, name: string): { graph: AuthoredGraph; doc: ViDoc } {
   const action = doc.exports.actions.find((a) => a.name === name);
   const value = doc.exports.values.find((v) => v.name === name);
-  const ctx: PortContext = action
+  const base: PortContext = action
     ? { pure: false, inputs: action.inputs, ...(action.returns !== undefined ? { returns: action.returns } : {}) }
     : (value?.type !== undefined ? { pure: false, inputs: [], returns: value.type } : { pure: false, inputs: [] });
+  const ctx: PortContext = { ...base, classes: doc.classes ?? [] };
   const graph = resolveGraph(doc, name, doc.logic, ctx);
   if (doc.logic[name] && JSON.stringify(graph) === JSON.stringify(doc.logic[name])) return { graph, doc };
   return { graph, doc: { ...doc, logic: { ...doc.logic, [name]: graph } } };
@@ -481,7 +547,7 @@ export function graphFor(doc: ViDoc, name: string): { graph: AuthoredGraph; doc:
 /** A private function's graph — same idea as `graphFor`, but reads/writes `doc.helpers` and is always exec-driven (a function always has a Start and a Return, even one with no declared return value). */
 export function functionGraphFor(doc: ViDoc, name: string): { graph: AuthoredGraph; doc: ViDoc } {
   const fn = doc.functions?.find((f) => f.name === name);
-  const ctx: PortContext = { pure: false, inputs: fn?.inputs ?? [], ...(fn?.returns !== undefined ? { returns: fn.returns } : {}) };
+  const ctx: PortContext = { pure: false, inputs: fn?.inputs ?? [], ...(fn?.returns !== undefined ? { returns: fn.returns } : {}), classes: doc.classes ?? [] };
   const helpers = doc.helpers ?? {};
   const graph = resolveGraph(doc, name, helpers, ctx);
   if (helpers[name] && JSON.stringify(graph) === JSON.stringify(helpers[name])) return { graph, doc };
@@ -500,6 +566,7 @@ function mapAllGraphs(doc: ViDoc, change: (graph: AuthoredGraph) => AuthoredGrap
     ...doc,
     logic: Object.fromEntries(Object.entries(doc.logic).map(([name, graph]) => [name, change(graph)])),
     ...(doc.helpers ? { helpers: Object.fromEntries(Object.entries(doc.helpers).map(([name, graph]) => [name, change(graph)])) } : {}),
+    ...(doc.methods ? { methods: Object.fromEntries(Object.entries(doc.methods).map(([name, graph]) => [name, change(graph)])) } : {}),
   };
 }
 
@@ -559,7 +626,7 @@ export function updateAction(doc: ViDoc, oldName: string, action: ViAction): ViD
     exports: { ...doc.exports, actions: doc.exports.actions.map((item) => item.name === oldName ? action : item) },
     logic,
   }, oldName, action);
-  const resolved = resolveGraph(next, action.name, next.logic, { pure: false, inputs: action.inputs, ...(action.returns ? { returns: action.returns } : {}) });
+  const resolved = resolveGraph(next, action.name, next.logic, { pure: false, inputs: action.inputs, ...(action.returns ? { returns: action.returns } : {}), classes: next.classes ?? [] });
   next = { ...next, logic: { ...next.logic, [action.name]: resolved } };
   return next;
 }
@@ -575,7 +642,7 @@ export function renameFunction(doc: ViDoc, oldName: string, action: ViAction): V
     functions: (doc.functions ?? []).map((item) => item.name === oldName ? action : item),
     helpers,
   }, oldName, action);
-  const resolved = resolveGraph(next, action.name, next.helpers ?? {}, { pure: false, inputs: action.inputs, ...(action.returns ? { returns: action.returns } : {}) });
+  const resolved = resolveGraph(next, action.name, next.helpers ?? {}, { pure: false, inputs: action.inputs, ...(action.returns ? { returns: action.returns } : {}), classes: next.classes ?? [] });
   next = { ...next, helpers: { ...(next.helpers ?? {}), [action.name]: resolved } };
   return next;
 }
@@ -587,7 +654,7 @@ export function updateValue(doc: ViDoc, oldName: string, value: ViValue): ViDoc 
   if (oldName !== value.name) delete logic[oldName];
   if (graph) logic = { ...logic, [value.name]: graph };
   let next: ViDoc = { ...doc, exports: { ...doc.exports, values: doc.exports.values.map((item) => item.name === oldName ? value : item) }, logic };
-  const resolved = resolveGraph(next, value.name, next.logic, { pure: false, returns: value.type });
+  const resolved = resolveGraph(next, value.name, next.logic, { pure: false, returns: value.type, classes: next.classes ?? [] });
   next = { ...next, logic: { ...next.logic, [value.name]: resolved } };
   return next;
 }
@@ -604,4 +671,87 @@ export function setGraph(doc: ViDoc, name: string, graph: AuthoredGraph): ViDoc 
 /** The `setGraph` a function's edits go through — writes `doc.helpers` instead of `doc.logic`. */
 export function setFunctionGraph(doc: ViDoc, name: string, graph: AuthoredGraph): ViDoc {
   return { ...doc, helpers: { ...(doc.helpers ?? {}), [name]: graph } };
+}
+
+// ---------------------------------------------------------------- classes
+
+/** A class method's graph — like a function's, with the method's inputs on Start. */
+export function methodGraphFor(doc: ViDoc, className: string, methodName: string): { graph: AuthoredGraph; doc: ViDoc } {
+  const cls = doc.classes?.find((c) => c.name === className);
+  const method = cls?.methods.find((m) => m.name === methodName);
+  const ctx: PortContext = { pure: false, inputs: method?.inputs ?? [], ...(method?.returns !== undefined ? { returns: method.returns } : {}), classes: doc.classes ?? [] };
+  const key = methodKey(className, methodName);
+  const methods = doc.methods ?? {};
+  const graph = resolveGraph(doc, key, methods, ctx);
+  if (methods[key] && JSON.stringify(graph) === JSON.stringify(methods[key])) return { graph, doc };
+  return { graph, doc: { ...doc, methods: { ...methods, [key]: graph } } };
+}
+
+export function setMethodGraph(doc: ViDoc, className: string, methodName: string, graph: AuthoredGraph): ViDoc {
+  return { ...doc, methods: { ...(doc.methods ?? {}), [methodKey(className, methodName)]: graph } };
+}
+
+/** Rebuild every object block's pins from the classes as they are now, dropping wires to pins that went away. */
+function refreshObjectBlocks(doc: ViDoc, rename?: (config: Extract<AuthoredConfig, { kind: 'object' }>) => Extract<AuthoredConfig, { kind: 'object' }>): ViDoc {
+  const ctx: PortContext = { classes: doc.classes ?? [] };
+  return mapAllGraphs(doc, (graph) => pruneEdges({
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const config = configOf(node);
+      if (config?.kind !== 'object') return node;
+      const next = rename ? rename(config) : config;
+      const ports = portsFor('object', next, ctx);
+      const carry = (fresh: Port[], prev: Port[]) => fresh.map((p) => ({ ...p, connected: prev.find((q) => q.id === p.id)?.connected ?? false }));
+      return { ...node, config: next, label: labelFor('object', next), ports: { in: carry(ports.in, node.ports.in), out: carry(ports.out, node.ports.out) } };
+    }),
+  }));
+}
+
+/** Add a class, or replace the one with this name. Object blocks everywhere follow its new fields and methods. */
+export function declareClass(doc: ViDoc, cls: ViClass): ViDoc {
+  const existing = doc.classes ?? [];
+  const at = existing.findIndex((c) => c.name === cls.name);
+  const classes = at >= 0 ? existing.map((c, i) => (i === at ? cls : c)) : [...existing, cls];
+  return refreshObjectBlocks({ ...doc, classes });
+}
+
+/** Rename a class: every child that extends it, every object block and every method graph follows. */
+export function renameClass(doc: ViDoc, oldName: string, cls: ViClass): ViDoc {
+  const classes = (doc.classes ?? []).map((c) => (c.name === oldName ? cls : c.extends === oldName ? { ...c, extends: cls.name } : c));
+  const methods = Object.fromEntries(Object.entries(doc.methods ?? {}).map(([key, graph]) => [key.startsWith(`${oldName}.`) ? `${cls.name}.${key.slice(oldName.length + 1)}` : key, graph]));
+  return refreshObjectBlocks({ ...doc, classes, ...(doc.methods ? { methods } : {}) }, (config) => (config.class === oldName ? { ...config, class: cls.name } : config));
+}
+
+/** Remove a class and its method graphs. Blocks that used it stay, and are reported until replaced. */
+export function removeClass(doc: ViDoc, name: string): ViDoc {
+  const methods = Object.fromEntries(Object.entries(doc.methods ?? {}).filter(([key]) => !key.startsWith(`${name}.`)));
+  return refreshObjectBlocks({ ...doc, classes: (doc.classes ?? []).filter((c) => c.name !== name), ...(doc.methods ? { methods } : {}) });
+}
+
+/** Add a method to a class, or replace the one with this name, keeping its graph. */
+export function declareMethod(doc: ViDoc, className: string, method: ViMethod, oldName = method.name): ViDoc {
+  const cls = doc.classes?.find((c) => c.name === className);
+  if (!cls) return doc;
+  const at = cls.methods.findIndex((m) => m.name === oldName);
+  const methods = at >= 0 ? cls.methods.map((m, i) => (i === at ? method : m)) : [...cls.methods, method];
+  let graphs = doc.methods ?? {};
+  if (oldName !== method.name && graphs[methodKey(className, oldName)]) {
+    const { [methodKey(className, oldName)]: moved, ...rest } = graphs;
+    graphs = { ...rest, [methodKey(className, method.name)]: moved! };
+  }
+  const renamed = oldName !== method.name;
+  let next = refreshObjectBlocks({ ...doc, classes: (doc.classes ?? []).map((c) => (c.name === className ? { ...c, methods } : c)), methods: graphs },
+    renamed ? (config) => ((config.op === 'call' || config.op === 'super') && config.method === oldName ? { ...config, method: method.name } : config) : undefined);
+  // The method's own graph follows its inputs and result.
+  if (next.methods?.[methodKey(className, method.name)]) next = methodGraphFor(next, className, method.name).doc;
+  return next;
+}
+
+export function removeMethod(doc: ViDoc, className: string, methodName: string): ViDoc {
+  const { [methodKey(className, methodName)]: _removed, ...methods } = doc.methods ?? {};
+  return refreshObjectBlocks({
+    ...doc,
+    classes: (doc.classes ?? []).map((c) => (c.name === className ? { ...c, methods: c.methods.filter((m) => m.name !== methodName) } : c)),
+    methods,
+  });
 }

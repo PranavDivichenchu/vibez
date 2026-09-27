@@ -98,6 +98,7 @@ const VI_FILES: Record<string, string> = {
   'runtime.ts': 'vibezViRuntime.ts',
   'validate.ts': 'vibezViValidate.ts',
   'compile.ts': 'vibezViCompile.ts',
+  'classes.ts': 'vibezViClasses.ts',
 };
 // compile.ts's own top-level imports are isomorphic; the text `from
 // 'node:http'` a plain scan would catch is inside the server code it

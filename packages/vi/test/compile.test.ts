@@ -488,3 +488,49 @@ test('deleted and read-only variables fail before execution', () => {
     assert.ok(result.issues.some(issue => /no longer exists|read-only/.test(issue.message)));
   }
 });
+
+test('Make List takes any number of items', async () => {
+  const result = compileOne({ name: 'three', inputs: [], returns: 'List' }, (graph) => {
+    const ret = graph.nodes.find((n) => n.kind === 'return')!;
+    const list = makeNode('compute', { kind: 'compute', op: 'makeList', inputs: [{ name: 'item 1' }, { name: 'item 2' }, { name: 'item 3' }], outputs: [{ name: 'result', type: 'List' }] }, takenIds(graph));
+    let g = addNode(graph, list);
+    for (const [i, v] of ['a', 'b', 'c'].entries()) {
+      const lit = makeNode('literal', { kind: 'literal', value: v, type: 'String' }, takenIds(g));
+      g = addNode(g, lit);
+      g = addEdge(g, lit.id, 'value', list.id, `in:${i}`);
+    }
+    return addEdge(g, list.id, 'result', ret.id, 'value');
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  const mod = await load(result.code);
+  assert.deepEqual(await mod['three']!(), ['a', 'b', 'c']);
+});
+
+test('the logic server answers a page that names the logic relative to itself (../logic/menu.vi)', async () => {
+  const { compileServer } = await import('../src/compile.ts');
+  const port = 4600 + Math.floor(Math.random() * 300);
+  const code = compileServer([
+    { relative: 'menu.vi', moduleSpecifier: './menu.vi.js', exports: { values: [{ name: 'today' }], actions: [{ name: 'order', inputs: [{ name: 'item', type: 'String' }] }] } },
+  ], port);
+  const dir = await mkdtemp(join(tmpdir(), 'vi-server-run-'));
+  await writeFile(join(dir, 'package.json'), '{"type":"module"}', 'utf8');
+  await writeFile(join(dir, 'menu.vi.js'), 'export const today = async () => "Rye";\nexport const order = async (item) => `Ordered ${item}!`;\n', 'utf8');
+  await writeFile(join(dir, 'server.js'), code, 'utf8');
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, [join(dir, 'server.js')], { stdio: 'ignore' });
+  try {
+    const base = `http://127.0.0.1:${port}/vibez`;
+    let today: unknown;
+    for (let i = 0; i < 40 && today === undefined; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      today = await fetch(`${base}/${encodeURIComponent('../logic/menu.vi')}/today`).then((r) => r.json()).catch(() => undefined);
+    }
+    assert.equal(today, 'Rye', 'a page in pages/ asking for ../logic/menu.vi gets the value');
+    const ordered = await fetch(`${base}/${encodeURIComponent('../logic/menu.vi')}/order`, { method: 'POST', body: JSON.stringify({ item: 'Bun' }) }).then((r) => r.json());
+    assert.equal(ordered, 'Ordered Bun!');
+    assert.equal(await fetch(`${base}/menu.vi/today`).then((r) => r.json()), 'Rye', 'and the plain name still works');
+  } finally {
+    child.kill();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

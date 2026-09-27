@@ -182,7 +182,8 @@ export class TeamSession {
   async claim(paths: string[], note = ''): Promise<string[]> {
     const agent = await this.ensureAgent();
     const held = new Set((await this.rest.select<ClaimRow>('team_claims', { agent_id: `eq.${agent}`, released_at: 'is.null', select: 'path' })).map((c) => c.path));
-    const fresh = [...new Set(paths.map(normalizePath))].filter((p) => p && !held.has(p));
+    // An element of a file this agent already holds whole is already covered.
+    const fresh = [...new Set(paths.map(normalizePath))].filter((p) => p && !held.has(p) && !held.has(p.split('#')[0]!));
     if (fresh.length) {
       await this.rest.insert('team_claims', fresh.map((path) => ({ workspace_id: this.workspaceId, agent_id: agent, path, note: note.slice(0, 300) })));
     }

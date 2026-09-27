@@ -27,7 +27,7 @@ export function reference(): string {
 Vibez apps are made of two kinds of file:
 
 - **.ui** — one page, laid out visually. Read it with \`ui_read\`, change it with \`ui_edit\`.
-- **.vi** — logic, drawn as graphs of blocks. It offers **page data** (values a page shows) and **page actions** (things a page runs), plus reusable **functions** and shared **variables**. Read it with \`vi_read\`, change it with \`vi_edit\`, test one item with \`vi_run\`.
+- **.vi** — logic, drawn as graphs of blocks. It offers **page data** (values a page shows) and **page actions** (things a page runs), plus reusable **functions**, shared **variables** and **classes** (blueprints for objects). Read it with \`vi_read\`, change it with \`vi_edit\`, test one item with \`vi_run\`.
 - **Plain HTML pages** — an existing website. Map it with \`site_map\`, read a page with \`site_read\`, change it with \`site_edit\`, add or delete pages with \`site_add_page\` / \`site_delete_page\`.
 
 A page never holds logic or data. It holds references to .vi exports, and the editor and the compiled page fill them in (with samples until something serves the real values).
@@ -113,6 +113,19 @@ Every value, action and function has one graph, which starts at **Start** and en
 A port is written \`block.port\`, with the port's id or its name as \`vi_read\` shows them. Start's outputs are the item's inputs (\`entry-1a.in:Revenue\`). Unlike types are converted automatically when that is safe, and otherwise refused.
 
 Block groups: ${[...new Set(CATALOG.map((c) => c.group))].join(', ')}, plus Get/Set for each declared variable and a call block for each action and function. \`vi_blocks\` searches them with their ports.
+
+### Classes and objects
+
+A class is a blueprint for objects: fields every object carries and methods every object can do. Declare one with \`{ "op": "declare", "what": "class", "name": "Animal", "fields": [{ "name": "name", "type": "String" }, { "name": "legs", "type": "Number", "initial": 4 }] }\`, and a method with \`{ "op": "declare", "what": "method", "class": "Animal", "name": "describe", "returns": "String" }\`. A method's graph is named \`Animal.describe\`: add blocks to it like any graph.
+
+\`"extends": "Animal"\` makes a child class: it gets all of Animal's fields and methods, and a method it declares with the same name replaces Animal's (an override). Each class offers these blocks:
+- \`New Animal\` makes an object; it asks for every field without an \`initial\` value, the parents' included.
+- \`Get Animal.name\` and \`Set Animal.name\` read and change a field. Objects are shared: setting a field changes that object everywhere it is used.
+- \`Animal.describe\` runs a method on an object: the object's own class's version, so a Dog's override wins even when it is held as an Animal.
+- \`Is a Animal\` asks whether an object was made from Animal or a class that extends it.
+- Inside a method: \`This Animal\` is the object the method runs on, and \`Parent describe\` runs the parent class's version of the method being written.
+
+An object sent to a page arrives as its fields.
 
 \`\`\`json
 [

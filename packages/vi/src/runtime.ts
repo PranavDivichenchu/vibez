@@ -64,7 +64,8 @@ export const RUNTIME: Record<NonMathOp, RuntimeHelper> = {
   substring: { name: 'vi_substring', params: ['text', 'start', 'length'], body: 'text.substring(start, start + length)' },
   regex: { name: 'vi_regex', params: ['text', 'pattern'], body: 'new RegExp(pattern).test(text)' },
 
-  makeList: { name: 'vi_makeList', params: ['a', 'b'], body: '[a, b].filter((v) => v !== undefined)' },
+  // Any number of items: a Make List block may have two pins or ten.
+  makeList: { name: 'vi_makeList', params: ['...items'], body: 'items.filter((v) => v !== undefined)' },
   listGet: { name: 'vi_listGet', params: ['list', 'index'], body: 'list[index]' },
   listSet: { name: 'vi_listSet', params: ['list', 'index', 'item'], body: 'list.map((v, i) => i === index ? item : v)' },
   first: { name: 'vi_first', params: ['list'], body: 'list[0]' },

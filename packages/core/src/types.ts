@@ -17,7 +17,8 @@ export type NodeKind =
   | 'literal'   // a constant
   | 'variable'  // get or set a named local
   | 'debug'     // print to console, or throw, while testing
-  | 'call';     // invoke another .vi export or a helper
+  | 'call'      // invoke another .vi export or a helper
+  | 'object';   // make an object of a class, read or change its fields, run its methods
 
 export type PortType =
   | 'String' | 'Number' | 'Boolean' | 'Object' | 'List' | 'Unknown';

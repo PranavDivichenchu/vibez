@@ -28,11 +28,13 @@ import { IEditorService } from '../../../../services/editor/common/editorService
 import { GNode, Port, SemanticKey } from '../../../../../platform/vibez/common/vibezTypes.js';
 import { GEO, Layout, PortPoint, layoutGraph } from '../../../../../platform/vibez/common/vibezLayout.js';
 import {
-	AuthoredConfig, AuthoredGraph, AuthoredKind, ViAction, ViDoc, ViType, configOf,
+	AuthoredConfig, AuthoredGraph, AuthoredKind, ViAction, ViClass, ViDoc, ViField, ViMethod, ViType, configOf, methodKey,
 } from '../../../../../platform/vibez/common/vibezViTypes.js';
+import { allFields, allMethods, classIssues, isSubclassOf, parentMethod } from '../../../../../platform/vibez/common/vibezViClasses.js';
 import {
 	addEdge, addNode, declareFunction, declareVariable, findNode, fits, functionGraphFor, graphFor, makeNode, parseDoc, pruneEdges,
 	removeEdge, removeFunction, removeNodePreservingFlow, removeVariable, renameCallableReferences, renameFunction, renameVariable, serialize, setFunctionGraph, setGraph, takenIds, updateAction, updateConfig, updateValue, type PortContext,
+	declareClass, declareMethod, methodGraphFor, removeClass, removeMethod, renameClass, setMethodGraph,
 } from '../../../../../platform/vibez/common/vibezViOps.js';
 import { searchIndex, reachesFrom, type SearchItem } from '../../../../../platform/vibez/common/vibezViCatalog.js';
 import { compileFile, compileServer, type ServerFile } from '../../../../../platform/vibez/common/vibezViCompile.js';
@@ -43,7 +45,9 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 const DRAG_THRESHOLD = 4;
 const SAVE_DELAY = 250;
 
-type DeclarationKind = 'value' | 'action' | 'function' | 'variable';
+type DeclarationKind = 'value' | 'action' | 'function' | 'variable' | 'class' | 'method';
+/** What can be run on its own from the Test panel: a method needs an object, a class and a variable are not run at all. */
+const testable = (kind: DeclarationKind): kind is 'value' | 'action' | 'function' => kind === 'value' || kind === 'action' || kind === 'function';
 type DeclarationValue = { name: string; type?: ViType; sample?: unknown; initial?: unknown; about?: string; inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean };
 
 function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
@@ -67,6 +71,7 @@ const ICONS: Record<string, string> = {
 	external: 'M18 10a6 6 0 0 0-11.3-2A4.5 4.5 0 1 0 6.5 19h11a4 4 0 0 0 .5-9',
 	call: 'M14 3h7v7M21 3l-9 9M8 6H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3',
 	debug: 'M8 6a4 4 0 0 1 8 0M6 10h12M7 10a5 7 0 0 0 10 0M4 7l3 2M20 7l-3 2M4 16l3-2M20 16l-3-2M9 21l1-4M15 21l-1-4',
+	object: 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5',
 };
 
 // Lucide's simple, two-pixel stroke language keeps declaration kinds legible
@@ -89,6 +94,9 @@ const LOGIC_ICON_PATHS: Record<DeclarationKind, readonly string[]> = {
 		'm3.3 7 8.7 5 8.7-5',
 		'M12 22V12',
 	],
+	// A blueprint: a sheet with a folded corner and lines, the thing objects are made from.
+	class: ['M4 4h11l5 5v11H4z', 'M15 4v5h5', 'M8 13h8', 'M8 17h5'],
+	method: ['m9 17-5-5 5-5', 'm15 7 5 5-5 5'],
 };
 
 const PLUS_ICON_PATHS = ['M5 12h14', 'M12 5v14'] as const;
@@ -174,6 +182,8 @@ export class VibezViEditor extends EditorPane {
 	private exportName: string | undefined;
 	/** Set instead of `exportName` while viewing a reusable function's graph — the two are mutually exclusive. */
 	private functionName: string | undefined;
+	/** Set instead of the other two while viewing a class method's graph. */
+	private methodTarget: { class: string; method: string } | undefined;
 	private selectedDeclaration: { kind: DeclarationKind; name: string } | undefined;
 	private testOpen = false;
 	private testRunning = false;
@@ -320,6 +330,7 @@ export class VibezViEditor extends EditorPane {
 		this.pendingWritten = undefined;
 		this.exportName = undefined;
 		this.functionName = undefined;
+		this.methodTarget = undefined;
 
 		const text = await this.read(input.resource);
 		if (token.isCancellationRequested) {
@@ -477,7 +488,7 @@ export class VibezViEditor extends EditorPane {
 			if (new Set(names).size !== names.length) throw new Error('Two logic files have the same filename. Give them unique filenames before compiling to the shared build folder.');
 			const results = sources.map(source => {
 				const siblings = new Map(sources.filter(other => other !== source).map(other => [posix.relative(dirname(source.uri).path, other.uri.path), [...other.doc.exports.actions, ...(other.doc.functions ?? [])]]));
-				return { source, result: compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${posix.basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? []) };
+				return { source, result: compileFile(source.doc.exports.values, source.doc.exports.actions, source.doc.logic, siblings, file => `./${posix.basename(file, '.vi')}.vi.js`, source.doc.functions ?? [], source.doc.helpers ?? {}, source.doc.variables ?? [], source.doc.classes ?? [], source.doc.methods ?? {}) };
 			});
 			// Explicit module metadata makes generated JS work in CommonJS workspaces too.
 			await this.fileService.writeFile(joinPath(build, 'package.json'), VSBuffer.fromString('{"type":"module","private":true}'));
@@ -591,7 +602,7 @@ export class VibezViEditor extends EditorPane {
 		};
 		item(localize('vibez.vi.runLogic', "Run logic server"), localize('vibez.vi.runLogicHint', "Compile and start every page-facing value and action"), () => void this.onRunClicked());
 		const selected = this.declaration();
-		const canTest = !!selected && selected.kind !== 'variable';
+		const canTest = !!selected && testable(selected.kind);
 		item(selected ? `Test selected ${selected.kind}: ${selected.value.name}` : 'Test selected item', canTest ? 'Open typed inputs and run only this item' : 'Select a value, action, or function to test it', () => this.openTestSelected(), !canTest);
 		if (selected?.kind === 'variable') item('Variables run inside logic', 'Test a value, action, or function that reads this stored value', () => undefined, true);
 		const close = (event: PointerEvent) => { if (!(event.target as HTMLElement | null)?.closest?.('.vz-vi-run-split, .vz-vi-run-dropdown')) { panel.remove(); this.runScope.clear(); } };
@@ -655,7 +666,7 @@ export class VibezViEditor extends EditorPane {
 
 	private openTestSelected(): void {
 		const selected = this.declaration();
-		if (!selected || selected.kind === 'variable') { return; }
+		if (!selected || !testable(selected.kind)) { return; }
 		this.testOpen = true;
 		this.testResult = undefined;
 		this.refreshPanels();
@@ -679,7 +690,8 @@ export class VibezViEditor extends EditorPane {
 
 	private async testSelected(): Promise<void> {
 		const selected = this.declaration();
-		if (!selected || selected.kind === 'variable' || !this.resource || !this.doc || this.testRunning) { return; }
+		if (!selected || !testable(selected.kind) || !this.resource || !this.doc || this.testRunning) { return; }
+		const kind = selected.kind;
 		const resource = this.resource;
 		const identity = `${selected.kind}:${selected.value.name}`;
 		let result: IVibezTestResult | undefined;
@@ -695,7 +707,7 @@ export class VibezViEditor extends EditorPane {
 			const build = this.buildFolder();
 			if (!build) throw new Error('No build folder is available for this file.');
 			const module = joinPath(build, `${posix.basename(resource.path, '.vi')}.vi.js`).fsPath;
-			result = await this.captureService.testVi({ module, kind: selected.kind, name: selected.value.name, args });
+			result = await this.captureService.testVi({ module, kind, name: selected.value.name, args });
 		} catch (error) {
 			result = { ok: false, logs: [], durationMs: 0, error: String((error as Error).message ?? error) };
 		} finally {
@@ -822,15 +834,22 @@ export class VibezViEditor extends EditorPane {
 
 	/** Whichever export or function the canvas is currently showing — the two are mutually exclusive, see `functionName`. */
 	private currentName(): string | undefined {
-		return this.functionName ?? this.exportName;
+		return this.methodTarget ? methodKey(this.methodTarget.class, this.methodTarget.method) : this.functionName ?? this.exportName;
 	}
 
 	private isViewingFunction(): boolean {
 		return this.functionName !== undefined;
 	}
 
+	/** The open graph, saved back where it belongs: an export's, a function's or a method's. */
+	private storeGraph(doc: ViDoc, graph: AuthoredGraph): ViDoc {
+		const name = this.currentName()!;
+		if (this.methodTarget) return setMethodGraph(doc, this.methodTarget.class, this.methodTarget.method, graph);
+		return this.isViewingFunction() ? setFunctionGraph(doc, name, graph) : setGraph(doc, name, graph);
+	}
+
 	private posMap(): Record<string, Pos> {
-		const key = `${this.isViewingFunction() ? 'fn' : 'ex'}:${this.currentName() ?? ''}`;
+		const key = `${this.methodTarget ? 'm' : this.isViewingFunction() ? 'fn' : 'ex'}:${this.currentName() ?? ''}`;
 		return (this.allPositions[key] ??= {});
 	}
 
@@ -863,6 +882,7 @@ export class VibezViEditor extends EditorPane {
 			...(this.doc?.exports.actions.map(item => item.name) ?? []),
 			...(this.doc?.functions?.map(item => item.name) ?? []),
 			...(this.doc?.variables?.map(item => item.name) ?? []),
+			...(this.doc?.classes?.map(item => item.name) ?? []),
 		]);
 		if (!used.has(base)) { return base; }
 		let index = 2;
@@ -870,8 +890,17 @@ export class VibezViEditor extends EditorPane {
 		return `${base}${index}`;
 	}
 
-	private createDeclaration(kind: 'value' | 'action' | 'function' | 'variable'): void {
+	private createDeclaration(kind: DeclarationKind): void {
 		if (!this.doc) { return; }
+		if (kind === 'class') {
+			const name = this.uniqueName('NewClass');
+			this.commit(declareClass(this.doc, { name, fields: [], methods: [], about: 'A blueprint for objects.' }));
+			this.selectedDeclaration = { kind: 'class', name };
+			this.refreshPanels();
+			queueMicrotask(() => { const input = this.details.querySelector<HTMLInputElement>('.vz-vi-details-name'); input?.focus(); input?.select(); });
+			return;
+		}
+		if (kind === 'method') { return; }
 		const base = kind === 'value' ? 'NewValue' : kind === 'action' ? 'NewAction' : kind === 'function' ? 'NewFunction' : 'NewVariable';
 		const name = this.uniqueName(base);
 		if (kind === 'value') {
@@ -945,11 +974,80 @@ export class VibezViEditor extends EditorPane {
 		section(page, localize('vibez.vi.actions', "Page Actions"), localize('vibez.vi.actionsHint', "Work the page can trigger"), 'action', this.doc.exports.actions);
 		section(reusable, localize('vibez.vi.functions', "Functions"), localize('vibez.vi.functionsHint', "Logic called by other graphs"), 'function', this.doc.functions ?? []);
 		section(stored, localize('vibez.vi.variables', "Variables"), localize('vibez.vi.variablesHint', "Named data shared by this file"), 'variable', this.doc.variables ?? []);
+		this.renderClassesSection(group(localize('vibez.vi.objects', "Objects"), localize('vibez.vi.objectsHint', "Blueprints for things with their own data and abilities")));
+	}
+
+	/** Classes, each with its methods listed under it: click a class to edit its fields, a method to draw its logic. */
+	private renderClassesSection(root: HTMLElement): void {
+		const doc = this.doc!;
+		const box = dom.append(root, dom.$('details.vz-vi-blueprint-section', { open: 'true' }));
+		const summary = dom.append(box, dom.$('summary.vz-vi-blueprint-heading'));
+		dom.append(summary, dom.$('span.vz-vi-section-icon.class')).appendChild(lucideIcon(LOGIC_ICON_PATHS.class));
+		const headingText = dom.append(summary, dom.$('.vz-vi-blueprint-heading-text'));
+		dom.append(headingText, dom.$('strong')).textContent = localize('vibez.vi.classes', "Classes");
+		dom.append(headingText, dom.$('span')).textContent = localize('vibez.vi.classesHint', "Fields every object has, methods it can do");
+		const add = dom.append(summary, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-add', { type: 'button', title: 'Add class', 'aria-label': 'Add class' }));
+		add.appendChild(lucideIcon(PLUS_ICON_PATHS));
+		this.blueprintScope.add(dom.addDisposableListener(add, dom.EventType.CLICK, event => { event.preventDefault(); event.stopPropagation(); this.createDeclaration('class'); }));
+		const list = dom.append(box, dom.$('.vz-vi-blueprint-list'));
+		for (const cls of doc.classes ?? []) {
+			const row = dom.append(list, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-row', { type: 'button' }));
+			row.classList.toggle('active', this.selectedDeclaration?.kind === 'class' && this.selectedDeclaration.name === cls.name);
+			dom.append(row, dom.$('span.vz-vi-decl-icon.class')).appendChild(lucideIcon(LOGIC_ICON_PATHS.class));
+			const copy = dom.append(row, dom.$('.vz-vi-decl-copy'));
+			dom.append(copy, dom.$('span.name')).textContent = cls.name;
+			const fields = allFields(doc.classes, cls.name).length;
+			dom.append(copy, dom.$('span.type')).textContent = `${cls.extends ? `extends ${cls.extends} · ` : ''}${fields} field${fields === 1 ? '' : 's'}`;
+			if (cls.about) row.title = cls.about;
+			this.blueprintScope.add(dom.addDisposableListener(row, dom.EventType.CLICK, () => { this.selectedDeclaration = { kind: 'class', name: cls.name }; this.refreshPanels(); }));
+			for (const method of cls.methods) {
+				const key = methodKey(cls.name, method.name);
+				const mrow = dom.append(list, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-row.vz-vi-method-row', { type: 'button' }));
+				mrow.classList.toggle('active', this.selectedDeclaration?.kind === 'method' && this.selectedDeclaration.name === key);
+				dom.append(mrow, dom.$('span.vz-vi-decl-icon.method')).appendChild(lucideIcon(LOGIC_ICON_PATHS.method));
+				const mcopy = dom.append(mrow, dom.$('.vz-vi-decl-copy'));
+				dom.append(mcopy, dom.$('span.name')).textContent = method.name;
+				const replaces = parentMethod(doc.classes, cls.name, method.name);
+				dom.append(mcopy, dom.$('span.type')).textContent = `(${method.inputs.map(i => `${i.name}: ${i.type}`).join(', ')}) → ${method.returns ?? 'None'}${replaces ? ` · replaces ${replaces.owner.name}'s` : ''}`;
+				if (method.about) mrow.title = method.about;
+				this.blueprintScope.add(dom.addDisposableListener(mrow, dom.EventType.CLICK, () => this.openMethod(cls.name, method.name)));
+			}
+		}
+		if (!(doc.classes ?? []).length) {
+			dom.append(list, dom.$('.vz-vi-blueprint-empty')).textContent = localize('vibez.vi.noClasses', "No classes yet. A class describes a kind of thing, like a Dog or an Order: the data each one has and what it can do.");
+		}
+	}
+
+	private openMethod(className: string, methodName: string): void {
+		const key = methodKey(className, methodName);
+		if (this.selectedDeclaration?.kind !== 'method' || this.selectedDeclaration.name !== key) { this.testOpen = false; this.testResult = undefined; }
+		this.methodTarget = { class: className, method: methodName };
+		this.functionName = undefined;
+		this.exportName = undefined;
+		this.select(undefined);
+		this.selectedDeclaration = { kind: 'method', name: key };
+		this.refreshPanels();
+		if (!this.doc) { return; }
+		const { graph, doc } = methodGraphFor(this.doc, className, methodName);
+		if (doc !== this.doc) { this.doc = doc; this.scheduleSave(); }
+		this.graphLayout = layoutGraph(graph);
+		this.renderAll();
+		this.touched = false;
+		this.fit();
 	}
 
 	private declaration(): { kind: DeclarationKind; value: DeclarationValue } | undefined {
 		if (!this.doc || !this.selectedDeclaration) { return undefined; }
 		const { kind, name } = this.selectedDeclaration;
+		if (kind === 'class') {
+			const cls = this.doc.classes?.find(item => item.name === name);
+			return cls ? { kind, value: { name: cls.name, ...(cls.about !== undefined ? { about: cls.about } : {}) } } : undefined;
+		}
+		if (kind === 'method') {
+			const dot = name.indexOf('.');
+			const method = this.doc.classes?.find(item => item.name === name.slice(0, dot))?.methods.find(item => item.name === name.slice(dot + 1));
+			return method ? { kind, value: method } : undefined;
+		}
 		const value = kind === 'value' ? this.doc.exports.values.find(item => item.name === name)
 			: kind === 'action' ? this.doc.exports.actions.find(item => item.name === name)
 				: kind === 'function' ? this.doc.functions?.find(item => item.name === name)
@@ -965,12 +1063,15 @@ export class VibezViEditor extends EditorPane {
 			return;
 		}
 		const { kind, value } = selected;
+		if (kind === 'class') { this.renderClassDetails(value.name); return; }
 		const live = (): DeclarationValue => this.declaration()?.value ?? value;
 		const roles: Record<DeclarationKind, { label: string; explanation: string }> = {
 			value: { label: 'Page Data', explanation: 'Supplies information that your page can display.' },
 			action: { label: 'Page Action', explanation: 'Runs work when your page triggers it.' },
 			function: { label: 'Reusable Function', explanation: 'Reusable logic called by other graphs, never directly by a page.' },
 			variable: { label: 'Stored Variable', explanation: 'Keeps a named value that every graph in this file can read.' },
+			class: { label: 'Class', explanation: 'A blueprint for objects.' },
+			method: { label: 'Method', explanation: 'Something every object of this class can do. Inside, "This" is the object it runs on.' },
 		};
 		const role = dom.append(this.details, dom.$(`.vz-vi-role-card.${kind}`));
 		const roleHeading = dom.append(role, dom.$('.vz-vi-role-heading'));
@@ -1027,7 +1128,14 @@ export class VibezViEditor extends EditorPane {
 				this.detailsScope.add(dom.addDisposableListener(button, dom.EventType.CLICK, () => this.updateSelected({ ...live(), mutable: option.mutable }, undefined, true)));
 			}
 		}
-		if (kind === 'action' || kind === 'function') {
+		if (kind === 'method' && this.methodTarget) {
+			const replaces = parentMethod(this.doc?.classes, this.methodTarget.class, this.methodTarget.method);
+			const note = dom.append(this.details, dom.$('.vz-vi-field-help.vz-vi-method-note'));
+			note.textContent = replaces
+				? localize('vibez.vi.overrides', "Replaces {0}'s {1} for {2} objects. Use the \"Parent {1}\" block to run {0}'s version too.", replaces.owner.name, this.methodTarget.method, this.methodTarget.class)
+				: localize('vibez.vi.methodOf', "A method of {0}. Run it on any {0} (or a class that extends {0}) with the \"{0}.{1}\" block.", this.methodTarget.class, this.methodTarget.method);
+		}
+		if (kind === 'action' || kind === 'function' || kind === 'method') {
 			dom.append(this.details, dom.$('div.vz-vi-detail-label')).textContent = localize('vibez.vi.inputs', "Inputs");
 			const inputs = value.inputs ?? [];
 			inputs.forEach((input, index) => {
@@ -1050,7 +1158,7 @@ export class VibezViEditor extends EditorPane {
 			select.value = value.returns ?? '';
 			this.detailsScope.add(dom.addDisposableListener(select, dom.EventType.CHANGE, () => { const { returns: _old, ...rest } = live(); this.updateSelected(select.value ? { ...rest, returns: select.value as ViType } : rest); }));
 		}
-		if (kind !== 'variable') this.renderTestPanel(selected);
+		if (kind !== 'variable' && kind !== 'method') this.renderTestPanel(selected);
 		const danger = dom.append(this.details, dom.$('details.vz-vi-danger'));
 		dom.append(danger, dom.$('summary')).textContent = localize('vibez.vi.dangerZone', "Danger zone");
 		const warning = dom.append(danger, dom.$('.vz-vi-delete-warning'));
@@ -1069,6 +1177,158 @@ export class VibezViEditor extends EditorPane {
 						: kind === 'function'
 							? localize('vibez.vi.deleteFunctionWarning', "Other files may call this function by name. Deleting it can leave those calls unresolved.")
 							: localize('vibez.vi.deleteDeclarationWarning', "This permanently removes the declaration and its graph.");
+				warning.classList.add('show');
+				remove.textContent = localize('vibez.vi.deleteAnyway', "Delete anyway");
+				return;
+			}
+			this.deleteSelectedDeclaration();
+		}));
+	}
+
+	/** A class in Details: its parent, its fields (with starting values) and its methods. */
+	private renderClassDetails(className: string): void {
+		const doc = this.doc!;
+		const cls = doc.classes?.find(c => c.name === className);
+		if (!cls) { return; }
+		const apply = (next: ViClass, oldName = cls.name) => {
+			let updated = oldName === next.name ? declareClass(this.doc!, next) : renameClass(this.doc!, oldName, next);
+			if (oldName !== next.name && this.methodTarget?.class === oldName) this.methodTarget = { ...this.methodTarget, class: next.name };
+			this.commit(updated);
+			this.selectedDeclaration = { kind: 'class', name: next.name };
+			updated = this.doc!;
+			this.refreshPanels();
+			if (this.currentName()) this.refreshGraph();
+		};
+		const role = dom.append(this.details, dom.$('.vz-vi-role-card.class'));
+		const roleHeading = dom.append(role, dom.$('.vz-vi-role-heading'));
+		roleHeading.appendChild(lucideIcon(LOGIC_ICON_PATHS.class));
+		dom.append(roleHeading, dom.$('strong')).textContent = localize('vibez.vi.classRole', "Class");
+		dom.append(role, dom.$('span')).textContent = localize('vibez.vi.classExplain', "A blueprint for objects. Every {0} has the fields below and can do the methods. Make one with the \"New {0}\" block.", cls.name);
+		const field = (label: string, help?: string) => {
+			const row = dom.append(this.details, dom.$('.vz-vi-detail-field'));
+			dom.append(row, dom.$('label')).textContent = label;
+			if (help) dom.append(row, dom.$('span.vz-vi-field-help')).textContent = help;
+			return row;
+		};
+
+		const name = dom.append(field(localize('vibez.vi.name', "Name")), dom.$<HTMLInputElement>('input.vz-vi-detail-input.vz-vi-details-name'));
+		name.value = cls.name;
+		this.detailsScope.add(dom.addDisposableListener(name, dom.EventType.KEY_DOWN, (event: KeyboardEvent) => { if (event.key === 'Enter') { name.blur(); } }));
+		this.detailsScope.add(dom.addDisposableListener(name, dom.EventType.BLUR, () => {
+			const next = name.value.trim();
+			if (!next || next === cls.name) { return; }
+			if (!/^[A-Za-z_$][\w$]*$/.test(next)) { this.say(localize('vibez.vi.className', "A class name is one word, like Dog or ShoppingCart.")); this.refreshDetails(); return; }
+			const used = [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? []), ...(doc.variables ?? []), ...(doc.classes ?? [])].map(d => d.name);
+			if (used.includes(next)) { this.say(localize('vibez.vi.nameTaken', "That name is already in use.")); this.refreshDetails(); return; }
+			apply({ ...cls, name: next });
+		}));
+
+		const parentRow = field(localize('vibez.vi.extends', "Extends"), localize('vibez.vi.extendsHelp', "Get all of another class's fields and methods. A method with the same name replaces the parent's."));
+		const parent = dom.append(parentRow, dom.$<HTMLSelectElement>('select.vz-vi-detail-input'));
+		for (const option of ['', ...(doc.classes ?? []).filter(c => c.name !== cls.name && !isSubclassOf(doc.classes, c.name, cls.name)).map(c => c.name)]) {
+			const el = dom.append(parent, dom.$<HTMLOptionElement>('option')); el.value = option; el.textContent = option || localize('vibez.vi.noParent', "Nothing (a new kind of thing)");
+		}
+		parent.value = cls.extends ?? '';
+		this.detailsScope.add(dom.addDisposableListener(parent, dom.EventType.CHANGE, () => {
+			const { extends: _old, ...rest } = cls;
+			apply(parent.value ? { ...rest, extends: parent.value } : rest);
+		}));
+
+		const about = dom.append(field(localize('vibez.vi.description', "Description")), dom.$<HTMLTextAreaElement>('textarea.vz-vi-detail-input.vz-vi-about'));
+		about.value = cls.about ?? '';
+		this.detailsScope.add(dom.addDisposableListener(about, dom.EventType.BLUR, () => { if (about.value.trim() !== (cls.about ?? '')) apply({ ...cls, about: about.value.trim() }); }));
+
+		// Fields: inherited ones first (read-only here), then this class's own.
+		dom.append(this.details, dom.$('div.vz-vi-detail-label')).textContent = localize('vibez.vi.fields', "Fields");
+		dom.append(this.details, dom.$('span.vz-vi-field-help')).textContent = localize('vibez.vi.fieldsHelp', "The data every object carries. A field with a starting value is filled in automatically; one without is asked for when the object is made.");
+		for (const inherited of allFields(doc.classes, cls.name).filter(f => !cls.fields.includes(f))) {
+			const row = dom.append(this.details, dom.$('.vz-vi-parameter-row.inherited'));
+			dom.append(row, dom.$('span.vz-vi-inherited-field')).textContent = `${inherited.name}: ${inherited.type}${inherited.initial !== undefined ? ` = ${JSON.stringify(inherited.initial)}` : ''}  (from ${cls.extends})`;
+		}
+		const setField = (index: number, next: ViField | undefined) => {
+			const fields = [...cls.fields];
+			if (next) {
+				if (fields.some((f, at) => at !== index && f.name === next.name) || allFields(doc.classes, cls.name).some(f => !cls.fields.includes(f) && f.name === next.name)) {
+					this.say(localize('vibez.vi.duplicateField', "Field names must be unique, including the ones from the parent class.")); this.refreshDetails(); return;
+				}
+				fields[index] = next;
+			} else {
+				fields.splice(index, 1);
+			}
+			apply({ ...cls, fields });
+		};
+		cls.fields.forEach((f, index) => {
+			const row = dom.append(this.details, dom.$('.vz-vi-parameter-row.vz-vi-field-row'));
+			const fname = dom.append(row, dom.$<HTMLInputElement>('input.vz-vi-detail-input')); fname.value = f.name; fname.title = localize('vibez.vi.fieldName', "Field name");
+			this.detailsScope.add(dom.addDisposableListener(fname, dom.EventType.BLUR, () => { const n = fname.value.trim(); if (n && n !== f.name) setField(index, { ...f, name: n }); }));
+			const type = dom.append(row, dom.$<HTMLSelectElement>('select.vz-vi-detail-input.vz-vi-type-select'));
+			for (const t of this.VI_TYPES) { const o = dom.append(type, dom.$<HTMLOptionElement>('option')); o.value = t; o.textContent = t; }
+			type.value = f.type;
+			this.detailsScope.add(dom.addDisposableListener(type, dom.EventType.CHANGE, () => { const { initial: _i, ...rest } = f; setField(index, { ...rest, type: type.value as ViType }); }));
+			const initial = dom.append(row, dom.$<HTMLInputElement>('input.vz-vi-detail-input.vz-vi-field-initial'));
+			initial.placeholder = localize('vibez.vi.askedFor', "asked for");
+			initial.title = localize('vibez.vi.startingValue', "Starting value. Leave empty to ask for it when the object is made.");
+			initial.value = f.initial === undefined ? '' : typeof f.initial === 'string' ? f.initial : JSON.stringify(f.initial);
+			this.detailsScope.add(dom.addDisposableListener(initial, dom.EventType.BLUR, () => {
+				const { initial: _old, ...rest } = f;
+				if (initial.value === '') { if (f.initial !== undefined) setField(index, rest); return; }
+				let value: unknown;
+				try { value = this.testValue(initial.value, f.type); } catch (error) { this.say(String((error as Error).message)); return; }
+				if (JSON.stringify(value) !== JSON.stringify(f.initial)) setField(index, { ...rest, initial: value });
+			}));
+			const remove = dom.append(row, dom.$<HTMLButtonElement>('button.vz-vi-parameter-remove', { type: 'button', title: localize('vibez.vi.removeField', "Remove field") })); remove.textContent = '×';
+			this.detailsScope.add(dom.addDisposableListener(remove, dom.EventType.CLICK, () => setField(index, undefined)));
+		});
+		const addField = dom.append(this.details, dom.$<HTMLButtonElement>('button.vz-vi-add-parameter', { type: 'button' })); addField.textContent = localize('vibez.vi.addField', "+ Add Field");
+		this.detailsScope.add(dom.addDisposableListener(addField, dom.EventType.CLICK, () => {
+			const taken = new Set(allFields(doc.classes, cls.name).map(f => f.name)); let i = 1; while (taken.has(`field${i}`)) { i++; }
+			apply({ ...cls, fields: [...cls.fields, { name: `field${i}`, type: 'String' }] });
+			queueMicrotask(() => this.details.querySelector<HTMLInputElement>('.vz-vi-field-row:last-of-type input')?.select());
+		}));
+
+		// Methods: what objects of this class can do. Inherited ones are listed too.
+		dom.append(this.details, dom.$('div.vz-vi-detail-label')).textContent = localize('vibez.vi.methods', "Methods");
+		for (const { owner, method } of allMethods(doc.classes, cls.name)) {
+			const row = dom.append(this.details, dom.$<HTMLButtonElement>('button.vz-vi-blueprint-row.vz-vi-method-link', { type: 'button' }));
+			dom.append(row, dom.$('span.vz-vi-decl-icon.method')).appendChild(lucideIcon(LOGIC_ICON_PATHS.method));
+			const copy = dom.append(row, dom.$('.vz-vi-decl-copy'));
+			dom.append(copy, dom.$('span.name')).textContent = method.name;
+			const inherited = owner.name !== cls.name;
+			const replaces = !inherited && parentMethod(doc.classes, cls.name, method.name);
+			dom.append(copy, dom.$('span.type')).textContent = inherited ? localize('vibez.vi.inheritedFrom', "from {0}: add one here with the same name to replace it", owner.name)
+				: `(${method.inputs.map(i => `${i.name}: ${i.type}`).join(', ')}) → ${method.returns ?? 'None'}${replaces ? ` · replaces ${replaces.owner.name}'s` : ''}`;
+			this.detailsScope.add(dom.addDisposableListener(row, dom.EventType.CLICK, () => this.openMethod(owner.name, method.name)));
+		}
+		const addMethod = dom.append(this.details, dom.$<HTMLButtonElement>('button.vz-vi-add-parameter', { type: 'button' })); addMethod.textContent = localize('vibez.vi.addMethod', "+ Add Method");
+		this.detailsScope.add(dom.addDisposableListener(addMethod, dom.EventType.CLICK, () => {
+			const taken = new Set([...cls.methods.map(m => m.name), ...allFields(doc.classes, cls.name).map(f => f.name)]); let name = 'doSomething'; let i = 2; while (taken.has(name)) { name = `doSomething${i++}`; }
+			const method: ViMethod = { name, inputs: [], about: `Something every ${cls.name} can do.` };
+			this.commit(declareMethod(this.doc!, cls.name, method));
+			this.openMethod(cls.name, name);
+			queueMicrotask(() => { const input = this.details.querySelector<HTMLInputElement>('.vz-vi-details-name'); input?.focus(); input?.select(); });
+		}));
+
+		const problems = classIssues(doc.classes, [...doc.exports.values, ...doc.exports.actions, ...(doc.functions ?? [])].map(d => d.name)).filter(i => i.className === cls.name);
+		for (const problem of problems) {
+			const note = dom.append(this.details, dom.$(`.vz-vi-class-issue.${problem.severity}`));
+			note.textContent = problem.message;
+		}
+
+		const danger = dom.append(this.details, dom.$('details.vz-vi-danger'));
+		dom.append(danger, dom.$('summary')).textContent = localize('vibez.vi.dangerZone', "Danger zone");
+		const warning = dom.append(danger, dom.$('.vz-vi-delete-warning'));
+		const remove = dom.append(danger, dom.$<HTMLButtonElement>('button.vz-vi-delete-declaration', { type: 'button' })); remove.textContent = localize('vibez.vi.deleteClass', "Delete Class");
+		let armed = false;
+		this.detailsScope.add(dom.addDisposableListener(remove, dom.EventType.CLICK, () => {
+			if (!armed) {
+				armed = true;
+				const uses = this.declarationReferenceCount('class', cls.name);
+				const children = (doc.classes ?? []).filter(c => c.extends === cls.name).map(c => c.name);
+				warning.textContent = [
+					uses ? `Used by ${uses} block${uses === 1 ? '' : 's'}, which will stop working.` : '',
+					children.length ? `${children.join(', ')} extend${children.length === 1 ? 's' : ''} it.` : '',
+					'Its methods and their graphs are deleted too.',
+				].filter(Boolean).join(' ');
 				warning.classList.add('show');
 				remove.textContent = localize('vibez.vi.deleteAnyway', "Delete anyway");
 				return;
@@ -1125,10 +1385,18 @@ export class VibezViEditor extends EditorPane {
 	private renameSelected(nextName: string): void {
 		const selected = this.declaration();
 		if (!selected || !nextName || nextName === selected.value.name) { return; }
+		if (selected.kind === 'method' && this.methodTarget) {
+			if (!/^[A-Za-z_]\w*$/.test(nextName)) { this.say(localize('vibez.vi.nameInvalid', "Letters, numbers and _ only, starting with a letter.")); this.refreshPanels(); return; }
+			const cls = this.doc!.classes?.find(item => item.name === this.methodTarget!.class);
+			if (cls?.methods.some(m => m.name === nextName) || cls?.fields.some(f => f.name === nextName)) { this.say(localize('vibez.vi.nameTaken', "That name is already in use.")); this.refreshPanels(); return; }
+			this.updateSelected({ ...selected.value, name: nextName }, selected.value.name);
+			return;
+		}
 		if (!/^[A-Za-z_]\w*$/.test(nextName)) { this.say(localize('vibez.vi.nameInvalid', "Letters, numbers and _ only, starting with a letter.")); this.refreshPanels(); return; }
 		const used = new Set([
 			...this.doc!.exports.values.map(item => item.name), ...this.doc!.exports.actions.map(item => item.name),
 			...(this.doc!.functions?.map(item => item.name) ?? []), ...(this.doc!.variables?.map(item => item.name) ?? []),
+			...(this.doc!.classes?.map(item => item.name) ?? []),
 		]);
 		used.delete(selected.value.name);
 		if (used.has(nextName)) { this.say(localize('vibez.vi.nameTaken', "That name is already in use.")); this.refreshPanels(); return; }
@@ -1149,10 +1417,12 @@ export class VibezViEditor extends EditorPane {
 	private declarationReferenceCount(kind: DeclarationKind, name: string): number {
 		if (!this.doc || kind === 'value') { return 0; }
 		let count = 0;
-		const graphs = [...Object.values(this.doc.logic), ...Object.values(this.doc.helpers ?? {})];
+		const graphs = [...Object.values(this.doc.logic), ...Object.values(this.doc.helpers ?? {}), ...Object.values(this.doc.methods ?? {})];
 		for (const graph of graphs) {
 			for (const node of graph.nodes) {
 				const config = configOf(node);
+				if (kind === 'class' && config?.kind === 'object' && config.class === name) count++;
+				if (kind === 'method' && config?.kind === 'object' && (config.op === 'call' || config.op === 'super') && `${config.class}.${config.method}` === name) count++;
 				if (kind === 'variable' && config?.kind === 'variable' && config.name === name) count++;
 				if ((kind === 'action' || kind === 'function') && config?.kind === 'call' && !config.file && config.name === name) count++;
 			}
@@ -1168,6 +1438,21 @@ export class VibezViEditor extends EditorPane {
 		if (selected.kind === 'value') doc = updateValue(doc, previous, { name: next.name, type: next.type ?? 'String', ...(next.sample !== undefined ? { sample: next.sample } : {}), ...described });
 		else if (selected.kind === 'action') doc = updateAction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
 		else if (selected.kind === 'function') doc = renameFunction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
+		else if (selected.kind === 'method' && this.methodTarget) {
+			const className = this.methodTarget.class;
+			const oldMethod = previous.includes('.') ? previous.slice(previous.indexOf('.') + 1) : previous;
+			doc = declareMethod(doc, className, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described }, oldMethod);
+			this.commit(doc);
+			this.methodTarget = { class: className, method: next.name };
+			this.selectedDeclaration = { kind: 'method', name: methodKey(className, next.name) };
+			this.refreshBlueprint();
+			this.renderGraphHeader();
+			// A new name shows up in Details' own note about the method, too.
+			if (rebuildDetails || oldMethod !== next.name) { this.refreshDetails(); }
+			this.refreshGraph();
+			return;
+		}
+		else if (selected.kind === 'class') return;
 		else doc = renameVariable(doc, previous, { name: next.name, type: next.type ?? 'String', mutable: next.mutable ?? true, ...(next.initial !== undefined ? { initial: next.initial } : {}), ...described });
 		this.commit(doc);
 		this.selectedDeclaration = { kind: selected.kind, name: next.name };
@@ -1194,6 +1479,13 @@ export class VibezViEditor extends EditorPane {
 	private deleteSelectedDeclaration(): void {
 		const selected = this.declaration(); if (!selected || !this.doc) { return; }
 		const name = selected.value.name; let doc = this.doc;
+		if (selected.kind === 'class' || (selected.kind === 'method' && this.methodTarget)) {
+			doc = selected.kind === 'class' ? removeClass(doc, name) : removeMethod(doc, this.methodTarget!.class, this.methodTarget!.method);
+			this.commit(doc); this.selectedDeclaration = undefined;
+			if (this.methodTarget && (selected.kind === 'method' || this.methodTarget.class === name)) { this.methodTarget = undefined; this.reopenCurrent(); }
+			this.refreshPanels();
+			return;
+		}
 		if (selected.kind === 'variable') doc = removeVariable(doc, name);
 		else if (selected.kind === 'function') doc = removeFunction(doc, name);
 		else { const logic = { ...doc.logic }; delete logic[name]; doc = { ...doc, exports: selected.kind === 'value' ? { ...doc.exports, values: doc.exports.values.filter(item => item.name !== name) } : { ...doc.exports, actions: doc.exports.actions.filter(item => item.name !== name) }, logic }; }
@@ -1210,6 +1502,18 @@ export class VibezViEditor extends EditorPane {
 		if (!name) {
 			dom.append(this.graphHeader, dom.$('strong')).textContent = 'Choose something from Logic';
 			dom.append(this.graphHeader, dom.$('span')).textContent = 'Page Data, Page Actions, and Functions each have a graph.';
+			return;
+		}
+		if (this.methodTarget) {
+			const { class: className, method: methodName } = this.methodTarget;
+			const method = this.doc.classes?.find(c => c.name === className)?.methods.find(m => m.name === methodName);
+			const title = dom.append(this.graphHeader, dom.$('.vz-vi-graph-title'));
+			title.appendChild(lucideIcon(LOGIC_ICON_PATHS.method, 'vz-vi-graph-kind-icon method'));
+			dom.append(title, dom.$('span')).textContent = `Method of ${className}`;
+			dom.append(title, dom.$('strong')).textContent = methodName;
+			const replaces = parentMethod(this.doc.classes, className, methodName);
+			dom.append(this.graphHeader, dom.$('span.vz-vi-graph-signature')).textContent = `(${method?.inputs.map(i => `${i.name}: ${i.type}`).join(', ') ?? ''}) → ${method?.returns ?? 'None'}${replaces ? ` · replaces ${replaces.owner.name}'s version` : ''}`;
+			if (method?.about) dom.append(this.graphHeader, dom.$('span.vz-vi-graph-about')).textContent = method.about;
 			return;
 		}
 		const fn = this.functionName ? this.doc.functions?.find(item => item.name === name) : undefined;
@@ -1258,7 +1562,8 @@ export class VibezViEditor extends EditorPane {
 	private refreshGraph(): void {
 		const name = this.currentName();
 		if (!this.doc || !name) { return; }
-		const { graph } = this.isViewingFunction() ? { graph: functionGraphFor(this.doc, name).graph } : graphFor(this.doc, name);
+		const { graph } = this.methodTarget ? methodGraphFor(this.doc, this.methodTarget.class, this.methodTarget.method)
+			: this.isViewingFunction() ? { graph: functionGraphFor(this.doc, name).graph } : graphFor(this.doc, name);
 		this.graphLayout = layoutGraph(graph);
 		this.renderAll();
 	}
@@ -1277,6 +1582,7 @@ export class VibezViEditor extends EditorPane {
 		if (nextKind && (this.selectedDeclaration?.kind !== nextKind || this.selectedDeclaration.name !== name)) { this.testOpen = false; this.testResult = undefined; }
 		this.exportName = name;
 		this.functionName = undefined;
+		this.methodTarget = undefined;
 		this.select(undefined);
 		if (this.doc && name) {
 			this.selectedDeclaration = { kind: nextKind!, name };
@@ -1304,6 +1610,7 @@ export class VibezViEditor extends EditorPane {
 		if (name && (this.selectedDeclaration?.kind !== 'function' || this.selectedDeclaration.name !== name)) { this.testOpen = false; this.testResult = undefined; }
 		this.functionName = name;
 		this.exportName = undefined;
+		this.methodTarget = undefined;
 		this.select(undefined);
 		if (name) { this.selectedDeclaration = { kind: 'function', name }; }
 		this.refreshPanels();
@@ -1328,12 +1635,21 @@ export class VibezViEditor extends EditorPane {
 		if (name === undefined || !this.doc) {
 			return undefined;
 		}
+		if (this.methodTarget) return this.doc.methods?.[name];
 		return this.isViewingFunction() ? this.doc.helpers?.[name] : this.doc.logic[name];
 	}
 
 	private portContext(): PortContext {
+		return { ...this.portContextBase(), classes: this.doc?.classes ?? [] };
+	}
+
+	private portContextBase(): PortContext {
 		if (!this.doc) {
 			return {};
+		}
+		if (this.methodTarget) {
+			const method = this.doc.classes?.find(c => c.name === this.methodTarget!.class)?.methods.find(m => m.name === this.methodTarget!.method);
+			return method ? { pure: false, inputs: method.inputs, ...(method.returns !== undefined ? { returns: method.returns } : {}) } : {};
 		}
 		if (this.isViewingFunction()) {
 			const fn = this.doc.functions?.find(f => f.name === this.functionName);
@@ -1375,13 +1691,16 @@ export class VibezViEditor extends EditorPane {
 		if (!this.doc || name === undefined) {
 			return;
 		}
-		this.commit(this.isViewingFunction() ? setFunctionGraph(this.doc, name, graph) : setGraph(this.doc, name, graph), coalesce);
+		this.commit(this.storeGraph(this.doc, graph), coalesce);
 		this.graphLayout = layoutGraph(graph);
 		this.renderAll();
 	}
 
 	/** Reopens whichever of an export or a function was active — same graph, freshly re-derived from `this.doc`, after an undo/redo swaps it out from under the canvas. */
 	private reopenCurrent(): void {
+		const target = this.methodTarget;
+		if (target && this.doc?.classes?.find(c => c.name === target.class)?.methods.some(m => m.name === target.method)) { this.openMethod(target.class, target.method); return; }
+		this.methodTarget = undefined;
 		const name = this.currentName();
 		if (this.doc?.functions?.some(fn => fn.name === name)) this.openFunction(name);
 		else {
@@ -1529,7 +1848,7 @@ export class VibezViEditor extends EditorPane {
 			return;
 		}
 		const next = pruneEdges(updateConfig(graph, nodeId, config, this.portContext()));
-		this.doc = this.isViewingFunction() ? setFunctionGraph(this.doc, name, next) : setGraph(this.doc, name, next);
+		this.doc = this.storeGraph(this.doc, next);
 		this.graphLayout = layoutGraph(next);
 		this.scheduleSave();
 	}
@@ -1547,7 +1866,7 @@ export class VibezViEditor extends EditorPane {
 			...(this.doc?.functions?.filter(f => f.name !== here).map(f => ({ file: '', action: f })) ?? []),
 			...this.siblings.flatMap(s => s.functions.map(f => ({ file: s.relative, action: f }))),
 		];
-		return searchIndex({ ctx: this.portContext(), variables: this.doc?.variables ?? [], actions, functions });
+		return searchIndex({ ctx: this.portContext(), variables: this.doc?.variables ?? [], actions, functions, classes: this.doc?.classes ?? [], ...(this.methodTarget ? { inMethod: this.methodTarget } : {}) });
 	}
 
 	// ------------------------------------------------------------ drawing
@@ -1926,7 +2245,7 @@ export class VibezViEditor extends EditorPane {
 			? addEdge(next, variable.id, 'value', nodeId, port.id)
 			: addEdge(next, nodeId, port.id, variable.id, 'value');
 		const declared = declareVariable(this.doc, { name, type, mutable: true });
-		this.commit(this.isViewingFunction() ? setFunctionGraph(declared, this.currentName()!, next) : setGraph(declared, this.currentName()!, next));
+		this.commit(this.storeGraph(declared, next));
 		this.graphLayout = layoutGraph(next);
 		this.refreshPanels();
 		this.renderAll();

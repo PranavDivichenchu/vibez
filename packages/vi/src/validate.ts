@@ -1,5 +1,6 @@
 import type { SemanticKey } from '../../core/src/types.ts';
-import { configOf, type AuthoredGraph, type ViAction, type ViVariable } from './types.ts';
+import { configOf, type AuthoredGraph, type ViAction, type ViClass, type ViVariable } from './types.ts';
+import { allFields, findClass, findMethod, parentMethod } from './classes.ts';
 import { helperFor, UNSUPPORTED_OPS } from './runtime.ts';
 
 /**
@@ -20,6 +21,10 @@ interface ValidateOptions {
   variables?: ViVariable[];
   /** Other actions/functions this graph's `call` blocks may target, so a stale reference can be caught. */
   callable: (file: string, name: string) => boolean;
+  /** The file's classes, for object blocks. */
+  classes?: ViClass[];
+  /** Set when this graph is a class method: This and Call Parent only make sense there. */
+  inMethod?: { class: string; method: string };
 }
 
 function execChildren(graph: AuthoredGraph): Map<SemanticKey, { port: string; to: SemanticKey }[]> {
@@ -187,6 +192,20 @@ export function validateGraph(graph: AuthoredGraph, opts: ValidateOptions): Comp
     if ((node.kind === 'loop' && (config?.kind === 'loop' ? config.mode === 'break' || config.mode === 'continue' : false))) {
       const inAny = loops.some((l) => l.id !== node.id && insideLoop(graph, l.id, node.id));
       if (!inAny) issues.push({ nodeId: node.id, severity: 'error', message: `${node.label.includes('Break') ? 'Break' : 'Continue'} only makes sense inside a loop's body.` });
+    }
+    if (config?.kind === 'object') {
+      const classes = opts.classes ?? [];
+      if (config.op === 'self' || config.op === 'super') {
+        if (!opts.inMethod) error(node.id, `${node.label} only works inside a class's method, where there is an object to run on.`);
+        else if (config.class !== opts.inMethod.class) error(node.id, `${node.label} belongs to ${config.class}, but this method is part of ${opts.inMethod.class}.`);
+        else if (config.op === 'super' && !parentMethod(classes, config.class, config.method ?? '')) error(node.id, `${config.class} has no parent class with a ${config.method} method to run.`);
+      } else if (!findClass(classes, config.class)) {
+        error(node.id, `There is no class called ${config.class}. Choose one of this file's classes${classes.length ? ` (${classes.map((c) => c.name).join(', ')})` : ''}.`);
+      } else if ((config.op === 'get' || config.op === 'set') && !allFields(classes, config.class).some((f) => f.name === config.field)) {
+        error(node.id, `${config.class} has no field called ${config.field}. Its fields: ${allFields(classes, config.class).map((f) => f.name).join(', ') || 'none yet'}.`);
+      } else if (config.op === 'call' && !findMethod(classes, config.class, config.method ?? '')) {
+        error(node.id, `${config.class} has no method called ${config.method}.`);
+      }
     }
     if (node.kind === 'call' && config?.kind === 'call' && !opts.callable(config.file, config.name)) {
       issues.push({ nodeId: node.id, severity: 'error', message: `${config.file ? `${config.file}#` : ''}${config.name} no longer exists.` });

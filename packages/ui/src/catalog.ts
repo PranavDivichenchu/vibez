@@ -87,7 +87,7 @@ export const CATALOG: CatalogEntry[] = [
   },
   {
     kind: 'input', label: 'Input', hint: 'Somewhere to type', group: 'Interactive',
-    make: (id) => ({ id: id('input'), kind: 'input', size: fillW, field: 'email', label: 'Email', placeholder: 'you@example.com', inputType: 'email' }),
+    make: (id) => ({ id: id('input'), kind: 'input', size: fillW, field: 'text', label: 'Label', placeholder: 'Type here', inputType: 'text' }),
   },
   {
     kind: 'link', label: 'Link', hint: 'Goes to a page', group: 'Interactive',
