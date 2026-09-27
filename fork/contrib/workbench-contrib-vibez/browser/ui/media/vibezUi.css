@@ -38,6 +38,8 @@
 
 .vz-ui-body { flex: 1; display: flex; min-height: 0; }
 .vz-ui.previewing .vz-ui-left, .vz-ui.previewing .vz-ui-right { display: none; }
+.vz-ui.no-left .vz-ui-left, .vz-ui.no-right .vz-ui-right { display: none; }
+.vz-ui-tool[data-panel].on { color: var(--ui-t1); background: var(--ui-hover); }
 
 /* ------------------------------------------------------------ left */
 

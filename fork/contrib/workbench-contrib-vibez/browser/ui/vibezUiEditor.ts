@@ -3,6 +3,8 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { IVibezTeamService } from '../../../../../platform/vibez/common/vibezTeamService.js';
+import { VibezTeamBanner } from '../vibezTeamBanner.js';
 import './media/vibezUi.css';
 import * as dom from '../../../../../base/browser/dom.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
@@ -53,12 +55,16 @@ const SKIP = new Set(['node_modules', 'out', 'dist', 'build', 'coverage', 'vendo
  * git, a teammate's editor), the canvas reloads and the change becomes an undo
  * step, so nothing is silently overwritten in either direction.
  */
+/** Below this editor width the side panels start folded away. */
+const NARROW_EDITOR = 1000;
+
 export class VibezUiEditor extends EditorPane {
 
 	static readonly ID = 'workbench.editor.vibez.ui';
 
 	private root!: HTMLElement;
 	private toolbar!: HTMLElement;
+	private banner!: VibezTeamBanner;
 	private body!: HTMLElement;
 	private chooser!: HTMLElement;
 	private problem!: HTMLElement;
@@ -92,6 +98,7 @@ export class VibezUiEditor extends EditorPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IOpenerService private readonly openerService: IOpenerService,
+		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezUiEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -101,6 +108,8 @@ export class VibezUiEditor extends EditorPane {
 	protected createEditor(parent: HTMLElement): void {
 		this.root = dom.append(parent, h('div.vz-ui', { tabindex: '0' }));
 		this.toolbar = dom.append(this.root, h('div.vz-ui-toolbar'));
+		this.banner = this._register(new VibezTeamBanner(this.team, held => this.canvas?.markHeld(held.map(h => h.id)), pulse => pulse.elements?.length && this.canvas?.flash(pulse.elements, pulse.hue)));
+		this.root.appendChild(this.banner.element);
 		this.body = dom.append(this.root, h('div.vz-ui-body'));
 
 		this.canvas = this._register(new VibezUiCanvas({
@@ -143,6 +152,7 @@ export class VibezUiEditor extends EditorPane {
 		}));
 
 		this.body.append(this.left.element, this.canvas.element, this.right.element);
+		this.canvas.onDidFit = () => this.updateToolbarState();
 		this.chooser = dom.append(this.root, h('div.vz-ui-chooser'));
 		this.problem = dom.append(this.root, h('div.vz-ui-problem'));
 		this.installKeys();
@@ -152,6 +162,7 @@ export class VibezUiEditor extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.inputScope.clear();
 		this.resource = input.resource;
+		this.banner.setFile(input.resource.scheme === 'file' ? input.resource.fsPath : undefined);
 		this.past = [];
 		this.future = [];
 		this.selected = undefined;
@@ -184,8 +195,37 @@ export class VibezUiEditor extends EditorPane {
 		super.clearInput();
 	}
 
-	override layout(): void {
+	/**
+	 * The side panels fold away on a narrow editor, so the page is big enough
+	 * to see and work on: a 1280px page between both panels in an 870px editor
+	 * would be drawn at a sixth of its size. Once you open or close a panel
+	 * yourself, that choice stands.
+	 */
+	private panelsChosen = false;
+
+	override layout(dimension?: dom.Dimension): void {
+		if (dimension && !this.panelsChosen) {
+			const narrow = dimension.width < NARROW_EDITOR;
+			this.root.classList.toggle('no-left', narrow);
+			this.root.classList.toggle('no-right', narrow);
+			this.updatePanelButtons();
+		}
 		this.canvas?.layout();
+	}
+
+	private togglePanel(side: 'left' | 'right'): void {
+		this.panelsChosen = true;
+		this.root.classList.toggle(`no-${side}`);
+		this.updatePanelButtons();
+		// The canvas changed width: fit the page to it now, not on the next frame.
+		this.canvas.layout();
+	}
+
+	private updatePanelButtons(): void {
+		for (const side of ['left', 'right'] as const) {
+			const b = this.toolbar?.querySelector(`[data-panel="${side}"]`);
+			b?.classList.toggle('on', !this.root.classList.contains(`no-${side}`));
+		}
 	}
 
 	override focus(): void {
@@ -405,7 +445,16 @@ export class VibezUiEditor extends EditorPane {
 		this.scheduleSave();
 	}
 
-	private undo(): void {
+	/**
+	 * Whether ⌘Z belongs to this editor: it has focus, and not inside a text
+	 * field, where undo should keep meaning "undo my typing".
+	 */
+	ownsUndo(): boolean {
+		const active = this.root?.ownerDocument.activeElement as HTMLElement | null;
+		return !!active && this.root.contains(active) && !active.closest('input, textarea, select, [contenteditable="true"]');
+	}
+
+	undo(): void {
 		const previous = this.past.pop();
 		if (!previous || !this.doc) {
 			return;
@@ -420,7 +469,7 @@ export class VibezUiEditor extends EditorPane {
 		this.scheduleSave();
 	}
 
-	private redo(): void {
+	redo(): void {
 		const next = this.future.pop();
 		if (!next || !this.doc) {
 			return;
@@ -545,6 +594,9 @@ export class VibezUiEditor extends EditorPane {
 		};
 
 		const start = dom.append(this.toolbar, h('div.start'));
+		const left = button('panelLeft', localize('vibez.ui.panelLeft', "Show or hide Add and Layers"), () => this.togglePanel('left'));
+		left.setAttribute('data-panel', 'left');
+		start.append(left);
 		start.append(h('span.file', {}, this.resource ? posix.basename(this.resource.path) : ''));
 		start.append(button('undo', localize('vibez.ui.undo', "Undo (⌘Z)"), () => this.undo()), button('redo', localize('vibez.ui.redo', "Redo (⇧⌘Z)"), () => this.redo()));
 
@@ -583,7 +635,11 @@ export class VibezUiEditor extends EditorPane {
 			modes.append(b);
 		}
 		end.append(button('external', localize('vibez.ui.openBrowser', "Open the compiled page in your browser"), () => void this.openInBrowser(), localize('vibez.ui.open', "Open")));
+		const right = button('panelRight', localize('vibez.ui.panelRight', "Show or hide the style panel"), () => this.togglePanel('right'));
+		right.setAttribute('data-panel', 'right');
+		end.append(right);
 		this.updateToolbarState();
+		this.updatePanelButtons();
 	}
 
 	private updateToolbarState(): void {
@@ -594,7 +650,7 @@ export class VibezUiEditor extends EditorPane {
 		if (zoom) {
 			zoom.textContent = `${Math.round(this.canvas.getScale() * 100)}%`;
 		}
-		const [undo, redo] = this.toolbar.querySelectorAll<HTMLButtonElement>('.start .vz-ui-tool');
+		const [undo, redo] = this.toolbar.querySelectorAll<HTMLButtonElement>('.start .vz-ui-tool:not([data-panel])');
 		if (undo && redo) {
 			undo.disabled = this.past.length === 0;
 			redo.disabled = this.future.length === 0;

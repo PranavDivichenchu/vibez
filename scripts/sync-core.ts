@@ -134,3 +134,28 @@ for (const [from, to] of Object.entries(CODEMODS)) {
   writeFileSync(join(nodeTarget, to), HEADER.replace('packages/core', 'packages/codemod') + text);
 }
 console.log('  synced codemods -> platform/vibez/node');
+
+// The team client talks to Supabase and keeps each person's sign-in on disk,
+// so it lives in the node layer and only the main process uses it. The
+// renderer cannot reach a local http: Supabase through its CSP anyway.
+const TEAM_FILES: Record<string, string> = {
+  'rest.ts': 'vibezTeamRest.ts',
+  'overlap.ts': 'vibezTeamOverlap.ts',
+  'team.ts': 'vibezTeamSession.ts',
+  'config.ts': 'vibezTeamConfig.ts',
+  'hosted.ts': 'vibezTeamHosted.ts',
+  'connect.ts': 'vibezTeamConnect.ts',
+};
+for (const [from, to] of Object.entries(TEAM_FILES)) {
+  let text = readFileSync(join('packages/team/src', from), 'utf8');
+  for (const [a, b] of Object.entries(TEAM_FILES)) {
+    text = text.replaceAll(`'./${a}'`, `'./${b.replace(/\.ts$/, '.js')}'`);
+  }
+  // Electron's Node takes bare module names, the way the rest of the main process imports them.
+  text = text.replace(/from 'node:([a-z/]+)'/g, "from '$1'");
+  writeFileSync(join(nodeTarget, to), HEADER.replace('packages/core', 'packages/team') + text);
+}
+// Where this Vibez checkout is, for connecting a project's Claude Code to the
+// team: its hooks and MCP server run from here.
+writeFileSync(join(nodeTarget, 'vibezTeamPaths.ts'), `${HEADER.replace('packages/core', 'scripts/sync-core.ts')}export const VIBEZ_REPO = ${JSON.stringify(process.cwd())};\n`);
+console.log('  synced team client -> platform/vibez/node');

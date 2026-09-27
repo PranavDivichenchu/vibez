@@ -32,7 +32,8 @@ const CSS = String.raw`
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--vscode-editor-background,#1e1e1e);color:var(--fg);font:13px/1.45 var(--vscode-font-family,-apple-system,system-ui,sans-serif)}
 button,input{font:inherit;color:inherit}
-#bar{position:absolute;left:0;right:0;top:0;height:var(--bar);display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--vscode-editor-background);z-index:5;white-space:nowrap;overflow:hidden}
+#bar{position:absolute;left:0;right:0;top:0;height:var(--bar);display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--vscode-editor-background);z-index:5;white-space:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+#bar::-webkit-scrollbar{display:none}
 #bar>*{flex-shrink:0}
 #bar>#src{flex-shrink:1;min-width:0;overflow:hidden}
 #bar>#status{flex-shrink:1;min-width:0}
@@ -503,6 +504,10 @@ board.addEventListener('pointermove', function(e){
 function endDrag(){ drag = null; board.classList.remove('dragging'); }
 board.addEventListener('pointerup', endDrag);
 board.addEventListener('pointercancel', endDrag);
+// A narrow editor scrolls the toolbar sideways; an ordinary mouse wheel does it too.
+document.getElementById('bar').addEventListener('wheel', function(e){
+  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { this.scrollLeft += e.deltaY; e.preventDefault(); }
+}, { passive: false });
 board.addEventListener('wheel', function(e){
   e.preventDefault();
   if (e.ctrlKey || e.metaKey) { zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01)); }

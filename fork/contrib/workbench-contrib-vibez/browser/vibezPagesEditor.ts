@@ -3,6 +3,8 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { IVibezTeamService } from '../../../../platform/vibez/common/vibezTeamService.js';
+import { VibezTeamBanner } from './vibezTeamBanner.js';
 import './media/vibezPages.css';
 import * as dom from '../../../../base/browser/dom.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
@@ -73,6 +75,8 @@ export class VibezPagesEditor extends EditorPane {
 	static readonly ID = 'workbench.editor.vibez.pages';
 
 	private container!: HTMLElement;
+	private banner!: VibezTeamBanner;
+	private size: dom.Dimension | undefined;
 	private webview: IWebviewElement | undefined;
 	private ready = false;
 	private generation = 0;
@@ -96,6 +100,7 @@ export class VibezPagesEditor extends EditorPane {
 		@IVibezCaptureService private readonly capture: IVibezCaptureService,
 		@ITextFileService private readonly textFiles: ITextFileService,
 		@IOpenerService private readonly opener: IOpenerService,
+		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezPagesEditor.ID, group, telemetryService, themeService, siteStorage);
 		this._register(siteHistory.onDidChange(e => {
@@ -116,6 +121,11 @@ export class VibezPagesEditor extends EditorPane {
 	}
 
 	protected createEditor(parent: HTMLElement): void {
+		// Pages other people's agents are working on, above the canvas.
+		this.banner = this._register(new VibezTeamBanner(this.team));
+		this.banner.watchKinds(['.html', '.htm']);
+		this.banner.onDidToggle = () => this.size && this.layout(this.size);
+		parent.appendChild(this.banner.element);
 		this.container = dom.append(parent, dom.$('.vibez-site'));
 	}
 
@@ -172,8 +182,10 @@ export class VibezPagesEditor extends EditorPane {
 	}
 
 	override layout(size: dom.Dimension): void {
+		this.size = size;
+		const banner = this.banner.element.style.display === 'none' ? 0 : this.banner.element.offsetHeight;
 		this.container.style.width = `${size.width}px`;
-		this.container.style.height = `${size.height}px`;
+		this.container.style.height = `${Math.max(0, size.height - banner)}px`;
 	}
 
 	override clearInput(): void {

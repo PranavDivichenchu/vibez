@@ -22,6 +22,7 @@ import { reference } from './reference.ts';
 import { outlineFlow } from './flows.ts';
 import { applyLogicOps, blocksFor, compileIssues, contextFor, locate, outlineGraph, outlineLogic, VI_TYPES, type LogicOp, type Siblings } from './logic.ts';
 import { addPage, applySiteOps, deletePage, htmlFiles, library, outlineHtml, siteMap, type SiteOp } from './site.ts';
+import { registerTeamTools } from './teamTools.ts';
 
 /**
  * The Vibez MCP server: how an AI agent reads and edits a Vibez app in
@@ -125,6 +126,31 @@ const actionSchema = z.object({
   about: z.string().optional(),
 });
 
+/**
+ * What a page edit touches, as the team names it: page.ui#element for each
+ * element changed, moved, removed or added (new elements by their new id),
+ * or the whole page when its own settings change. Claims this narrow let two
+ * agents work on different parts of one page, warned but not in each other's way.
+ */
+function touchedOnPage(path: string, ops: Op[], created: Record<string, string>): string[] {
+  if (ops.some((op) => op.op === 'page')) return [path];
+  const ids = new Set<string>();
+  for (const op of ops) {
+    if ('id' in op && op.id) ids.add(op.id);
+  }
+  for (const id of Object.values(created)) ids.add(id);
+  const named = [...ids].filter((id) => !id.startsWith('$') && id !== 'page');
+  return named.length ? named.map((id) => `${path}#${id}`) : [path];
+}
+
+const finishers = new WeakMap<McpServer, () => Promise<void>>();
+
+/** Ends a server's session on the team (its claims are released), then closes it. */
+export async function closeVibezServer(server: McpServer): Promise<void> {
+  await finishers.get(server)?.();
+  await server.close();
+}
+
 export function createVibezServer(root: string): McpServer {
   const ws = new Workspace(root);
   const server = new McpServer(
@@ -133,9 +159,19 @@ export function createVibezServer(root: string): McpServer {
       instructions: 'Vibez apps are .ui pages (visual layout), .vi files (logic drawn as graphs, exposing values and actions to pages), '
         + 'and plain HTML pages. Call vibez_overview first and vibez_reference for the vocabulary. '
         + 'Pages: ui_read then ui_edit. Logic: vi_read, vi_blocks, then vi_edit, and vi_run to test. HTML: site_map, site_read, then site_edit. '
-        + 'Pages reference .vi exports as file.vi#name.',
+        + 'Pages reference .vi exports as file.vi#name. '
+        + 'On a team project, other people\'s agents may be working too: team_status shows them, team_start says what you are doing and claims your files, '
+        + 'and edits warn when they touch files another agent holds.',
     },
   );
+
+  const team = registerTeamTools(server, root);
+  finishers.set(server, team.finish);
+
+  /** Heads-up lines for an edit's reply when another agent holds these files or files next to them. */
+  const headsUp = (warnings: string[]): string[] => warnings.length
+    ? ['Heads up, another agent is working here (the edit went ahead):', ...warnings.map((w) => `  ${w}`), '']
+    : [];
 
   /** Broken .vi links, plus links and "go:" actions pointing at pages that do not exist. */
   const problems = async (pagePath: string, doc: UiDoc): Promise<string[]> => {
@@ -269,10 +305,15 @@ export function createVibezServer(root: string): McpServer {
     const doc = await ws.readPage(path);
     const linked = await ws.linkedFor(path);
     const result = applyOps(doc, ops as Op[], { linked, pages: await pagesFrom(path) });
+    const collisions = await team.around(touchedOnPage(path, ops as Op[], result.created), result.doc.links.map((l) => ws.resolveFrom(path, l)));
     await ws.writePage(path, result.doc);
+    await collisions.claim();
+    const touched = touchedOnPage(path, ops as Op[], result.created).filter((p) => p.includes('#')).map((p) => p.split('#')[1]!);
+    await team.pulse(path, result.log.join('; '), touched.length ? { elements: touched } : {});
     const names = Object.entries(result.created);
     const broken = await problems(path, result.doc);
     return say([
+      ...headsUp(collisions.warnings),
       `Changed ${path}:`,
       ...result.log.map((line) => `  - ${line}`),
       ...(names.length ? ['', `new ids: ${names.map(([k, v]) => `${k} = ${v}`).join(', ')}`] : []),
@@ -431,12 +472,16 @@ export function createVibezServer(root: string): McpServer {
     const doc = existing ? await readLogic(path) : { vibez: 'vi/1', exports: { values: [], actions: [] }, logic: {} } as ViDoc;
     const siblings = await siblingsOf(path);
     const result = applyLogicOps(doc, ops as LogicOp[], siblings);
+    const collisions = await team.around([path]);
     await ws.write(path, serializeVi(result.doc));
+    await collisions.claim();
     const names = Object.entries(result.created);
     const graphs = [...result.touched].filter((name) => [...result.doc.exports.values, ...result.doc.exports.actions, ...(result.doc.functions ?? [])].some((d) => d.name === name));
+    await team.pulse(path, result.log.join('; '), { graphs: [...result.touched] });
     const issues = compileIssues(result.doc, siblings);
     const broken = await brokenPagesFor();
     return say([
+      ...headsUp(collisions.warnings),
       `${existing ? 'Changed' : 'Created'} ${path}:`,
       ...result.log.map((line) => `  - ${line}`),
       ...(names.length ? ['', `new blocks: ${names.map(([k, v]) => `${k} = ${v}`).join(', ')}`] : []),
@@ -509,8 +554,11 @@ export function createVibezServer(root: string): McpServer {
   }, ({ path, ops }) => guard(async () => {
     if (!/\.html?$/.test(path)) throw new VibezError(`${path} is not an HTML page.`);
     const result = applySiteOps(await ws.read(path), ops as SiteOp[]);
+    const collisions = await team.around([path]);
     await ws.write(path, result.html);
-    return say([`Changed ${path}:`, ...result.log.map((l) => `  - ${l}`), '', outlineHtml(path, result.html)].join('\n'));
+    await collisions.claim();
+    await team.pulse(path, result.log.join('; '));
+    return say([...headsUp(collisions.warnings), `Changed ${path}:`, ...result.log.map((l) => `  - ${l}`), '', outlineHtml(path, result.html)].join('\n'));
   }));
 
   server.registerTool('site_add_page', {
@@ -628,4 +676,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const server = createVibezServer(root);
   await server.connect(new StdioServerTransport());
   console.error(`vibez mcp ready for ${root}`);
+  // The client ends a session by closing stdin or stopping the process; either way the agent's claims go with it.
+  let closing = false;
+  const stop = () => {
+    if (closing) return;
+    closing = true;
+    const timeout = setTimeout(() => process.exit(0), 3000);
+    void closeVibezServer(server).finally(() => { clearTimeout(timeout); process.exit(0); });
+  };
+  process.stdin.on('end', stop);
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
 }

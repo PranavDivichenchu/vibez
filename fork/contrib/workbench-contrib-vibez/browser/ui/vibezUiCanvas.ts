@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { heldElementsCss, pulseElementsCss } from '../vibezTeamBanner.js';
 import * as dom from '../../../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
@@ -73,6 +74,9 @@ export class VibezUiCanvas extends Disposable {
 	private readonly host: HTMLElement;
 	private readonly shadow: ShadowRoot;
 	private readonly pageStyle: HTMLStyleElement;
+	private readonly heldStyle: HTMLStyleElement;
+	private readonly pulseStyle: HTMLStyleElement;
+	private pulseTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly overlay: HTMLElement;
 	private readonly hoverBox: HTMLElement;
 	private readonly selectBox: HTMLElement;
@@ -88,6 +92,8 @@ export class VibezUiCanvas extends Disposable {
 	private panX = 0;
 	private panY = 0;
 	private fitted = false;
+	/** Told after the page is fitted again, so the toolbar's zoom reads right. */
+	onDidFit: (() => void) | undefined;
 	/** Set once someone pans or zooms; until then the page keeps fitting the space it has. */
 	private touched = false;
 	private lastWidth = 0;
@@ -111,6 +117,10 @@ export class VibezUiCanvas extends Disposable {
 		this.shadow = this.host.attachShadow({ mode: 'open' });
 		this.pageStyle = document.createElement('style');
 		this.shadow.appendChild(this.pageStyle);
+		this.heldStyle = document.createElement('style');
+		this.shadow.appendChild(this.heldStyle);
+		this.pulseStyle = document.createElement('style');
+		this.shadow.appendChild(this.pulseStyle);
 
 		this.overlay = dom.append(this.element, dom.$('.vz-ui-overlay'));
 		this.parentBox = dom.append(this.overlay, dom.$('.vz-ui-box.parent'));
@@ -122,10 +132,31 @@ export class VibezUiCanvas extends Disposable {
 
 		this.installCamera();
 		this.installPointer();
+		// The canvas settles to its real width after the editor opens (the side
+		// panels lay out a moment later), and the workbench is not told about
+		// that. Fitting only when it is told left the page a tiny thumbnail, so
+		// the canvas watches its own size and fits again until you zoom or pan.
+		const resize = new ResizeObserver(() => this.layout());
+		resize.observe(this.element);
+		this._register(toDisposable(() => resize.disconnect()));
 		this._register(toDisposable(() => this.toastTimer && clearTimeout(this.toastTimer)));
 	}
 
 	// ------------------------------------------------------------ state
+
+	/** Outlines the elements another person's agent holds; they survive every re-render. */
+	markHeld(ids: string[]): void {
+		this.heldStyle.textContent = heldElementsCss(ids.map(id => ({ id })));
+	}
+
+	/** Flashes elements a teammate's agent just changed, in their colour. */
+	flash(ids: string[], hue: number): void {
+		this.pulseStyle.textContent = pulseElementsCss(ids, hue, Date.now());
+		if (this.pulseTimer) {
+			clearTimeout(this.pulseTimer);
+		}
+		this.pulseTimer = setTimeout(() => { this.pulseStyle.textContent = ''; }, 2600);
+	}
 
 	setDevice(device: Device): void {
 		this.device = device;
@@ -169,6 +200,7 @@ export class VibezUiCanvas extends Disposable {
 		this.touched = false;
 		this.lastWidth = rect.width;
 		this.applyCamera();
+		this.onDidFit?.();
 	}
 
 	layout(): void {
@@ -197,7 +229,7 @@ export class VibezUiCanvas extends Disposable {
 
 		// Everything but the style element is redrawn: pages are small, and a
 		// full redraw is what guarantees the canvas matches the document.
-		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle) {
+		while (this.shadow.lastChild && this.shadow.lastChild !== this.pageStyle && this.shadow.lastChild !== this.heldStyle && this.shadow.lastChild !== this.pulseStyle) {
 			this.shadow.lastChild.remove();
 		}
 		this.pageStyle.textContent = PAGE_CSS(theme.colors.accent, theme.colors.accentSoft);

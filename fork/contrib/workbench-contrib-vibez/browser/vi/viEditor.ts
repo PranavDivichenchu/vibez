@@ -3,6 +3,8 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { IVibezTeamService } from '../../../../../platform/vibez/common/vibezTeamService.js';
+import { VibezTeamBanner } from '../vibezTeamBanner.js';
 import './media/vibezVi.css';
 import * as dom from '../../../../../base/browser/dom.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
@@ -133,6 +135,8 @@ interface NodeView { node: GNode; card: HTMLElement; marks: { el: HTMLElement | 
  */
 export class VibezViEditor extends EditorPane {
 
+	private banner!: VibezTeamBanner;
+
 	static readonly ID = 'workbench.editor.vibez.vi';
 
 	private root!: HTMLElement;
@@ -221,6 +225,7 @@ export class VibezViEditor extends EditorPane {
 		@IEditorService private readonly editorService: IEditorService,
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@IVibezCaptureService private readonly captureService: IVibezCaptureService,
+		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezViEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -232,6 +237,8 @@ export class VibezViEditor extends EditorPane {
 		const header = dom.append(this.root, dom.$('.vz-vi-header'));
 		this.graphHeader = dom.append(header, dom.$('.vz-vi-graph-header'));
 		this.toolbar = dom.append(header, dom.$('.vz-vi-toolbar', { role: 'toolbar', 'aria-label': 'Logic actions' }));
+		this.banner = this._register(new VibezTeamBanner(this.team));
+		this.root.appendChild(this.banner.element);
 		this.main = dom.append(this.root, dom.$('.vz-vi-main'));
 		this.blueprint = dom.append(this.main, dom.$('.vz-vi-blueprint'));
 		this.center = dom.append(this.main, dom.$('.vz-vi-center'));
@@ -303,6 +310,7 @@ export class VibezViEditor extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.inputScope.clear();
 		this.resource = input.resource;
+		this.banner.setFile(input.resource.scheme === 'file' ? input.resource.fsPath : undefined);
 		this.past = [];
 		this.future = [];
 		this.selected = undefined;
@@ -1383,7 +1391,16 @@ export class VibezViEditor extends EditorPane {
 		}
 	}
 
-	private undo(): void {
+	/**
+	 * Whether ⌘Z belongs to this editor: it has focus, and not inside a text
+	 * field, where undo should keep meaning "undo my typing".
+	 */
+	ownsUndo(): boolean {
+		const active = this.root?.ownerDocument.activeElement as HTMLElement | null;
+		return !!active && this.root.contains(active) && !active.closest('input, textarea, select, [contenteditable="true"]');
+	}
+
+	undo(): void {
 		const previous = this.past.pop();
 		if (!previous) {
 			return;
@@ -1396,7 +1413,7 @@ export class VibezViEditor extends EditorPane {
 		this.scheduleSave();
 	}
 
-	private redo(): void {
+	redo(): void {
 		const next = this.future.pop();
 		if (!next) {
 			return;

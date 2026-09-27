@@ -28,6 +28,8 @@ import { Graph, GNode, GEdge, SemanticKey } from '../../../../platform/vibez/com
 import { GEO, Layout, PortPoint, layoutGraph } from '../../../../platform/vibez/common/vibezLayout.js';
 import { humanMs } from '../../../../platform/vibez/common/vibezHeat.js';
 import { choreograph, nodesInFile, AgentEvent } from '../../../../platform/vibez/common/vibezChoreo.js';
+import { holderText, IVibezTeamClaim, IVibezTeamPulse, IVibezTeamService, IVibezTeamState } from '../../../../platform/vibez/common/vibezTeamService.js';
+import { onTeamPulse } from './vibezTeamLive.js';
 import { IVibezQueueService, IVibezQueueState } from '../../../../platform/vibez/common/vibezQueueService.js';
 import { heldByFile, normalizePath } from '../../../../platform/vibez/common/vibezFence.js';
 import { canvasSelection } from './vibezCanvasSelection.js';
@@ -137,6 +139,7 @@ export class VibezEditor extends EditorPane {
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IVibezQueueService private readonly queue: IVibezQueueService,
+		@IVibezTeamService private readonly team: IVibezTeamService,
 	) {
 		super(VibezEditor.ID, group, telemetryService, themeService, storageService);
 	}
@@ -153,6 +156,11 @@ export class VibezEditor extends EditorPane {
 		this._register(this.queue.onDidChange(state => { this.queueState = state; this.applyFences(); }));
 		this._register(this.queue.onDidEvents(events => this.playAgentEvents(events)));
 		this.queue.state().then(state => { this.queueState = state; this.applyFences(); }, () => undefined);
+		// Other people's agents on the team: the files they hold, marked the same way.
+		this._register(this.team.onDidChange(state => { this.teamState = state; this.applyFences(); }));
+		this.team.state().then(state => { this.teamState = state; this.applyFences(); }, () => undefined);
+		// Teammates' edits as they land, in their colour, on the steps they changed.
+		this._register(onTeamPulse(pulse => this.playTeamPulse(pulse)));
 	}
 
 	override async setInput(
@@ -1055,6 +1063,7 @@ export class VibezEditor extends EditorPane {
 	// ------------------------------------------------------------- the queue
 
 	private queueState: IVibezQueueState | undefined;
+	private teamState: IVibezTeamState | undefined;
 
 	/** Your selection is what an agent is scoped to. */
 	private publishSelection(): void {
@@ -1093,8 +1102,35 @@ export class VibezEditor extends EditorPane {
 				const chip = dom.append(view.card, dom.$('span.vz-held-chip'));
 				chip.textContent = `held by ${lane.actor.name}`;
 				chip.title = lane.prompt;
+				continue;
+			}
+			const teamClaims = file ? this.teamClaimsOn(file) : [];
+			view.card.classList.toggle('vz-held', teamClaims.length > 0);
+			if (teamClaims.length) {
+				view.card.style.setProperty('--actor-hue', '32');
+				const chip = dom.append(view.card, dom.$('span.vz-held-chip'));
+				chip.textContent = `held by ${[...new Set(teamClaims.map(c => c.person))].join(', ')}`;
+				chip.title = holderText(teamClaims);
 			}
 		}
+	}
+
+	/**
+	 * Team claims name files from the folder holding vibez.team.json; a flow
+	 * names them from where the app ran. They match when one ends the other.
+	 */
+	private teamClaimsOn(file: string): IVibezTeamClaim[] {
+		const state = this.teamState;
+		if (state?.status !== 'ready') {
+			return [];
+		}
+		return state.claims.filter(c => {
+			if (c.you) {
+				return false;
+			}
+			const path = c.path.split('#')[0];
+			return path === file || file.endsWith(`/${path}`) || path.endsWith(`/${file}`);
+		});
 	}
 
 	/** An agent's reads and edits, as they happen, in its colour. Never moves the camera. */
@@ -1129,6 +1165,41 @@ export class VibezEditor extends EditorPane {
 				void card.offsetWidth;
 				card.classList.add(tone);
 			}
+		}
+	}
+
+	/**
+	 * A teammate's edit, on the steps it touched: the steps of the functions it
+	 * names, else the one whose code the changed lines are in, else the file's.
+	 */
+	private playTeamPulse(pulse: IVibezTeamPulse): void {
+		const path = pulse.path.split('#')[0];
+		const inFile = [...this.views.values()].filter(view => {
+			const file = view.node.anchor?.file ? normalizePath(view.node.anchor.file) : undefined;
+			return !!file && (file === path || file.endsWith(`/${path}`) || path.endsWith(`/${file}`));
+		});
+		let hit = inFile;
+		const named = pulse.symbols?.length ? inFile.filter(view => pulse.symbols!.includes(view.node.anchor?.symbol ?? '') || pulse.symbols!.includes(view.node.label)) : [];
+		if (named.length) {
+			hit = named;
+		} else if (pulse.lines) {
+			const [first, last] = pulse.lines;
+			const inside = inFile.filter(view => { const line = view.node.anchor?.line ?? 0; return line >= first && line <= last; });
+			const before = inFile.filter(view => (view.node.anchor?.line ?? 0) > 0 && view.node.anchor!.line <= first)
+				.sort((a, b) => b.node.anchor!.line - a.node.anchor!.line);
+			hit = inside.length ? inside : before.length ? before.slice(0, 1) : inFile;
+		}
+		for (const view of hit) {
+			const card = view.card;
+			card.style.setProperty('--actor-hue', String(pulse.hue));
+			card.classList.remove('vz-agent-scan', 'vz-agent-edit');
+			void card.offsetWidth;
+			card.classList.add('vz-agent-edit');
+			card.querySelector('.vz-team-edit-chip')?.remove();
+			const chip = dom.append(card, dom.$('span.vz-team-edit-chip'));
+			chip.textContent = `${pulse.person} · ${pulse.lines ? `lines ${pulse.lines[0]}–${pulse.lines[1]}` : pulse.summary || 'edited'}`;
+			chip.title = pulse.summary;
+			setTimeout(() => chip.remove(), 6000);
 		}
 	}
 
