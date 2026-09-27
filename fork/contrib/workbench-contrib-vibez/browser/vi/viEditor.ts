@@ -1391,7 +1391,16 @@ export class VibezViEditor extends EditorPane {
 		}
 	}
 
-	private undo(): void {
+	/**
+	 * Whether ⌘Z belongs to this editor: it has focus, and not inside a text
+	 * field, where undo should keep meaning "undo my typing".
+	 */
+	ownsUndo(): boolean {
+		const active = this.root?.ownerDocument.activeElement as HTMLElement | null;
+		return !!active && this.root.contains(active) && !active.closest('input, textarea, select, [contenteditable="true"]');
+	}
+
+	undo(): void {
 		const previous = this.past.pop();
 		if (!previous) {
 			return;
@@ -1404,7 +1413,7 @@ export class VibezViEditor extends EditorPane {
 		this.scheduleSave();
 	}
 
-	private redo(): void {
+	redo(): void {
 		const next = this.future.pop();
 		if (!next) {
 			return;
