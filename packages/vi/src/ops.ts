@@ -740,8 +740,19 @@ export function declareMethod(doc: ViDoc, className: string, method: ViMethod, o
     graphs = { ...rest, [methodKey(className, method.name)]: moved! };
   }
   const renamed = oldName !== method.name;
+  // Only the blocks that actually call *this* class's method follow the rename.
+  // Another class with a method of the same name keeps its own.
+  const follow = (config: { op: string; class: string; method?: string }): boolean => {
+    if (config.method !== oldName) return false;
+    // A Call Parent block lives inside the override itself, so it follows only
+    // when that very method is the one being renamed.
+    if (config.op === 'super') return config.class === className;
+    // A call follows when it resolves here, whether the class owns the method
+    // or inherits it. `doc` still holds the classes as they were.
+    return config.op === 'call' && findMethod(doc.classes, config.class, oldName)?.owner.name === className;
+  };
   let next = refreshObjectBlocks({ ...doc, classes: (doc.classes ?? []).map((c) => (c.name === className ? { ...c, methods } : c)), methods: graphs },
-    renamed ? (config) => ((config.op === 'call' || config.op === 'super') && config.method === oldName ? { ...config, method: method.name } : config) : undefined);
+    renamed ? (config) => (follow(config) ? { ...config, method: method.name } : config) : undefined);
   // The method's own graph follows its inputs and result.
   if (next.methods?.[methodKey(className, method.name)]) next = methodGraphFor(next, className, method.name).doc;
   return next;

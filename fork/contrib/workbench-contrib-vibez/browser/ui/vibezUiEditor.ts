@@ -335,7 +335,12 @@ export class VibezUiEditor extends EditorPane {
 			return;
 		}
 		const parsed = parseDoc(text);
-		if (!parsed.ok || !this.doc) {
+		if (!parsed.ok) {
+			return;
+		}
+		if (!this.doc) {
+			// The page was broken when it was opened and has just been fixed.
+			this.load(text);
 			return;
 		}
 		// Someone else changed the file. Take it, as an undoable step.

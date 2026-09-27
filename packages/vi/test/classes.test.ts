@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import {
   addEdge, addNode, allFields, blankDoc, classIssues, compileFile, declareClass, declareMethod, findMethod, graphFor, makeNode,
   methodGraphFor, removeClass, renameClass, searchIndex, setGraph, setMethodGraph, takenIds, validateGraph,
+  configOf,
   type AuthoredConfig, type AuthoredGraph, type AuthoredKind, type ViClass, type ViDoc,
 } from '../src/index.ts';
 
@@ -206,4 +207,38 @@ test('renaming a class or method carries every block and child class along; remo
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 1));
   const removed = removeClass(doc, 'Dog');
   assert.ok(!Object.keys(removed.methods!).some((k) => k.startsWith('Dog.')));
+});
+
+test('renaming a method only touches the calls that resolve to it', () => {
+  // Two unrelated classes with a method of the same name, plus a subclass
+  // that inherits one of them.
+  let doc = declareClass(blankDoc(), { name: 'Animal', fields: [], methods: [] });
+  doc = declareClass(doc, { name: 'Dog', extends: 'Animal', fields: [], methods: [] });
+  doc = declareClass(doc, { name: 'Bell', fields: [], methods: [] });
+  doc = declareMethod(doc, 'Animal', { name: 'ring', inputs: [], returns: 'String' });
+  doc = declareMethod(doc, 'Bell', { name: 'ring', inputs: [], returns: 'String' });
+  doc = { ...doc, exports: { values: [], actions: [{ name: 'go', inputs: [], returns: 'String' as const }] } };
+
+  const calls = [
+    { as: 'animal', config: { kind: 'object', op: 'call', class: 'Animal', method: 'ring' } },
+    { as: 'inherited', config: { kind: 'object', op: 'call', class: 'Dog', method: 'ring' } },
+    { as: 'other', config: { kind: 'object', op: 'call', class: 'Bell', method: 'ring' } },
+  ] as const;
+  let graph = graphFor(doc, 'go').graph;
+  const ids: Record<string, string> = {};
+  for (const c of calls) {
+    const node = makeNode('object', c.config as never, takenIds(graph));
+    ids[c.as] = node.id;
+    graph = addNode(graph, node);
+  }
+  doc = setGraph(doc, 'go', graph);
+
+  const renamed = declareMethod(doc, 'Animal', { name: 'chime', inputs: [], returns: 'String' }, 'ring');
+  const after = graphFor(renamed, 'go').graph;
+  const methodOf = (id: string) => (configOf(after.nodes.find((n) => n.id === id)!) as { method?: string }).method;
+
+  assert.equal(methodOf(ids['animal']!), 'chime', 'the call on the class itself follows');
+  assert.equal(methodOf(ids['inherited']!), 'chime', 'a subclass that inherits it follows too');
+  assert.equal(methodOf(ids['other']!), 'ring', 'another class keeps its own method of the same name');
+  assert.deepEqual(renamed.classes?.find((c) => c.name === 'Bell')?.methods.map((m) => m.name), ['ring']);
 });

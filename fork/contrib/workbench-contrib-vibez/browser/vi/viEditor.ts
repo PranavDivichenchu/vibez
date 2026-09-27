@@ -48,7 +48,7 @@ const SAVE_DELAY = 250;
 type DeclarationKind = 'value' | 'action' | 'function' | 'variable' | 'class' | 'method';
 /** What can be run on its own from the Test panel: a method needs an object, a class and a variable are not run at all. */
 const testable = (kind: DeclarationKind): kind is 'value' | 'action' | 'function' => kind === 'value' || kind === 'action' || kind === 'function';
-type DeclarationValue = { name: string; type?: ViType; sample?: unknown; initial?: unknown; about?: string; inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean };
+type DeclarationValue = { name: string; type?: ViType; fields?: Record<string, ViType>; sample?: unknown; initial?: unknown; about?: string; inputs?: { name: string; type: ViType }[]; returns?: ViType; mutable?: boolean };
 
 function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
 	const node = document.createElementNS(SVG_NS, tag);
@@ -729,7 +729,13 @@ export class VibezViEditor extends EditorPane {
 			return;
 		}
 		const parsed = parseDoc(text);
-		if (!parsed.ok || !this.doc) {
+		if (!parsed.ok) {
+			return;
+		}
+		if (!this.doc) {
+			// The file was broken when it was opened and has just been fixed.
+			// `load` clears the problem and starts the editor properly.
+			this.load(text);
 			return;
 		}
 		this.lastWritten = text;
@@ -1435,7 +1441,9 @@ export class VibezViEditor extends EditorPane {
 		const previous = oldName ?? selected.value.name;
 		let doc = this.doc;
 		const described = next.about !== undefined ? { about: next.about } : {};
-		if (selected.kind === 'value') doc = updateValue(doc, previous, { name: next.name, type: next.type ?? 'String', ...(next.sample !== undefined ? { sample: next.sample } : {}), ...described });
+		// `fields` is how a page knows a list's items have a label and a price.
+		// Every other edit here has to carry it through untouched.
+		if (selected.kind === 'value') doc = updateValue(doc, previous, { name: next.name, type: next.type ?? 'String', ...(next.fields ? { fields: next.fields } : {}), ...(next.sample !== undefined ? { sample: next.sample } : {}), ...described });
 		else if (selected.kind === 'action') doc = updateAction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
 		else if (selected.kind === 'function') doc = renameFunction(doc, previous, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described });
 		else if (selected.kind === 'method' && this.methodTarget) {
@@ -2442,6 +2450,12 @@ export class VibezViEditor extends EditorPane {
 
 	/** The full, unfiltered catalog — a double-click, or "Add node…" on the canvas or a node's context menu. */
 	private openAddSearch(clientX: number, clientY: number, anchor: SemanticKey | undefined): void {
+		// Blocks live inside a graph. On a file with nothing declared yet there
+		// is nowhere to put one, which is the first thing anyone tries.
+		if (this.currentName() === undefined) {
+			this.say(localize('vibez.vi.pickDeclarationFirst', "Blocks live inside a graph. Add Page Data, a Page Action or a Function in the Logic panel first."));
+			return;
+		}
 		const rect = this.root.getBoundingClientRect();
 		this.searchScope.clear();
 		openNodeSearch(this.searchScope, {
