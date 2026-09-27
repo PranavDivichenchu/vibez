@@ -6,7 +6,7 @@
 import * as dom from '../../../../../base/browser/dom.js';
 import { DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
 import { localize } from '../../../../../nls.js';
-import { matches, type SearchItem } from '../../../../../platform/vibez/common/vibezViCatalog.js';
+import { matches, relevance, type SearchItem } from '../../../../../platform/vibez/common/vibezViCatalog.js';
 
 /**
  * The Unreal/Blueprints-style "add a node" search: type a few letters, pick
@@ -56,11 +56,27 @@ export function openNodeSearch(scope: DisposableStore, opts: NodeSearchOptions):
 	const renderList = (): void => {
 		dom.clearNode(list);
 		const query = input.value;
-		shown = source.filter((item) => matches(item, query));
-		if (shown.length === 0) {
+		const found = source.filter((item) => matches(item, query));
+		if (found.length === 0) {
 			dom.append(list, dom.$('.vz-vi-search-empty')).textContent = localize('vibez.vi.search.none', "Nothing matches.");
+			shown = [];
 			return;
 		}
+		// Best answers first when something has been typed, and one heading per
+		// group: the catalog's own order does not keep a group together, so
+		// going by "is this a different group from the last row" showed some
+		// headings twice.
+		const buckets = new Map<string, SearchItem[]>();
+		const ranked = query.trim()
+			? found.map((item, at) => ({ item, at })).sort((a, b) => relevance(b.item, query) - relevance(a.item, query) || a.at - b.at).map((x) => x.item)
+			: found;
+		for (const item of ranked) {
+			const bucket = buckets.get(item.group);
+			if (bucket) { bucket.push(item); } else { buckets.set(item.group, [item]); }
+		}
+		// `shown` has to read in the order the rows are drawn: Enter picks
+		// `shown[active]`, and the arrow keys highlight by row position.
+		shown = [...buckets.values()].flat();
 		active = Math.min(active, shown.length - 1);
 		let lastGroup: string | undefined;
 		shown.forEach((item, index) => {

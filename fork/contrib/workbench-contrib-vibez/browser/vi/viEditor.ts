@@ -859,6 +859,38 @@ export class VibezViEditor extends EditorPane {
 		return (this.allPositions[key] ??= {});
 	}
 
+	/**
+	 * Carry a graph's arrangement over to its new name.
+	 *
+	 * Saved positions are filed under the declaration's name, and nothing moved
+	 * them when it changed: renaming an action scattered every node in it back
+	 * to the generated layout, and renaming a class did that to all its methods
+	 * at once. `prefix` moves a whole family of keys, for a class.
+	 */
+	private moveLayout(oldKey: string, newKey: string, prefix = false): void {
+		if (oldKey === newKey) { return; }
+		let moved = false;
+		for (const key of Object.keys(this.allPositions)) {
+			if (prefix ? !key.startsWith(oldKey) : key !== oldKey) { continue; }
+			const to = newKey + key.slice(oldKey.length);
+			this.allPositions[to] = this.allPositions[key]!;
+			delete this.allPositions[key];
+			moved = true;
+		}
+		if (moved) { this.schedulePositionSave(); }
+	}
+
+	/** Forget a graph's arrangement, so the layout file stops growing. */
+	private dropLayout(key: string, prefix = false): void {
+		let dropped = false;
+		for (const name of Object.keys(this.allPositions)) {
+			if (prefix ? !name.startsWith(key) : name !== key) { continue; }
+			delete this.allPositions[name];
+			dropped = true;
+		}
+		if (dropped) { this.schedulePositionSave(); }
+	}
+
 	/** Screen coordinates, as from a click or a drop, translated into this graph's own (panned, zoomed) space. */
 	private toCanvasPoint(clientX: number, clientY: number): Pos {
 		const rect = this.world.getBoundingClientRect();
@@ -1173,7 +1205,11 @@ export class VibezViEditor extends EditorPane {
 		this.detailsScope.add(dom.addDisposableListener(remove, dom.EventType.CLICK, () => {
 			if (!armed) {
 				armed = true;
-				const references = this.declarationReferenceCount(kind, value.name);
+				// A method is counted by `Class.method`, which is how the blocks
+				// that call it name it. Passing the bare name always found none,
+				// so deleting a method five blocks called said nothing at all.
+				const references = this.declarationReferenceCount(kind,
+					kind === 'method' && this.methodTarget ? methodKey(this.methodTarget.class, value.name) : value.name);
 				const outsideFile = kind === 'action' ? ' Pages and other files may also call it by name.'
 					: kind === 'function' ? ' Other files may also call it by name.' : '';
 				warning.textContent = references
@@ -1198,6 +1234,7 @@ export class VibezViEditor extends EditorPane {
 		if (!cls) { return; }
 		const apply = (next: ViClass, oldName = cls.name) => {
 			let updated = oldName === next.name ? declareClass(this.doc!, next) : renameClass(this.doc!, oldName, next);
+			if (oldName !== next.name) this.moveLayout(`m:${oldName}.`, `m:${next.name}.`, true);
 			if (oldName !== next.name && this.methodTarget?.class === oldName) this.methodTarget = { ...this.methodTarget, class: next.name };
 			this.commit(updated);
 			this.selectedDeclaration = { kind: 'class', name: next.name };
@@ -1450,6 +1487,7 @@ export class VibezViEditor extends EditorPane {
 			const className = this.methodTarget.class;
 			const oldMethod = previous.includes('.') ? previous.slice(previous.indexOf('.') + 1) : previous;
 			doc = declareMethod(doc, className, { name: next.name, inputs: next.inputs ?? [], ...(next.returns ? { returns: next.returns } : {}), ...described }, oldMethod);
+			this.moveLayout(`m:${methodKey(className, oldMethod)}`, `m:${methodKey(className, next.name)}`);
 			this.commit(doc);
 			this.methodTarget = { class: className, method: next.name };
 			this.selectedDeclaration = { kind: 'method', name: methodKey(className, next.name) };
@@ -1462,6 +1500,9 @@ export class VibezViEditor extends EditorPane {
 		}
 		else if (selected.kind === 'class') return;
 		else doc = renameVariable(doc, previous, { name: next.name, type: next.type ?? 'String', mutable: next.mutable ?? true, ...(next.initial !== undefined ? { initial: next.initial } : {}), ...described });
+		if (previous !== next.name && selected.kind !== 'variable') {
+			this.moveLayout(`${selected.kind === 'function' ? 'fn' : 'ex'}:${previous}`, `${selected.kind === 'function' ? 'fn' : 'ex'}:${next.name}`);
+		}
 		this.commit(doc);
 		this.selectedDeclaration = { kind: selected.kind, name: next.name };
 		if (this.exportName === previous) this.exportName = next.name;
@@ -1489,14 +1530,18 @@ export class VibezViEditor extends EditorPane {
 		const name = selected.value.name; let doc = this.doc;
 		if (selected.kind === 'class' || (selected.kind === 'method' && this.methodTarget)) {
 			doc = selected.kind === 'class' ? removeClass(doc, name) : removeMethod(doc, this.methodTarget!.class, this.methodTarget!.method);
+			// The arrangement of a graph that no longer exists is dead weight in
+			// the layout file.
+			if (selected.kind === 'class') { this.dropLayout(`m:${name}.`, true); }
+			else { this.dropLayout(`m:${methodKey(this.methodTarget!.class, this.methodTarget!.method)}`); }
 			this.commit(doc); this.selectedDeclaration = undefined;
 			if (this.methodTarget && (selected.kind === 'method' || this.methodTarget.class === name)) { this.methodTarget = undefined; this.reopenCurrent(); }
 			this.refreshPanels();
 			return;
 		}
 		if (selected.kind === 'variable') doc = removeVariable(doc, name);
-		else if (selected.kind === 'function') doc = removeFunction(doc, name);
-		else { const logic = { ...doc.logic }; delete logic[name]; doc = { ...doc, exports: selected.kind === 'value' ? { ...doc.exports, values: doc.exports.values.filter(item => item.name !== name) } : { ...doc.exports, actions: doc.exports.actions.filter(item => item.name !== name) }, logic }; }
+		else if (selected.kind === 'function') { doc = removeFunction(doc, name); this.dropLayout(`fn:${name}`); }
+		else { this.dropLayout(`ex:${name}`); const logic = { ...doc.logic }; delete logic[name]; doc = { ...doc, exports: selected.kind === 'value' ? { ...doc.exports, values: doc.exports.values.filter(item => item.name !== name) } : { ...doc.exports, actions: doc.exports.actions.filter(item => item.name !== name) }, logic }; }
 		this.commit(doc); this.selectedDeclaration = undefined;
 		const fallback = doc.exports.values[0]?.name ?? doc.exports.actions[0]?.name ?? doc.functions?.[0]?.name;
 		if (doc.functions?.some(item => item.name === fallback)) this.openFunction(fallback); else this.openExport(fallback);

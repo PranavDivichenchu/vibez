@@ -389,6 +389,29 @@ export function matches(item: SearchItem, query: string): boolean {
   return item.label.toLowerCase().includes(q) || item.group.toLowerCase().includes(q) || item.keywords.some((k) => k.toLowerCase().includes(q));
 }
 
+/**
+ * How well an item answers what was typed, highest first.
+ *
+ * The group counts for very little on purpose. The arithmetic group is called
+ * "Math & Logic", so typing "log" used to match all thirty-one of its blocks
+ * on the group name alone and bury Print to Console at the bottom — the one
+ * block anybody typing that word could have wanted.
+ */
+export function relevance(item: SearchItem, query: string): number {
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const label = item.label.toLowerCase();
+  if (label === q) return 100;
+  if (label.startsWith(q)) return 80;
+  if (new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(label)) return 60;
+  if (label.includes(q)) return 50;
+  const keywords = item.keywords.map((k) => k.toLowerCase());
+  if (keywords.includes(q)) return 40;
+  if (keywords.some((k) => k.startsWith(q))) return 30;
+  if (keywords.some((k) => k.includes(q))) return 20;
+  return item.group.toLowerCase().includes(q) ? 5 : 0;
+}
+
 /** Whether a search item has a port that could plug into the socket a drag started from. */
 export function reachesFrom(item: SearchItem, wantKind: 'exec' | 'data', wantType: PortType | undefined, wantSide: 'in' | 'out'): boolean {
   const probe = item.make(new Set());

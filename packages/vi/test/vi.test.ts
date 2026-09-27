@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addEdge, addNode, blankDoc, categoryOf, declareFunction, declareVariable, findNode, functionGraphFor, graphFor, makeNode, parseDoc, removeNode, removeNodePreservingFlow, removeVariable, renameCallableReferences, renameFunction, renameVariable, scaffold, serialize, setGraph, takenIds, updateAction, updateValue,
-  searchIndex, matches, reachesFrom, fits, CATALOG,
+  searchIndex, matches, relevance, reachesFrom, fits, CATALOG,
   type AuthoredGraph, type AuthoredKind, type ViDoc,
 } from '../src/index.ts';
 
@@ -307,4 +307,31 @@ test('opening an external call preserves its signature even when a local functio
   doc = { ...doc, logic: { go: graph } };
   const reopened = graphFor(doc, 'go').graph.nodes.find(node => node.id === call.id)!;
   assert.deepEqual(reopened.ports, call.ports);
+});
+
+// ---------------------------------------------------------------- finding a block
+
+// The arithmetic group is called "Math & Logic", so matching on the group name
+// alone put all thirty-one of its blocks ahead of the one block a person
+// typing "log" could have wanted.
+test('search puts the block you asked for first, not its group-mates', () => {
+  const items = searchIndex({ ctx: {}, variables: [], actions: [], functions: [] });
+  const hits = items.filter((i) => matches(i, 'log')).sort((a, b) => relevance(b, 'log') - relevance(a, 'log'));
+  assert.equal(hits[0]?.label, 'Print to Console', hits.slice(0, 5).map((h) => h.label).join(', '));
+  // The maths blocks still match — they are just behind it now.
+  assert.ok(hits.length > 1);
+  assert.ok(relevance(hits[0]!, 'log') > relevance(hits[hits.length - 1]!, 'log'));
+});
+
+test('an exact label beats the start of one, which beats a group', () => {
+  const items = searchIndex({ ctx: {}, variables: [], actions: [], functions: [] });
+  const print = items.find((i) => i.label === 'Print to Console')!;
+  assert.ok(relevance(print, 'print to console') > relevance(print, 'print'));
+  assert.ok(relevance(print, 'print') > relevance(print, 'console'));
+  // A group name on its own is the weakest reason to show something.
+  const mathy = items.find((i) => i.group === 'Math & Logic'
+    && !/math/i.test(i.label) && !i.keywords.some((k) => /math/i.test(k)))!;
+  assert.equal(relevance(mathy, 'math'), 5);
+  // Nothing typed, nothing to rank.
+  assert.equal(relevance(print, '   '), 0);
 });
