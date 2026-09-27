@@ -25,6 +25,7 @@ const HEADER = `/*--------------------------------------------------------------
 
 const FILES: Record<string, string> = {
   'pages.ts': 'vibezPages.ts',
+  'project.ts': 'vibezProject.ts',
   'edit.ts': 'vibezEdit.ts',
   'templates.ts': 'vibezTemplates.ts',
   'elements.ts': 'vibezElements.ts',
@@ -78,6 +79,7 @@ const UI_FILES: Record<string, string> = {
   'canvasEdit.ts': 'vibezUiCanvasEdit.ts',
   'themeEdit.ts': 'vibezUiThemeEdit.ts',
   'connect.ts': 'vibezUiConnect.ts',
+  'project.ts': 'vibezUiProject.ts',
 };
 for (const [from, to] of Object.entries(UI_FILES)) {
   let source = readFileSync(join('packages/ui/src', from), 'utf8');
