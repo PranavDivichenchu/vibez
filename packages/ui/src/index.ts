@@ -8,4 +8,5 @@ export * from './compile.ts';
 export * from './templates.ts';
 export * from './library.ts';
 export * from './canvasEdit.ts';
+export * from './themeEdit.ts';
 export * from './connect.ts';
