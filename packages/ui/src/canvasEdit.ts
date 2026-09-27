@@ -2,6 +2,7 @@ import type { NodeId, UiDoc } from './types.ts';
 import { allIds, find, insert, move, remove, update } from './ops.ts';
 import { makeId } from './catalog.ts';
 import { libraryNode } from './library.ts';
+import { applyStyle } from './themeEdit.ts';
 
 /** One change the site canvas asks for, in the same shape it sends for a page written in HTML. */
 export type CanvasOp =
@@ -55,14 +56,11 @@ export function applyCanvasEdit(doc: UiDoc, html: string, at: number | null, ops
       }
       case 'style': {
         // The same edit the canvas makes to a page written in HTML, kept in
-        // the page's file: plain CSS, laid over what the element draws.
+        // the page's file: as the theme's tokens where the element has them
+        // and the value is the theme's own, so a later theme switch still
+        // restyles it, and as plain CSS laid over the element for the rest.
         if (!node) return { ok: false, reason: 'Choose an element on the page first.' };
-        const css: Record<string, string> = { ...(node.css ?? {}) };
-        for (const [name, value] of Object.entries(op.props)) {
-          if (value === null || value === '') delete css[name];
-          else css[name] = String(value);
-        }
-        doc = update(doc, node.id, { css: Object.keys(css).length ? css : undefined } as never);
+        doc = applyStyle(doc, node.id, op.props);
         break;
       }
       case 'attr': {

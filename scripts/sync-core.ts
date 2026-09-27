@@ -76,6 +76,7 @@ const UI_FILES: Record<string, string> = {
   'templates.ts': 'vibezUiTemplates.ts',
   'library.ts': 'vibezUiLibrary.ts',
   'canvasEdit.ts': 'vibezUiCanvasEdit.ts',
+  'themeEdit.ts': 'vibezUiThemeEdit.ts',
   'connect.ts': 'vibezUiConnect.ts',
 };
 for (const [from, to] of Object.entries(UI_FILES)) {
