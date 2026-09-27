@@ -60,7 +60,7 @@ export class VibezSiteServer {
 			const server = createServer((request, response) => {
 				const pathname = new URL(request.url ?? '/', 'http://site').pathname;
 				const handled = this.preview(pathname, response) ? undefined
-					: this.builtPage(pathname, response) ?? (this.target ? this.proxy(request, response) : this.file(request, response));
+					: this.builtPage(request, pathname, response) ?? (this.target ? this.proxy(request, response) : this.file(request, response));
 				Promise.resolve(handled).catch(error => {
 					this.logService.warn(`[vibez] site: ${error}`);
 					if (!response.headersSent) { response.writeHead(500, { 'content-type': 'text/plain' }); }
@@ -98,7 +98,7 @@ export class VibezSiteServer {
 	}
 
 	/** Serves a compiled `.ui` page, with the bridge, or returns undefined if this is not one. */
-	private builtPage(pathname: string, response: ServerResponse): Promise<void> | undefined {
+	private builtPage(request: IncomingMessage, pathname: string, response: ServerResponse): Promise<void> | undefined {
 		let path: string;
 		try {
 			path = decodeURIComponent(pathname);
@@ -111,7 +111,30 @@ export class VibezSiteServer {
 		// Marked up and editable, the same as a page read off disk: the canvas
 		// needs the offsets to select and move things, and every editing
 		// gesture in the bridge is gated on the page being editable at all.
-		return html === undefined ? undefined : this.send(response, 200, html, true);
+		if (html === undefined) {
+			return undefined;
+		}
+		if (this.visitor(request, response)) {
+			const body = Buffer.from(html, 'utf8');
+			response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': body.length, 'cache-control': 'no-store' });
+			response.end(body);
+			return Promise.resolve();
+		}
+		return this.send(response, 200, html, true);
+	}
+
+	/**
+	 * A visitor, in a real browser (View site): the page exactly as written, with
+	 * nothing of Vibez in it. Asked for with `?__vibez_view`, then remembered by
+	 * that browser only in a cookie, so its links keep showing the plain site.
+	 * The canvas runs in Vibez, which never gets this cookie.
+	 */
+	private visitor(request: IncomingMessage, response: ServerResponse): boolean {
+		const asked = new URL(request.url ?? '/', 'http://site').searchParams.has(VIEW_PARAM);
+		if (asked) {
+			response.setHeader('set-cookie', 'vibez_view=1; Path=/; SameSite=Lax');
+		}
+		return asked || /(?:^|;\s*)vibez_view=1(?:;|$)/.test(request.headers.cookie ?? '');
 	}
 
 	private preview(pathname: string, response: ServerResponse): boolean {
@@ -176,14 +199,7 @@ export class VibezSiteServer {
 		}
 		const type = TYPES[extname(full).toLowerCase()] ?? 'application/octet-stream';
 		if (type.startsWith('text/html')) {
-			// A visitor, in a real browser: the page exactly as written, with nothing of Vibez in it.
-			const asked = url.searchParams.has(VIEW_PARAM);
-			if (asked || /(?:^|;\s*)vibez_view=1(?:;|$)/.test(request.headers.cookie ?? '')) {
-				if (asked) {
-					// Remembered by that browser only, so its links keep showing the plain site.
-					// The canvas runs in Vibez, which never gets this cookie.
-					response.setHeader('set-cookie', 'vibez_view=1; Path=/; SameSite=Lax');
-				}
+			if (this.visitor(request, response)) {
 				const html = await fsp.readFile(full);
 				response.writeHead(200, { 'content-type': type, 'content-length': html.length, 'cache-control': 'no-store' });
 				response.end(html);

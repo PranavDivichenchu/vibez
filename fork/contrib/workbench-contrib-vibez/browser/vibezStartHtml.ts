@@ -58,6 +58,7 @@ h2{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
 .keyrow{display:flex;gap:8px;align-items:center;max-width:560px;margin-top:8px}
 .keyrow input{flex:1}
 .hint{color:var(--muted);font-size:12px;margin-top:6px}
+.hint a{color:var(--accent)}
 .err{color:#ff8589;min-height:1.2em;margin-top:8px}
 .where{color:var(--muted);font-size:12.5px;margin-top:14px}
 .where span{color:var(--fg);font-family:var(--vscode-editor-font-family,ui-monospace,Menlo,monospace);font-size:12px}
@@ -120,6 +121,7 @@ const BODY = String.raw`
     <div class="xrow"><span class="at">@</span><input class="text" id="handle" placeholder="username" spellcheck="false" autocomplete="off"><button class="btn primary" id="fromX">Build a starter site</button></div>
     <div class="hint">Grok looks the account up on X and drafts a small site about it: what they do, what they post, a way to reach them.</div>
 
+    <div class="hint" id="keySet" hidden>Grok API key saved in ~/.vibez/grok.json. <a href="#" id="changeKey">Change it</a></div>
     <div id="keyBox" hidden>
       <h2>Grok API key</h2>
       <div class="keyrow"><input class="text" id="key" type="password" placeholder="xai-…" spellcheck="false" autocomplete="off"><button class="btn" id="saveKey">Save</button></div>
@@ -171,6 +173,10 @@ function fromX(){
   $('homeErr').textContent = '';
   vscode.postMessage({ type: 'fromX', handle: h });
 }
+$('changeKey').addEventListener('click', function(e){
+  e.preventDefault();
+  $('keySet').hidden = true; $('keyBox').hidden = false; $('key').focus();
+});
 $('saveKey').addEventListener('click', function(){
   var k = $('key').value.trim();
   if (!k) { $('homeErr').textContent = 'Paste the key first.'; return; }
@@ -358,11 +364,11 @@ function busy(on, title, step){
 }
 window.addEventListener('message', function(e){
   var m = e.data || {};
-  if (m.type === 'init') { templates(m.templates || []); $('keyBox').hidden = !!m.hasKey; if (m.folder) { $('folder').textContent = m.folder; } if (m.view) { show(m.view); } }
+  if (m.type === 'init') { templates(m.templates || []); $('keyBox').hidden = !!m.hasKey; $('keySet').hidden = !m.hasKey; if (m.folder) { $('folder').textContent = m.folder; } if (m.view) { show(m.view); } }
   else if (m.type === 'progress') { if ($('busy').hidden) { busy(true, m.title, m.text); } else { if (m.title) { $('busyTitle').textContent = m.title; } busyStepText = m.text || ''; } }
   else if (m.type === 'idle') { busy(false); }
   else if (m.type === 'failed') { busy(false); $('homeErr').textContent = m.text || 'That did not work.'; if (!$('graph').hidden) { alertBar(m.text); } }
-  else if (m.type === 'keySaved') { $('keyBox').hidden = true; $('homeErr').textContent = ''; }
+  else if (m.type === 'keySaved') { $('keyBox').hidden = true; $('keySet').hidden = false; $('homeErr').textContent = ''; }
 });
 function alertBar(text){ var h = $('ghelp'); var was = h.textContent; h.textContent = text; h.style.color = '#ff8589'; setTimeout(function(){ h.textContent = was; h.style.color = ''; }, 8000); }
 
