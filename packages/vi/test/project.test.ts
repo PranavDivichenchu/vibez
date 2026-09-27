@@ -9,7 +9,7 @@ import { compileFile, logicDoc, parseDoc, replyParts, serialize } from '../src/i
 // A generated project has to run the moment it is opened: its pages show its
 // page data, and its buttons answer. So this compiles the .vi and calls it.
 async function run(doc: ReturnType<typeof logicDoc>): Promise<{ values: Record<string, () => Promise<unknown>>; actions: Record<string, (...a: unknown[]) => Promise<unknown>> }> {
-  const result = compileFile(doc.exports.values, doc.exports.actions, doc.logic, [], (f) => `./${f}.js`, doc.functions ?? [], doc.helpers ?? {}, doc.variables ?? [], doc.classes ?? [], doc.methods ?? {});
+  const result = compileFile(doc.exports.values, doc.exports.actions, doc.logic, new Map(), (f) => `./${f}.js`, doc.functions ?? [], doc.helpers ?? {}, doc.variables ?? [], doc.classes ?? [], doc.methods ?? {});
   assert.ok(result.ok, JSON.stringify(result.issues));
   const dir = await mkdtemp(join(tmpdir(), 'vibez-project-'));
   try {

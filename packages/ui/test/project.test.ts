@@ -20,7 +20,7 @@ function check(spec: ProjectSpec): Record<string, string> {
     assert.ok(doc.ok, 'logic parses');
     if (doc.ok) {
       const d = doc.doc;
-      const result = compileFile(d.exports.values, d.exports.actions, d.logic, [], (f) => f, d.functions ?? [], d.helpers ?? {}, d.variables ?? [], d.classes ?? [], d.methods ?? {});
+      const result = compileFile(d.exports.values, d.exports.actions, d.logic, new Map(), (f) => f, d.functions ?? [], d.helpers ?? {}, d.variables ?? [], d.classes ?? [], d.methods ?? {});
       assert.ok(result.ok, `logic compiles: ${JSON.stringify(result.issues)}`);
     }
   }
