@@ -5,3 +5,4 @@ export * from './runtime.ts';
 export * from './validate.ts';
 export * from './compile.ts';
 export * from './classes.ts';
+export * from './project.ts';
