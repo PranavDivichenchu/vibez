@@ -82,11 +82,6 @@ button,input{font:inherit;color:inherit}
 #only{padding:4px 6px;border-radius:7px;border:1px solid var(--line);background:var(--vscode-dropdown-background,transparent);color:var(--vscode-dropdown-foreground,inherit);max-width:160px}
 .label .solo{color:var(--muted);font-size:12px;cursor:pointer;padding:0 3px;border-radius:4px}
 .label .solo:hover{color:var(--accent);background:rgba(128,128,128,.15)}
-#trash{position:absolute;left:12px;top:calc(var(--bar) + 12px);bottom:12px;width:200px;z-index:7;display:none;place-items:center;text-align:center;border-radius:12px;border:2px dashed color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 60%,transparent);background:color-mix(in srgb,var(--vscode-editorWidget-background,#252526) 88%,transparent);color:var(--vscode-errorForeground,#f14c4c);font-weight:600;padding:16px;pointer-events:none}
-#trash.on{display:grid}
-#trash.hot,#lib.trash.hot{background:color-mix(in srgb,var(--vscode-errorForeground,#f14c4c) 22%,var(--vscode-editorWidget-background,#252526))}
-#lib.trash{outline:2px dashed var(--vscode-errorForeground,#f14c4c);outline-offset:-6px}
-#lib.trash .libtop b::after{content:' · drop here to delete';color:var(--vscode-errorForeground,#f14c4c);font-weight:500}
 .linkpick .card{cursor:crosshair}
 .linkpick .label b{color:var(--accent);text-decoration:underline}
 #labels{position:absolute;left:0;right:0;top:var(--bar);bottom:0;pointer-events:none;overflow:hidden}
@@ -194,7 +189,6 @@ const BODY = String.raw`
 <div id="labels"></div>
 <div id="hint"></div>
 <aside id="panel" hidden></aside>
-<div id="trash">Drop here to delete</div>
 <aside id="lib" hidden>
   <div class="libtop"><b>Add an element</b><button class="close" id="libclose" title="Close">×</button></div>
   <input id="libsearch" placeholder="Search: button, image, form…" spellcheck="false">
@@ -524,7 +518,7 @@ document.addEventListener('keydown', function(e){
   if (e.metaKey || e.ctrlKey || e.altKey) { return; }
   if (e.key === 'i' || e.key === 'I') { setMode(S.mode === 'inspect' ? 'browse' : 'inspect'); }
   if (e.key === 'f' || e.key === 'F') { fit(); }
-  if (e.key === 'Escape') { if (S.elDrag) { tell(S.elDrag.c, { type: 'cancelDrag' }); trashOff(); } if (S.linkPick) { endLinkPick(true); } if (S.pin) { unpin(); } closePanel(); }
+  if (e.key === 'Escape') { if (S.elDrag) { tell(S.elDrag.c, { type: 'cancelDrag' }); S.elDrag = null; } if (S.linkPick) { endLinkPick(true); } if (S.pin) { unpin(); } closePanel(); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && (S.sel || S.pageSel)) { e.preventDefault(); doDelete(); return; }
   var holder = (S.cur && S.cur.c) || (S.lastPlaced && S.lastPlaced.c);
   if (/^Arrow/.test(e.key) && holder && S.mode === 'inspect') {
@@ -684,9 +678,8 @@ window.addEventListener('message', function(e){
       updateDel();
     }
     else if (m.type === 'nudge') { nudgeSave(c, m); }
-    else if (m.type === 'dragStart') { trashOn(c); }
-    else if (m.type === 'dragAt') { trashAt(c, m); }
-    else if (m.type === 'dragEnd') { trashOff(); }
+    else if (m.type === 'dragStart') { S.elDrag = { c: c }; }
+    else if (m.type === 'dragEnd') { S.elDrag = null; }
     else if (m.type === 'deleteKey') { S.sel = { c: c, at: m.at, tag: m.tag, text: m.text }; doDelete(); }
     else if (m.type === 'reselected') { reselected(c, m.info); }
     else if (m.type === 'undo' || m.type === 'redo') { vscode.postMessage({ type: m.type }); }
@@ -886,30 +879,6 @@ function linkTo(target){
   queue(p.c, p.info, 'attr', 'href', href);
   if (p.done) { p.done(href); }
   notice('Linked to ' + target.page.route + ' (' + href + ').', false);
-}
-
-/** Dragging an element: the element panel (or, when it is closed, the same spot) takes it for deleting. */
-function trashZone(){ return !$('lib').hidden ? $('lib') : $('trash'); }
-function trashOn(c){
-  S.elDrag = { c: c, over: false };
-  if ($('lib').hidden) { $('trash').classList.add('on'); } else { $('lib').classList.add('trash'); }
-}
-function trashAt(c, m){
-  if (!S.elDrag || S.elDrag.c !== c) { return; }
-  var r = c.frame.getBoundingClientRect();
-  var x = r.left + m.x * S.z, y = r.top + m.y * S.z;
-  var z = trashZone().getBoundingClientRect();
-  var over = x >= z.left && x <= z.right && y >= z.top && y <= z.bottom;
-  if (over !== S.elDrag.over) {
-    S.elDrag.over = over;
-    trashZone().classList.toggle('hot', over);
-    tell(c, { type: 'overTrash', on: over });
-  }
-}
-function trashOff(){
-  S.elDrag = null;
-  $('trash').classList.remove('on', 'hot');
-  $('lib').classList.remove('trash', 'hot');
 }
 
 /**
