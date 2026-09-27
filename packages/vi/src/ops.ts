@@ -1,5 +1,5 @@
 import type { GEdge, GNode, Port, PortType, SemanticKey, Stats } from '../../core/src/types.ts';
-import { configOf, methodKey, type AuthoredConfig, type AuthoredGraph, type AuthoredKind, type ComputeOp, type MathOp, type ViAction, type ViClass, type ViDoc, type ViExports, type ViMethod, type ViType, type ViValue, type ViVariable } from './types.ts';
+import { configOf, isListFnOp, LIST_FN_OPS, methodKey, type AuthoredConfig, type AuthoredGraph, type AuthoredKind, type ComputeOp, type ListFnOp, type MathOp, type ViAction, type ViClass, type ViDoc, type ViExports, type ViMethod, type ViType, type ViValue, type ViVariable } from './types.ts';
 import { allFields, findMethod, parentMethod, requiredFields } from './classes.ts';
 
 /**
@@ -32,7 +32,7 @@ export function toPortType(type: ViType | undefined): PortType {
   return type ?? 'Unknown';
 }
 
-/** Extra facts a block's ports depend on, beyond its own config: an entry's declared inputs, a call's target. */
+/** Extra facts a block's ports depend on, beyond its own config: an entry's declared inputs, a call's target (or the function a Map/Filter/Reduce/Some/Every runs). */
 export interface PortContext {
   inputs?: { name: string; type: ViType }[];
   returns?: ViType;
@@ -103,6 +103,7 @@ export function portsFor(kind: AuthoredKind, config: AuthoredConfig, ctx: PortCo
     }
     case 'compute': {
       const c = config.kind === 'compute' ? config : { kind: 'compute' as const, op: '+' as const };
+      if (isListFnOp(c.op)) return listFnPorts(c.op, ctx.target);
       if (c.inputs || c.outputs) {
         return {
           in: (c.inputs ?? []).map((p, i) => port(`in:${i}`, p.name, 'data', toPortType(p.type))),
@@ -150,6 +151,25 @@ export function portsFor(kind: AuthoredKind, config: AuthoredConfig, ctx: PortCo
     case 'object':
       return objectPorts(config, ctx);
   }
+}
+
+/**
+ * A list block's pins. The list goes in; Map and Filter give a list back and
+ * Some and Every a Boolean. Reduce also takes the starting total, typed like
+ * its function's first input, and gives back what the function returns. The
+ * pins never depend on which function is chosen, only their types do, so
+ * changing or losing the function never drops a wire.
+ */
+function listFnPorts(op: ListFnOp, fn: ViAction | undefined): { in: Port[]; out: Port[] } {
+  const list = port('in:0', 'list', 'data', 'List');
+  if (op === 'reduce') {
+    const total = fn?.inputs[0]?.type ?? fn?.returns;
+    return {
+      in: [list, port('in:1', 'initial', 'data', total ? toPortType(total) : undefined)],
+      out: [port('result', 'result', 'data', fn?.returns ? toPortType(fn.returns) : undefined)],
+    };
+  }
+  return { in: [list], out: [port('result', 'result', 'data', op === 'map' || op === 'filter' ? 'List' : 'Boolean')] };
 }
 
 /** An object block's pins, from its class: the fields to fill in, the field to read or change, the method's inputs and result. */
@@ -213,6 +233,7 @@ export function labelFor(kind: AuthoredKind, config: AuthoredConfig): string {
   if (config.kind === 'variable') return `${config.mode === 'set' ? 'Set' : 'Get'} ${config.name || '(unnamed)'}`;
   if (config.kind === 'call') return config.name || LABELS.call;
   if (config.kind === 'literal') return String(config.value ?? LABELS.literal);
+  if (config.kind === 'compute' && isListFnOp(config.op) && config.fn) return `${LIST_FN_OPS[config.op].name} with ${config.fn}`;
   if (config.kind === 'compute') return config.label ?? (Object.prototype.hasOwnProperty.call(OP_NAMES, config.op) ? OP_NAMES[config.op as MathOp] : title(config.op));
   if (config.kind === 'branch') return config.mode === 'sequence' ? 'Sequence' : config.mode === 'switch' ? 'Switch' : config.mode === 'valid' ? 'Is Valid' : config.mode === 'success' ? 'Success / Failure' : config.mode === 'try' ? 'Try / Catch' : 'If';
   if (config.kind === 'loop') return config.mode === 'for' ? 'For Loop' : config.mode === 'forWithBreak' ? 'For Loop with Break' : config.mode === 'while' ? 'While Loop' : config.mode === 'break' ? 'Break Loop' : config.mode === 'continue' ? 'Continue Loop' : 'For Each';
@@ -497,7 +518,8 @@ function resolveGraph(doc: ViDoc, name: string, store: Record<string, AuthoredGr
     // External signatures belong to the target document. Preserve their saved
     // ports until that document is resolved; local names are not substitutes.
     if (config.kind === 'call' && config.file) continue;
-    const target = config.kind === 'call' ? callableActions(doc).find((candidate) => candidate.name === config.name) : undefined;
+    const target = config.kind === 'call' ? callableActions(doc).find((candidate) => candidate.name === config.name)
+      : config.kind === 'compute' && isListFnOp(config.op) && config.fn ? doc.functions?.find((candidate) => candidate.name === config.fn) : undefined;
     const nodeCtx: PortContext = target ? { ...ctx, target } : ctx;
     normalized = updateConfig(normalized, node.id, config, nodeCtx);
   }
@@ -616,6 +638,19 @@ function renameCalls(doc: ViDoc, oldName: string, next: ViAction, file = ''): Vi
   }));
 }
 
+/** Point every Map/Filter/Reduce/Some/Every that runs `oldName` at the function as it is now: its new name, and its pin types. */
+function renameListBlocks(doc: ViDoc, oldName: string, next: ViAction): ViDoc {
+  return mapAllGraphs(doc, (graph) => pruneEdges({
+    ...graph,
+    nodes: graph.nodes.map((node) => {
+      const config = configOf(node);
+      if (config?.kind !== 'compute' || !isListFnOp(config.op) || config.fn !== oldName) return node;
+      const renamed: AuthoredConfig = { ...config, fn: next.name };
+      return { ...node, config: renamed, label: labelFor('compute', renamed), ports: portsFor('compute', renamed, { target: next }) };
+    }),
+  }));
+}
+
 /** Rewrite calls to a declaration owned by another `.vi` file. */
 export function renameCallableReferences(doc: ViDoc, file: string, oldName: string, action: ViAction): ViDoc {
   return renameCalls(doc, oldName, action, file);
@@ -637,17 +672,17 @@ export function updateAction(doc: ViDoc, oldName: string, action: ViAction): ViD
   return next;
 }
 
-/** Update a private function's name/signature and all local Call nodes. */
+/** Update a private function's name/signature, all local Call nodes, and every list block that runs it. */
 export function renameFunction(doc: ViDoc, oldName: string, action: ViAction): ViDoc {
   const graph = Object.prototype.hasOwnProperty.call(doc.helpers ?? {}, oldName) ? doc.helpers?.[oldName] : undefined;
   let helpers = { ...(doc.helpers ?? {}) };
   if (oldName !== action.name) delete helpers[oldName];
   if (graph) helpers = { ...helpers, [action.name]: graph };
-  let next = renameCalls({
+  let next = renameListBlocks(renameCalls({
     ...doc,
     functions: (doc.functions ?? []).map((item) => item.name === oldName ? action : item),
     helpers,
-  }, oldName, action);
+  }, oldName, action), oldName, action);
   const resolved = resolveGraph(next, action.name, next.helpers ?? {}, { pure: false, inputs: action.inputs, ...(action.returns ? { returns: action.returns } : {}), classes: next.classes ?? [] });
   next = { ...next, helpers: { ...(next.helpers ?? {}), [action.name]: resolved } };
   return next;

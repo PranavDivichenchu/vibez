@@ -24,9 +24,6 @@ export interface RuntimeHelper {
 
 type NonMathOp = Exclude<ComputeOp, '+' | '-' | '*' | '/' | '%' | 'pow' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '&&' | '||' | 'xor'>;
 
-/** Ops the runtime cannot honestly run yet: they take a "function" pin, and the type system has no Function type to carry one. */
-export const UNSUPPORTED_OPS = new Set<ComputeOp>(['filter', 'map', 'reduce', 'some', 'every']);
-
 export const RUNTIME: Record<NonMathOp, RuntimeHelper> = {
   not: { name: 'vi_not', params: ['value'], body: '!value' },
   negate: { name: 'vi_negate', params: ['value'], body: '-value' },
@@ -115,15 +112,17 @@ export const RUNTIME: Record<NonMathOp, RuntimeHelper> = {
   toUrl: { name: 'vi_toUrl', params: ['value'], body: 'String(value)' },
   cast: { name: 'vi_cast', params: ['value'], body: 'value' },
 
-  // Genuinely unimplemented: see UNSUPPORTED_OPS. Kept here so `RUNTIME` stays
-  // total over `NonMathOp` and every op has *a* body, even one that only ever
-  // throws — the compiler still refuses to build these, this is the fallback
-  // if that check is ever bypassed.
-  filter: { name: 'vi_filter', params: ['list', 'predicate'], body: '(() => { throw new Error(\'Filter has no way to run a predicate yet\'); })()' },
-  map: { name: 'vi_map', params: ['list', 'transform'], body: '(() => { throw new Error(\'Map has no way to run a transform yet\'); })()' },
-  reduce: { name: 'vi_reduce', params: ['list', 'reducer', 'initial'], body: '(() => { throw new Error(\'Reduce has no way to run a reducer yet\'); })()' },
-  some: { name: 'vi_some', params: ['list', 'predicate'], body: '(() => { throw new Error(\'Some has no way to run a predicate yet\'); })()' },
-  every: { name: 'vi_every', params: ['list', 'predicate'], body: '(() => { throw new Error(\'Every has no way to run a predicate yet\'); })()' },
+  // The list blocks that run one of the file's Functions (see LIST_FN_OPS).
+  // `fn` is that function, passed last. Compiled functions are async, so each
+  // helper answers a promise the block awaits, and calls `fn` one item at a
+  // time, in list order: a function that prints or sets a variable does it in
+  // the order the list reads, and Some/Every stop at the first answer that
+  // settles it, the same as a loop would.
+  map: { name: 'vi_map', params: ['list', 'fn'], body: '(async () => { const out = []; for (const item of list) out.push(await fn(item)); return out; })()' },
+  filter: { name: 'vi_filter', params: ['list', 'fn'], body: '(async () => { const kept = []; for (const item of list) if (await fn(item)) kept.push(item); return kept; })()' },
+  reduce: { name: 'vi_reduce', params: ['list', 'initial', 'fn'], body: '(async () => { let total = initial; for (const item of list) total = await fn(total, item); return total; })()' },
+  some: { name: 'vi_some', params: ['list', 'fn'], body: '(async () => { for (const item of list) if (await fn(item)) return true; return false; })()' },
+  every: { name: 'vi_every', params: ['list', 'fn'], body: '(async () => { for (const item of list) if (!(await fn(item))) return false; return true; })()' },
 };
 
 export function helperFor(op: ComputeOp): RuntimeHelper | undefined {

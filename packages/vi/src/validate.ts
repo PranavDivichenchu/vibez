@@ -1,7 +1,7 @@
 import type { SemanticKey } from '../../core/src/types.ts';
-import { configOf, type AuthoredGraph, type ViAction, type ViClass, type ViVariable } from './types.ts';
+import { configOf, LIST_FN_OPS, isListFnOp, type AuthoredGraph, type ListFnOp, type ViAction, type ViClass, type ViVariable } from './types.ts';
 import { allFields, findClass, findMethod, parentMethod } from './classes.ts';
-import { helperFor, UNSUPPORTED_OPS } from './runtime.ts';
+import { helperFor } from './runtime.ts';
 
 /**
  * What the compiler checks before it will generate anything, and what the
@@ -23,6 +23,8 @@ interface ValidateOptions {
   callable: (file: string, name: string) => boolean;
   /** The file's classes, for object blocks. */
   classes?: ViClass[];
+  /** The file's own functions, which Map, Filter, Reduce, Some and Every can run. */
+  functions?: ViAction[];
   /** Set when this graph is a class method: This and Call Parent only make sense there. */
   inMethod?: { class: string; method: string };
 }
@@ -84,7 +86,7 @@ function dataReachable(graph: AuthoredGraph): Set<SemanticKey> {
  * exec-forward walk, even though they legitimately run as a data dependency
  * of something that does. Without this, a compute block wired straight into
  * a reachable node's input looked like dead code, and its own problems (an
- * unconnected pin, an unsupported op) never got checked.
+ * unconnected pin, a list block's missing function) never got checked.
  */
 function reachableInAction(graph: AuthoredGraph): Set<SemanticKey> {
   const exec = execReachable(graph);
@@ -177,8 +179,9 @@ export function validateGraph(graph: AuthoredGraph, opts: ValidateOptions): Comp
       if (!declaration && !localSetter) error(node.id, `Variable ${config.name} no longer exists. Choose a declared variable.`);
       if (declaration && config.mode === 'set' && !declaration.mutable) error(node.id, `${config.name} is read-only. Remove this Set block or change its access.`);
     }
-    if (node.kind === 'compute' && config?.kind === 'compute' && UNSUPPORTED_OPS.has(config.op)) {
-      issues.push({ nodeId: node.id, severity: 'error', message: `${node.label} takes a function as one of its values, which nothing in the graph can supply yet — it can't be compiled.` });
+    if (node.kind === 'compute' && config?.kind === 'compute' && isListFnOp(config.op)) {
+      const problem = listFnProblem(config.op, config.fn, opts.functions ?? []);
+      if (problem) error(node.id, problem);
     }
     if (config?.kind === 'compute' && !helperFor(config.op) && !['+', '-', '*', '/', '%', 'pow', 'xor', '==', '!=', '<', '>', '<=', '>=', '&&', '||'].includes(config.op)) {
       error(node.id, `Unknown operation: ${config.op}. Replace this block with a supported operation.`);
@@ -232,6 +235,23 @@ export function validateGraph(graph: AuthoredGraph, opts: ValidateOptions): Comp
     }
   }
   return issues;
+}
+
+/**
+ * Why a list block can't run the function it names, or undefined when it can.
+ * The search dropdown asks the same question to decide which "Map with …"
+ * blocks to offer, so it never offers one that would be refused here.
+ */
+export function listFnProblem(op: ListFnOp, fnName: string | undefined, functions: ViAction[]): string | undefined {
+  const { name: block, inputs, boolean } = LIST_FN_OPS[op];
+  const gives = inputs === 1 ? 'one input, the item' : 'two inputs, the running total and then the item';
+  if (!fnName) return `${block} needs a function to run on each item. Declare a function that takes ${gives}, then choose "${block} with" it.`;
+  const fn = functions.find((f) => f.name === fnName);
+  if (!fn) return `${block} runs the function ${fnName}, which doesn't exist. ${functions.length ? `This file's functions: ${functions.map((f) => f.name).join(', ')}.` : 'This file has no functions yet.'}`;
+  if (fn.inputs.length !== inputs) return `${block} gives its function ${gives}, but ${fnName} takes ${fn.inputs.length === 0 ? 'none' : fn.inputs.length}.`;
+  if (boolean && fn.returns !== 'Boolean') return `${block} needs a function that returns Boolean (true or false) for each item, but ${fnName} returns ${fn.returns ?? 'nothing'}.`;
+  if (!fn.returns) return `${fnName} returns nothing, so ${block} would have nothing to ${op === 'map' ? 'put in the new list' : 'carry on to the next item'}. Give it a return type.`;
+  return undefined;
 }
 
 export const hasErrors = (issues: CompileIssue[]): boolean => issues.some((i) => i.severity === 'error');

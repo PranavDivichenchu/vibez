@@ -189,24 +189,23 @@ test('a Query block with no data source is refused before running', async () => 
   await assert.rejects(() => mod['getOrders']!());
 });
 
-test('a compute op with no way to run a predicate is a compile error, not silently-wrong code', () => {
+test('a Filter with no function chosen is a compile error, not silently-wrong code', () => {
   const result = compileOne({ name: 'go', inputs: [], returns: 'List' }, (graph) => {
     const taken = takenIds(graph);
-    const list = makeNode('literal', { kind: 'literal', value: [], type: 'String' }, taken);
+    const list = makeNode('literal', { kind: 'literal', value: [], type: 'List' }, taken);
     taken.add(list.id);
-    const pred = makeNode('literal', { kind: 'literal', value: {}, type: 'Object' }, taken);
-    taken.add(pred.id);
+    // The old shape, with a "predicate" pin nothing could fill: it reads as a Filter still waiting for its function.
     const filterNode = makeNode('compute', { kind: 'compute', op: 'filter', inputs: [{ name: 'list', type: 'List' }, { name: 'predicate', type: 'Object' }], outputs: [{ name: 'result', type: 'List' }] }, taken);
+    assert.deepEqual(filterNode.ports.in.map((p) => p.name), ['list']);
     const ret = graph.nodes.find((n) => n.kind === 'return')!;
     let g = graph;
-    for (const n of [list, pred, filterNode]) g = addNode(g, n);
+    for (const n of [list, filterNode]) g = addNode(g, n);
     g = addEdge(g, list.id, 'value', filterNode.id, 'in:0');
-    g = addEdge(g, pred.id, 'value', filterNode.id, 'in:1');
     g = addEdge(g, filterNode.id, 'result', ret.id, 'value');
     return g;
   });
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.message.includes('function')));
+  assert.ok(result.issues.some((i) => /Filter needs a function to run on each item/.test(i.message)), JSON.stringify(result.issues));
 });
 
 test('compileServer emits syntactically valid JS mounting the /vibez contract', async () => {

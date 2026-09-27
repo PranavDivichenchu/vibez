@@ -109,7 +109,7 @@ const logicOpSchema = z.discriminatedUnion('op', [
     graph: z.string().describe('The value, action or function to add the block to.'),
     block: z.string().describe('The block\'s name as vi_blocks shows it, like "Divide (÷)", "If / Else", "Get CompanyName", "Print to Console".'),
     as: z.string().optional().describe('A name for the new block, to use later in this batch as $name.'),
-    config: z.record(z.string(), z.unknown()).optional().describe('Settings, like { "value": 4, "type": "Number" } for a Value block.'),
+    config: z.record(z.string(), z.unknown()).optional().describe('Settings, like { "value": 4, "type": "Number" } for a Value block, or { "fn": "label" } for the function a Map, Filter, Reduce, Some or Every runs.'),
   }),
   z.object({ op: z.literal('set'), graph: z.string(), id: z.string(), config: z.record(z.string(), z.unknown()) }),
   z.object({ op: z.literal('connect'), graph: z.string(), from: z.string().describe('block.port of an output, like entry-1a.exec:out or $div.result'), to: z.string().describe('block.port of an input, like return-2b.value') }),
@@ -449,7 +449,8 @@ export function createVibezServer(root: string): McpServer {
   server.registerTool('vi_blocks', {
     title: 'Find blocks for a graph',
     description: 'The blocks that can be added to a graph, the same list the logic editor\'s search shows: flow, math, text, lists, objects, dates, '
-      + 'data, HTTP, this file\'s variables (Get/Set) and callable actions and functions. Each result shows its ports.',
+      + 'data, HTTP, this file\'s variables (Get/Set) and callable actions and functions. List blocks that run one of this file\'s functions on each item '
+      + 'are offered per function that fits, like "Map with label" or "Filter with isCheap". Each result shows its ports.',
     inputSchema: {
       path: z.string(),
       graph: z.string().describe('The value, action, function or method (Class.method) the blocks are for.'),

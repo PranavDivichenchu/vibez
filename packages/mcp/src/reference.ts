@@ -116,6 +116,8 @@ A port is written \`block.port\`, with the port's id or its name as \`vi_read\` 
 
 Block groups: ${[...new Set(CATALOG.map((c) => c.group))].join(', ')}, plus Get/Set for each declared variable and a call block for each action and function. \`vi_blocks\` searches them with their ports.
 
+Map, Filter, Reduce, Some and Every run one of this file's functions on each item of a list: add \`"Map with label"\` (or \`"Map"\` with config \`{ "fn": "label" }\`) and wire a List into its \`list\` input. The function takes the item (for Filter, Some and Every it returns Boolean), or for Reduce the running total and then the item, starting from the block's \`initial\` input.
+
 ### Classes and objects
 
 A class is a blueprint for objects: fields every object carries and methods every object can do. Declare one with \`{ "op": "declare", "what": "class", "name": "Animal", "fields": [{ "name": "name", "type": "String" }, { "name": "legs", "type": "Number", "initial": 4 }] }\`, and a method with \`{ "op": "declare", "what": "method", "class": "Animal", "name": "describe", "returns": "String" }\`. A method's graph is named \`Animal.describe\`: add blocks to it like any graph.

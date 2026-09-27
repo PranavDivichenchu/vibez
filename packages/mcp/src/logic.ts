@@ -3,7 +3,7 @@ import {
   addEdge, addNode, compileFile, configOf, declareFunction, declareVariable, fits, functionGraphFor, graphFor, matches,
   parseDoc, removeEdge, removeFunction, removeNodePreservingFlow, removeVariable, renameFunction, renameVariable, searchIndex,
   serialize, setFunctionGraph, setGraph, takenIds, updateAction, updateConfig, updateValue, removeNode, pruneEdges,
-  allFields, allMethods, classIssues, declareClass, declareMethod, methodGraphFor, removeClass, removeMethod, renameClass, setMethodGraph,
+  allFields, allMethods, classIssues, isListFnOp, LIST_FN_OPS, declareClass, declareMethod, methodGraphFor, removeClass, removeMethod, renameClass, setMethodGraph,
   type AuthoredConfig, type AuthoredGraph, type PortContext, type SearchItem, type ViAction, type ViClass, type ViDoc, type ViField, type ViMethod, type ViType, type ViValue, type ViVariable,
 } from '../../vi/src/index.ts';
 import { VibezError } from './workspace.ts';
@@ -500,8 +500,14 @@ export function applyLogicOps(start: ViDoc, ops: LogicOp[], siblings: Siblings):
   return { doc, log, created, touched };
 }
 
-/** A call block's ports come from the action it calls, so its context names that target. */
+/** A call block's ports come from the action it calls, and a list block's from the function it runs, so its context names that target. */
 function targetContext(doc: ViDoc, config: AuthoredConfig, ctx: PortContext, siblings: Siblings): PortContext {
+  if (config.kind === 'compute' && isListFnOp(config.op) && config.fn !== undefined) {
+    const target = (doc.functions ?? []).find((f) => f.name === config.fn);
+    const names = (doc.functions ?? []).map((f) => f.name);
+    if (!target) throw new VibezError(`There is no function ${config.fn} for ${LIST_FN_OPS[config.op].name} to run. ${names.length ? `This file's functions: ${names.join(', ')}.` : 'Declare one first.'}`);
+    return { ...ctx, target };
+  }
   if (config.kind !== 'call') return ctx;
   const pool = config.file ? [...(siblings.get(config.file)?.actions ?? []), ...(siblings.get(config.file)?.functions ?? [])] : [...doc.exports.actions, ...(doc.functions ?? [])];
   const target = pool.find((a) => a.name === config.name);
